@@ -52,7 +52,6 @@ namespace PaxosLib
 
     public interface IPaxos
     {
-        Task Propose(PaxosDecree decree);
         Task UpdateSuccessfullDecree(PaxosDecree decree);
         Task Checkpoint();
     }
@@ -86,7 +85,12 @@ namespace PaxosLib
             this.nodeTalkChannel = nodeTalkChannel;
         }
 
-        public Task SendMessageAsync(PaxosMessage message)
+        public Task ProposeDecree(PaxosDecree decree)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task DeliverMessage(PaxosMessage message)
         {
             switch (message.MessageType)
             {
