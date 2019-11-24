@@ -7,6 +7,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Paxos", "..\server\Paxos.cs
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PaxosLib", "..\PaxosLib\PaxosLib.csproj", "{FAA41E6F-79EF-4B54-8349-A3A84ECE1500}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PaxsosTests", "..\test\PaxsosTests\PaxsosTests.csproj", "{5DC220E8-C74E-430B-92A5-12873256B2FF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,10 @@ Global
 		{FAA41E6F-79EF-4B54-8349-A3A84ECE1500}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FAA41E6F-79EF-4B54-8349-A3A84ECE1500}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{FAA41E6F-79EF-4B54-8349-A3A84ECE1500}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5DC220E8-C74E-430B-92A5-12873256B2FF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5DC220E8-C74E-430B-92A5-12873256B2FF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5DC220E8-C74E-430B-92A5-12873256B2FF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5DC220E8-C74E-430B-92A5-12873256B2FF}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
