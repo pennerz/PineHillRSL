@@ -1,0 +1,11 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/PaxosLib/obj
+/PaxosLib/bin/Debug/netcoreapp3.0
+/server/bin/Debug/netcoreapp3.0
+/server/obj
+/test/PaxsosTests/bin/Debug/netcoreapp3.0
+/test/PaxsosTests/obj
+/Paxos/.vs
