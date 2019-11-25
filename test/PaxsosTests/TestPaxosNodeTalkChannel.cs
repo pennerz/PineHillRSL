@@ -33,4 +33,65 @@ namespace Paxos.Tests
         }
 
     }
+
+    class FakePaxosNodeTalker : IPaxosNodeTalkChannel
+    {
+        private readonly string _nodeName;
+        private readonly Dictionary<string, List<PaxosMessage>> _messageList = new Dictionary<string, List<PaxosMessage>>();
+
+        public FakePaxosNodeTalker(string nodeName)
+        {
+            _nodeName = nodeName;
+        }
+
+        public List<PaxosMessage> GetNodeMessages(string nodeName)
+        {
+            if (string.IsNullOrEmpty(nodeName))
+            {
+                return null;
+            }
+
+            if (_messageList.ContainsKey(nodeName))
+            {
+                return _messageList[nodeName];
+            }
+            return null;
+        }
+
+        public void ClearNodeMessage(string nodeName)
+        {
+            if (string.IsNullOrEmpty(nodeName))
+            {
+                return;
+            }
+
+            if (_messageList.ContainsKey(nodeName))
+            {
+                _messageList[nodeName].Clear();
+            }
+        }
+
+        public void BuildNodeMessageList(string nodeName)
+        {
+            if (!_messageList.ContainsKey(nodeName))
+            {
+                _messageList.Add(nodeName, new List<PaxosMessage>());
+            }
+        }
+
+        public Task SendMessage(PaxosMessage msg)
+        {
+            msg.SourceNode = _nodeName;
+            var targetNode = msg.TargetNode;
+
+            if (!_messageList.ContainsKey(targetNode))
+            {
+                _messageList.Add(targetNode, new List<PaxosMessage>());
+            }
+            _messageList[targetNode].Add(msg);
+
+            return Task.CompletedTask;
+        }
+    }
+
 }
