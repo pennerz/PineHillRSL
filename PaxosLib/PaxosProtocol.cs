@@ -46,6 +46,7 @@ namespace PaxosLib
             MessageType = PaxosMessageType.LASTVOTE;
         }
 
+        public bool Commited { get; set; }
         public ulong VoteBallotNo { get; set; }
         public PaxosDecree VoteDecree { get; set; }
     }
@@ -121,46 +122,55 @@ namespace PaxosLib
 
     public class Ledger
     {
-        public UInt64 NextBallot { get; set; }
-        public UInt64 LastVote { get; set; }
+        private readonly ConcurrentDictionary<ulong, PaxosDecree> _commitedDecrees = new ConcurrentDictionary<ulong, PaxosDecree>();
 
+        public IDictionary<ulong, PaxosDecree> CommitedDecrees => _commitedDecrees;
     }
 
     public class VoterNote
     {
         // voter role
-        private readonly Dictionary<ulong, VoteMessage> _voteMessages = new Dictionary<ulong, VoteMessage>();
-        private readonly Dictionary<ulong, ulong> _nextBallot = new Dictionary<ulong, ulong>();
+        private readonly ConcurrentDictionary<ulong, VoteMessage> _voteMessages = new ConcurrentDictionary<ulong, VoteMessage>();
+        private readonly ConcurrentDictionary<ulong, ulong> _nextBallot = new ConcurrentDictionary<ulong, ulong>();
 
-        public Dictionary<ulong, VoteMessage> VotedMessage => _voteMessages;
-        public Dictionary<ulong, ulong> NextBallotNo => _nextBallot;
+        public IDictionary<ulong, VoteMessage> VotedMessage => _voteMessages;
+        public IDictionary<ulong, ulong> NextBallotNo => _nextBallot;
 
         public void Reset()
         {
             _voteMessages.Clear();
             _nextBallot.Clear();
         }
+
+        public void ClearDecree(ulong decreeNo)
+        {
+            VoteMessage voteMsg;
+            _voteMessages.Remove(decreeNo, out voteMsg);
+
+            ulong nextBallotNo = 0;
+            _nextBallot.Remove(decreeNo, out nextBallotNo);
+        }
     }
 
     public class ProposerNote
     {
         // proposer role
-        private readonly Dictionary<UInt64, List<LastVoteMessage>> _lastVoteMessages = new Dictionary<UInt64, List<LastVoteMessage>>();
-        private readonly Dictionary<UInt64, List<VoteMessage>> _voteMessages = new Dictionary<UInt64, List<VoteMessage>>();
-        private readonly Dictionary<UInt64, PaxosDecree> _ongoingPropose = new Dictionary<ulong, PaxosDecree>();
+        private readonly ConcurrentDictionary<UInt64, List<LastVoteMessage>> _lastVoteMessages = new ConcurrentDictionary<UInt64, List<LastVoteMessage>>();
+        private readonly ConcurrentDictionary<UInt64, List<VoteMessage>> _voteMessages = new ConcurrentDictionary<UInt64, List<VoteMessage>>();
+        private readonly ConcurrentDictionary<UInt64, PaxosDecree> _ongoingPropose = new ConcurrentDictionary<ulong, PaxosDecree>();
 
-        private Dictionary<UInt64, UInt64> _lastTriedBallot = new Dictionary<ulong, ulong>();
-        private Dictionary<ulong, Propose> _decreeState = new Dictionary<ulong, Propose>();
+        private ConcurrentDictionary<UInt64, UInt64> _lastTriedBallot = new ConcurrentDictionary<ulong, ulong>();
+        private ConcurrentDictionary<ulong, Propose> _decreeState = new ConcurrentDictionary<ulong, Propose>();
 
-        public Dictionary<UInt64, List<LastVoteMessage>> LastVoteMessages => _lastVoteMessages;
+        public IDictionary<UInt64, List<LastVoteMessage>> LastVoteMessages => _lastVoteMessages;
 
-        public Dictionary<UInt64, List<VoteMessage>> VoteMessages => _voteMessages;
+        public IDictionary<UInt64, List<VoteMessage>> VoteMessages => _voteMessages;
 
-        public Dictionary<UInt64, PaxosDecree> OngoingPropose => _ongoingPropose;
+        public IDictionary<UInt64, PaxosDecree> OngoingPropose => _ongoingPropose;
 
-        public Dictionary<UInt64, UInt64> LastTriedBallot => _lastTriedBallot;
+        public IDictionary<UInt64, UInt64> LastTriedBallot => _lastTriedBallot;
 
-        public Dictionary<ulong, Propose> DecreeState => _decreeState;
+        public IDictionary<ulong, Propose> DecreeState => _decreeState;
 
         public void Reset()
         {
@@ -169,6 +179,24 @@ namespace PaxosLib
             _ongoingPropose.Clear();
             _lastTriedBallot.Clear();
             _decreeState.Clear();
+        }
+
+        public void ClearDecree(ulong decreeNo)
+        {
+            List<LastVoteMessage> lastVoteMsgs = null;
+            _lastVoteMessages.Remove(decreeNo, out lastVoteMsgs);
+
+            List<VoteMessage> voteMsgs = null;
+            _voteMessages.Remove(decreeNo, out voteMsgs);
+
+            PaxosDecree onogingDecree = null;
+            _ongoingPropose.Remove(decreeNo, out onogingDecree);
+
+            ulong lastTriedBallotNo = 0;
+            _lastTriedBallot.Remove(decreeNo, out lastTriedBallotNo);
+
+            Propose propose = null;
+            _decreeState.Remove(decreeNo, out propose);
         }
     }
 
@@ -189,22 +217,48 @@ namespace PaxosLib
         private readonly PaxosCluster _cluster;
 
         private readonly VoterNote _note;
+        private readonly Ledger _ledger;
 
-        public VoterRole(NodeInfo nodeInfo, PaxosCluster cluster, IPaxosNodeTalkChannel talkChannel, VoterNote paxoserNote)
+        public VoterRole(
+            NodeInfo nodeInfo,
+            PaxosCluster cluster,
+            IPaxosNodeTalkChannel talkChannel,
+            VoterNote paxoserNote,
+            Ledger ledger)
         {
             if (cluster == null) throw new ArgumentNullException("cluster");
             if (nodeInfo == null) throw new ArgumentNullException("nodeinfo");
             if (talkChannel == null) throw new ArgumentNullException("IPaxosNodeTalkChannel");
             if (paxoserNote == null) throw new ArgumentNullException("no note book");
+            if (ledger == null) throw new ArgumentNullException("ledger");
 
             _nodeInfo = nodeInfo;
             _cluster = cluster;
             _nodeTalkChannel = talkChannel;
             _note = paxoserNote;
+            _ledger = ledger;
         }
 
         public void DeliverNextBallotMessage(NextBallotMessage msg)
         {
+            // check if the decree commited
+            LastVoteMessage lastVoteMsg;
+            if (_ledger.CommitedDecrees.ContainsKey(msg.DecreeNo))
+            {
+                lastVoteMsg = new LastVoteMessage()
+                {
+                    TargetNode = msg.SourceNode,
+                    Commited = true,
+                    BallotNo = msg.BallotNo,
+                    DecreeNo = msg.DecreeNo,
+                    VoteBallotNo = 0, // not appliable
+                    VoteDecree = _ledger.CommitedDecrees[msg.DecreeNo]
+                };
+
+                _nodeTalkChannel.SendMessage(lastVoteMsg);
+                return;
+            }
+
             if (_note.NextBallotNo.ContainsKey(msg.DecreeNo) && _note.NextBallotNo[msg.DecreeNo] >= msg.BallotNo)
             {
                 // do not response the ballotNo < current nextBallotNo
@@ -229,7 +283,7 @@ namespace PaxosLib
 
 
             // send back the last vote infomation
-            var lastVoteMsg = new LastVoteMessage();
+            lastVoteMsg = new LastVoteMessage();
             lastVoteMsg.TargetNode = msg.SourceNode;
             lastVoteMsg.BallotNo = msg.BallotNo;
             lastVoteMsg.DecreeNo = msg.DecreeNo;
@@ -297,6 +351,8 @@ namespace PaxosLib
         public void DeliverSuccessMessage(SuccessMessage msg)
         {
             // save it to ledge
+            _ledger.CommitedDecrees.Add(msg.DecreeNo, msg.Decree);
+            _note.ClearDecree(msg.DecreeNo);
             _paxosPersisEvent?.UpdateSuccessfullDecree(msg.DecreeNo, msg.Decree);
         }
     }
@@ -311,6 +367,7 @@ namespace PaxosLib
     ///     Init                    Propose                 QueryLastVote           Query lastvote from cluster
     ///     QueryLastVote           ReceiveLastVote         BeginNewBallot(enough)  Send BeginNewBallot to quorum
     ///                                                     QueryLastVote(x)        Nothing
+    ///                                                     BeginCommit(Commited)   Send commit to missing decree node
     ///     QueryLastVote           Timeout                 QueryLastVote           Query lastvote with new ballotNo
     ///     BeginNewBallot          ReceiveVote             BeginCommit(enough)     Send commit to all nodes
     ///                                                     ReceiveVote(x)          Nothing
@@ -355,19 +412,28 @@ namespace PaxosLib
         private readonly PaxosCluster _cluster;
 
         private readonly ProposerNote _proposerNote;
+        private readonly Ledger _ledger;
 
         private List<Task> _tasksQueue = new List<Task>();
         private Task _messageHandlerTask;
-        public ProposerRole(NodeInfo nodeInfo, PaxosCluster cluster, IPaxosNodeTalkChannel talkChannel, ProposerNote proposerNote)
+        public ProposerRole(
+            NodeInfo nodeInfo,
+            PaxosCluster cluster,
+            IPaxosNodeTalkChannel talkChannel,
+            ProposerNote proposerNote,
+            Ledger ledger)
         {
             if (cluster == null) throw new ArgumentNullException("cluster");
             if (nodeInfo == null) throw new ArgumentNullException("nodeinfo");
             if (talkChannel == null) throw new ArgumentNullException("IPaxosNodeTalkChannel");
+            if (proposerNote == null) throw new ArgumentNullException("propoerser note");
+            if (ledger == null) throw new ArgumentNullException("ledger");
 
             _nodeInfo = nodeInfo;
             _cluster = cluster;
             _nodeTalkChannel = talkChannel;
             _proposerNote = proposerNote;
+            _ledger = ledger;
 
             Stop = false;
 
@@ -466,15 +532,34 @@ namespace PaxosLib
             ulong nextBallotNo = 1;
             if (nextDecreeNo == 0)
             {
+                if (_ledger.CommitedDecrees.Count > 0)
+                {
+                    nextDecreeNo = _ledger.CommitedDecrees.ElementAt(_ledger.CommitedDecrees.Count - 1).Key + 1;
+                }
+
                 if (_proposerNote.LastTriedBallot.Count != 0)
                 {
                     nextDecreeNo = _proposerNote.LastTriedBallot.Keys.Max() + 1;
                 }
-                else
+                else if (nextDecreeNo == 0)
                 {
                     nextDecreeNo = 1;
                 }
             }
+
+            if (_ledger.CommitedDecrees.ContainsKey(nextDecreeNo))
+            {
+                // already commited, return direclty
+                var result = new ProposeResult()
+                {
+                    DecreeNo = nextDecreeNo,
+                    Decree = _ledger.CommitedDecrees[nextDecreeNo]
+                };
+
+                completionSource?.SetResult(result);
+                return;
+            }
+
             if (!_proposerNote.DecreeState.ContainsKey(nextDecreeNo))
             {
                 _proposerNote.LastTriedBallot.Add(nextDecreeNo, nextBallotNo);
@@ -559,6 +644,7 @@ namespace PaxosLib
             _proposerNote.DecreeState[msg.DecreeNo].State = PropserState.QueryLastVote;
             QueryLastVote(msg.DecreeNo, nextBallotNo);
         }
+
         private void ProcessLastVoteMessage(LastVoteMessage msg)
         {
             if (!_proposerNote.DecreeState.ContainsKey(msg.DecreeNo) ||
@@ -573,6 +659,22 @@ namespace PaxosLib
             }
             if (_proposerNote.LastTriedBallot[msg.DecreeNo] != msg.BallotNo)
             {
+                return;
+            }
+
+            if (_ledger.CommitedDecrees.ContainsKey(msg.DecreeNo))
+            {
+                // already commited
+                return;
+            }
+
+            if (msg.Commited)
+            {
+                // decree already commited
+                _proposerNote.OngoingPropose[msg.DecreeNo] = msg.VoteDecree;
+
+                _proposerNote.DecreeState[msg.DecreeNo].State = PropserState.BeginCommit;
+                BeginCommit(msg.DecreeNo);
                 return;
             }
 
@@ -597,7 +699,6 @@ namespace PaxosLib
                 // begin new ballot
                 BeginNewBallot(msg.DecreeNo, msg.BallotNo);
             }
-
         }
 
         private void ProcessVoteMessage(VoteMessage msg)
@@ -677,6 +778,7 @@ namespace PaxosLib
         }
         private void BeginNewBallot(UInt64 decreeNo, UInt64 ballotNo)
         {
+            var passingDecree = _proposerNote.OngoingPropose[decreeNo];
             foreach (var node in _cluster.Members)
             {
                 if (node.Name == _nodeInfo.Name)
@@ -687,7 +789,7 @@ namespace PaxosLib
                 beginBallotMessage.DecreeNo = decreeNo;
                 beginBallotMessage.BallotNo = ballotNo;
                 beginBallotMessage.TargetNode = node.Name;
-                beginBallotMessage.Decree = _proposerNote.OngoingPropose[decreeNo];
+                beginBallotMessage.Decree = passingDecree;
                 _nodeTalkChannel.SendMessage(beginBallotMessage);
             }
         }
@@ -695,8 +797,17 @@ namespace PaxosLib
         private void BeginCommit(UInt64 decreeNo)
         {
             // write the decree to ledge
+            var commitedDecree = _proposerNote.OngoingPropose[decreeNo];
+            _ledger.CommitedDecrees.Add(decreeNo, commitedDecree);
 
-            _paxosPersisEvent?.UpdateSuccessfullDecree(decreeNo, _proposerNote.OngoingPropose[decreeNo]);
+            _proposerNote.DecreeState[decreeNo].State = PropserState.Commited; // commited
+            ulong ballotNo = 0;
+            if (_proposerNote.LastTriedBallot.ContainsKey(decreeNo))
+            {
+                ballotNo = _proposerNote.LastTriedBallot[decreeNo];
+            }
+            var subscriberList = _proposerNote.DecreeState[decreeNo].CompletionEvents;
+            //_proposerNote.ClearDecree(decreeNo);
 
             foreach (var node in _cluster.Members)
             {
@@ -707,23 +818,21 @@ namespace PaxosLib
                 var successMessage = new SuccessMessage();
                 successMessage.TargetNode = node.Name;
                 successMessage.DecreeNo = decreeNo;
-                successMessage.BallotNo = _proposerNote.LastTriedBallot[decreeNo];
-                successMessage.Decree = _proposerNote.OngoingPropose[decreeNo];
+                successMessage.BallotNo = ballotNo;
+                successMessage.Decree = commitedDecree;
                 _nodeTalkChannel.SendMessage(successMessage);
             }
 
             // TODO: confirm the commit succeeded on other nodes
-            _proposerNote.DecreeState[decreeNo].State = PropserState.Commited; // commited
             var result = new ProposeResult()
             {
                 DecreeNo = decreeNo,
-                Decree = _proposerNote.OngoingPropose[decreeNo]
+                Decree = commitedDecree
             };
-            foreach (var completionSource in _proposerNote.DecreeState[decreeNo].CompletionEvents)
+            foreach (var completionSource in subscriberList)
             {
                 completionSource.SetResult(result);
             }
-            _proposerNote.DecreeState[decreeNo].CompletionEvents.Clear();
 
         }
     }
@@ -757,10 +866,11 @@ namespace PaxosLib
             _cluster = cluster;
             _nodeInfo = nodeInfo;
 
+            var ledger = new Ledger();
             var voterNote = new VoterNote();
-            _voterRole = new VoterRole(_nodeInfo, _cluster, _nodeTalkChannel, voterNote);
+            _voterRole = new VoterRole(_nodeInfo, _cluster, _nodeTalkChannel, voterNote, ledger);
             var proposerNote = new ProposerNote();
-            _proposerRole = new ProposerRole(_nodeInfo, _cluster, _nodeTalkChannel, proposerNote);
+            _proposerRole = new ProposerRole(_nodeInfo, _cluster, _nodeTalkChannel, proposerNote, ledger);
         }
 
         public Task<ProposeResult> ProposeDecree(PaxosDecree decree, ulong decreeNo)

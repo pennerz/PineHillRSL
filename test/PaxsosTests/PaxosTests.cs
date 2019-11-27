@@ -68,12 +68,13 @@ namespace Paxos.Tests
             var sourceNode = cluster.Members[0].Name;
             var targetNode = cluster.Members[1].Name;
 
+            var ledger = new Ledger();
             var voterFakeTalker = new FakePaxosNodeTalker(cluster.Members[1].Name);
             var voterNote = new VoterNote();
             // 1. NextBallotMessage
             {
                 // 1.1. voter have voted no ballot for a decree
-                var voter = new VoterRole(cluster.Members[1], cluster, voterFakeTalker, voterNote);
+                var voter = new VoterRole(cluster.Members[1], cluster, voterFakeTalker, voterNote, ledger);
                 var nextBallotMsg = new NextBallotMessage();
                 nextBallotMsg.DecreeNo = 1;
                 nextBallotMsg.BallotNo = 1;
@@ -158,7 +159,7 @@ namespace Paxos.Tests
                 voterNote.Reset();
 
                 // 2.2 has no NextBallotNo yet
-                var voter = new VoterRole(cluster.Members[1], cluster, voterFakeTalker, voterNote);
+                var voter = new VoterRole(cluster.Members[1], cluster, voterFakeTalker, voterNote, ledger);
 
                 string voteContent = "test1";
                 var beginBallotMsg = new BeginBallotMessage();
@@ -249,6 +250,7 @@ namespace Paxos.Tests
             //var targetNode = cluster.Members[1].Name;
 
             var proposerFakeTalker = new FakePaxosNodeTalker(cluster.Members[0].Name);
+            var ledger = new Ledger();
             var proposerNote = new ProposerNote();
             var nodeMsgList = new List<List<PaxosMessage>>();
             foreach (var node in cluster.Members)
@@ -265,7 +267,7 @@ namespace Paxos.Tests
                 });
                 string decreeContent1 = "test0";
                 string decreeContent = "test1";
-                var proposer = new ProposerRole(cluster.Members[0], cluster, proposerFakeTalker, proposerNote);
+                var proposer = new ProposerRole(cluster.Members[0], cluster, proposerFakeTalker, proposerNote, ledger);
                 proposer.HandleMessageAsync = false;
                 proposerNote.LastTriedBallot.Add(1, 2); // decreeNo, ballotNo
                 proposerNote.OngoingPropose.Add(1, new PaxosDecree()
@@ -477,7 +479,7 @@ namespace Paxos.Tests
                 });
                 string decreeContent1 = "test0";
                 string decreeContent = "test1";
-                var proposer = new ProposerRole(cluster.Members[0], cluster, proposerFakeTalker, proposerNote);
+                var proposer = new ProposerRole(cluster.Members[0], cluster, proposerFakeTalker, proposerNote,ledger);
                 proposer.HandleMessageAsync = false;
                 proposerNote.LastTriedBallot.Add(1, 3); // decreeNo, ballotNo
                 proposerNote.OngoingPropose.Add(1, new PaxosDecree()
