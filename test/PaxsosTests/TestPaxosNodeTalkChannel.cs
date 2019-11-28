@@ -1,5 +1,6 @@
-﻿using System;
-using Paxos.ProtocolLib;
+﻿using Paxos.Network;
+using Paxos.Protocol;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;

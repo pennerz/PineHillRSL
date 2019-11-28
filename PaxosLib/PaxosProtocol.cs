@@ -1,12 +1,12 @@
-﻿
+﻿using Paxos.Network;
+using System;
+using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System.Threading.Tasks;
+using System.Linq;
 
-namespace Paxos.ProtocolLib
+namespace Paxos.Protocol
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Collections.Concurrent;
-    using System.Threading.Tasks;
-    using System.Linq;
 
     public class PaxosDecree
     {
@@ -96,15 +96,6 @@ namespace Paxos.ProtocolLib
 
     public interface IPaxosStateMachine
     {
-    }
-    public interface IPaxosNodeTalkChannel
-    {
-        Task SendMessage(PaxosMessage msg);
-    }
-    public class NodeInfo
-    {
-        public string Name { get; set; }
-
     }
 
     public class PaxosCluster
