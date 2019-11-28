@@ -125,6 +125,11 @@ namespace PaxosLib
         private readonly ConcurrentDictionary<ulong, PaxosDecree> _commitedDecrees = new ConcurrentDictionary<ulong, PaxosDecree>();
 
         public IDictionary<ulong, PaxosDecree> CommitedDecrees => _commitedDecrees;
+
+        public void Clear()
+        {
+            _commitedDecrees.Clear();
+        }
     }
 
     public class VoterNote
@@ -312,6 +317,12 @@ namespace PaxosLib
             {
                 return;
             }
+
+            if (_ledger.CommitedDecrees.ContainsKey(msg.DecreeNo))
+            {
+                return;
+            }
+
             if (msg.BallotNo < _note.NextBallotNo[msg.DecreeNo])
             {
                 var staleBallotMsg = new StaleBallotMessage()
