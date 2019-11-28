@@ -207,7 +207,7 @@ namespace Paxos.ProtocolLib
 
 
     /// <summary>
-    /// Event Recieved          Action
+    /// Event Received          Action
     /// LastVote                Return last vote if the new ballot no bigger than NextBallotNo recorded
     /// BeginNewBallot          If the new ballotNo is equal to NextBallotNo recorded,vote for the ballot
     ///                         and save the vote as last vote
@@ -232,7 +232,7 @@ namespace Paxos.ProtocolLib
             Ledger ledger)
         {
             if (cluster == null) throw new ArgumentNullException("cluster");
-            if (nodeInfo == null) throw new ArgumentNullException("nodeinfo");
+            if (nodeInfo == null) throw new ArgumentNullException("nodeInfo");
             if (talkChannel == null) throw new ArgumentNullException("IPaxosNodeTalkChannel");
             if (paxoserNote == null) throw new ArgumentNullException("no note book");
             if (ledger == null) throw new ArgumentNullException("ledger");
@@ -246,7 +246,7 @@ namespace Paxos.ProtocolLib
 
         public void DeliverNextBallotMessage(NextBallotMessage msg)
         {
-            // check if the decree commited
+            // check if the decree committed
             LastVoteMessage lastVoteMsg;
             if (_ledger.CommitedDecrees.ContainsKey(msg.DecreeNo))
             {
@@ -256,7 +256,7 @@ namespace Paxos.ProtocolLib
                     Commited = true,
                     BallotNo = msg.BallotNo,
                     DecreeNo = msg.DecreeNo,
-                    VoteBallotNo = 0, // not appliable
+                    VoteBallotNo = 0, // not applicable
                     VoteDecree = _ledger.CommitedDecrees[msg.DecreeNo]
                 };
 
@@ -287,7 +287,7 @@ namespace Paxos.ProtocolLib
             }
 
 
-            // send back the last vote infomation
+            // send back the last vote information
             lastVoteMsg = new LastVoteMessage();
             lastVoteMsg.TargetNode = msg.SourceNode;
             lastVoteMsg.BallotNo = msg.BallotNo;
@@ -370,20 +370,20 @@ namespace Paxos.ProtocolLib
 
     /// <summary>
     /// Three phase commit (3PC)
-    /// 1. query exting vote
-    /// 2. parepare commit
+    /// 1. query existing vote
+    /// 2. prepare commit
     /// 3. commit
     /// 
     ///     CurrentState            Event                   NextState               Action
     ///     Init                    Propose                 QueryLastVote           Query lastvote from cluster
     ///     QueryLastVote           ReceiveLastVote         BeginNewBallot(enough)  Send BeginNewBallot to quorum
     ///                                                     QueryLastVote(x)        Nothing
-    ///                                                     BeginCommit(Commited)   Send commit to missing decree node
+    ///                                                     BeginCommit(Committed)   Send commit to missing decree node
     ///     QueryLastVote           Timeout                 QueryLastVote           Query lastvote with new ballotNo
     ///     BeginNewBallot          ReceiveVote             BeginCommit(enough)     Send commit to all nodes
     ///                                                     ReceiveVote(x)          Nothing
     ///     BeginNewBallot          Timeout                 QueryLastVote           Send BeginNewBallot with a new ballotNo
-    ///     BeginCommit             Response                Commited(enough)        Call subscriber
+    ///     BeginCommit             Response                Committed(enough)        Call subscriber
     ///                                                     BeginCommit(x)
     ///     BeginCommit             Timeout                 BeginCommit             Send commit to all nodes
     ///     
@@ -435,9 +435,9 @@ namespace Paxos.ProtocolLib
             Ledger ledger)
         {
             if (cluster == null) throw new ArgumentNullException("cluster");
-            if (nodeInfo == null) throw new ArgumentNullException("nodeinfo");
+            if (nodeInfo == null) throw new ArgumentNullException("nodeInfo");
             if (talkChannel == null) throw new ArgumentNullException("IPaxosNodeTalkChannel");
-            if (proposerNote == null) throw new ArgumentNullException("propoerser note");
+            if (proposerNote == null) throw new ArgumentNullException("proposer note");
             if (ledger == null) throw new ArgumentNullException("ledger");
 
             _nodeInfo = nodeInfo;
@@ -534,7 +534,7 @@ namespace Paxos.ProtocolLib
 
             if (_ledger.CommitedDecrees.ContainsKey(nextDecreeNo))
             {
-                // already commited, return direclty
+                // already committed, return directly
                 var result = new ProposeResult()
                 {
                     DecreeNo = nextDecreeNo,
@@ -657,14 +657,14 @@ namespace Paxos.ProtocolLib
 
             if (_ledger.CommitedDecrees.ContainsKey(msg.DecreeNo))
             {
-                // already commited
+                // already committed
                 completionSource.SetResult(false);
                 return;
             }
 
             if (msg.Commited)
             {
-                // decree already commited
+                // decree already committed
                 _proposerNote.OngoingPropose[msg.DecreeNo] = msg.VoteDecree;
 
                 _proposerNote.DecreeState[msg.DecreeNo].State = PropserState.BeginCommit;
@@ -679,7 +679,7 @@ namespace Paxos.ProtocolLib
                 _proposerNote.LastVoteMessages.Add(msg.DecreeNo, new List<LastVoteMessage>());
             }
 
-            // TODO: check if msg come from existing node
+            // TODO: check if message come from existing node
             _proposerNote.LastVoteMessages[msg.DecreeNo].Add(msg);
 
             if (_proposerNote.LastVoteMessages[msg.DecreeNo].Count >= _cluster.Members.Count / 2 + 1)
@@ -726,7 +726,7 @@ namespace Paxos.ProtocolLib
                 _proposerNote.VoteMessages.Add(msg.DecreeNo, new List<VoteMessage>());
             }
 
-            // TODO: check if msg come from existing node
+            // TODO: check if message come from existing node
             _proposerNote.VoteMessages[msg.DecreeNo].Add(msg);
 
             if (_proposerNote.VoteMessages[msg.DecreeNo].Count >= _cluster.Members.Count / 2 + 1)
@@ -802,7 +802,7 @@ namespace Paxos.ProtocolLib
             var commitedDecree = _proposerNote.OngoingPropose[decreeNo];
             _ledger.CommitedDecrees.Add(decreeNo, commitedDecree);
 
-            _proposerNote.DecreeState[decreeNo].State = PropserState.Commited; // commited
+            _proposerNote.DecreeState[decreeNo].State = PropserState.Commited; // committed
             ulong ballotNo = 0;
             if (_proposerNote.LastTriedBallot.ContainsKey(decreeNo))
             {
@@ -879,7 +879,7 @@ namespace Paxos.ProtocolLib
         {
             //
             // three phase commit
-            // 1. collect decreee for this instance
+            // 1. collect decree for this instance
             // 2. prepare commit decree
             // 3. commit decree
             //

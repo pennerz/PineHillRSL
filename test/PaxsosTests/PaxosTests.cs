@@ -110,7 +110,7 @@ namespace Paxos.Tests
 
                 // now NextBallotNo is 2
 
-                // 1.3. NextBallotNo <= 2 will not not be accpeted and got a stale ballot message
+                // 1.3. NextBallotNo <= 2 will not be accepted and got a stale ballot message
                 voter.DeliverNextBallotMessage(nextBallotMsg);
                 Assert.AreEqual(msgList.Count, 1);
                 var staleBallotMsg = msgList[0] as StaleBallotMessage;
@@ -155,9 +155,9 @@ namespace Paxos.Tests
                 Assert.IsFalse(lastVoteMsg.Commited);
                 voterFakeTalker.ClearNodeMessage(sourceNode);
 
-                //1.5 decree has been commited in ledger
+                //1.5 decree has been committed in ledger
                 ledger.CommitedDecrees.Add(1, voteMsg.VoteDecree);
-                nextBallotMsg.BallotNo = 2; // do not care about the ballot no for commited decree
+                nextBallotMsg.BallotNo = 2; // do not care about the ballot no for committed decree
 
                 voter.DeliverNextBallotMessage(nextBallotMsg);
                 Assert.AreEqual(msgList.Count, 1);
@@ -240,20 +240,20 @@ namespace Paxos.Tests
         {
             /// <summary>
             /// Three phase commit (3PC)
-            /// 1. query exting vote
-            /// 2. parepare commit
+            /// 1. query existing vote
+            /// 2. prepare commit
             /// 3. commit
             /// 
             ///     CurrentState            Event                   NextState               Action
             ///     Init                    Propose                 QueryLastVote           Query lastvote from cluster
             ///     QueryLastVote           ReceiveLastVote         BeginNewBallot(enough)  Send BeginNewBallot to quorum
             ///                                                     QueryLastVote(x)        Nothing
-            ///                                                     BeginCommit(Commited)   Send commit to missing decree node
+            ///                                                     BeginCommit(Committed)   Send commit to missing decree node
             ///     QueryLastVote           Timeout                 QueryLastVote           Query lastvote with new ballotNo
             ///     BeginNewBallot          ReceiveVote             BeginCommit(enough)     Send commit to all nodes
             ///                                                     ReceiveVote(x)          Nothing
             ///     BeginNewBallot          Timeout                 QueryLastVote           Send BeginNewBallot with a new ballotNo
-            ///     BeginCommit             Response                Commited(enough)        Call subscriber
+            ///     BeginCommit             Response                Committed(enough)        Call subscriber
             ///                                                     BeginCommit(x)
             ///     BeginCommit             Timeout                 BeginCommit             Send commit to all nodes
             ///     
@@ -369,7 +369,7 @@ namespace Paxos.Tests
                 // ledger unchanged
                 Assert.IsTrue(ledger.CommitedDecrees.Count == 0);
 
-                // 1.3 one stale last vote message(ballo no mot match) is dropped, not change state
+                // 1.3 one stale last vote message(ballot no mot match) is dropped, not change state
                 lastVote = new LastVoteMessage();
                 lastVote.SourceNode = cluster.Members[3].Name;
                 lastVote.TargetNode = cluster.Members[0].Name;
@@ -405,7 +405,7 @@ namespace Paxos.Tests
                 // ledger unchanged
                 Assert.IsTrue(ledger.CommitedDecrees.Count == 0);
 
-                //1.4 thrid last vote message(with different vote) chagne the state to beginnewballot
+                //1.4 third last vote message(with different vote) change the state to beginnewballot
                 lastVote = new LastVoteMessage();
                 lastVote.SourceNode = cluster.Members[3].Name;
                 lastVote.TargetNode = cluster.Members[0].Name;
@@ -453,7 +453,7 @@ namespace Paxos.Tests
                     nodeMsgList[i].Clear();
                 }
 
-                // ongoing decree now changed decreeContent1 since it's the maximu vote decree
+                // ongoing decree now changed decreeContent1 since it's the maximum vote decree
                 Assert.AreEqual(proposerNote.OngoingPropose[1].Content, decreeContent1);
                 // now the state has changed
                 Assert.AreEqual(proposerNote.DecreeState[1].State, PropserState.BeginNewBallot);
@@ -461,7 +461,7 @@ namespace Paxos.Tests
                 // ledger unchanged
                 Assert.IsTrue(ledger.CommitedDecrees.Count == 0);
 
-                //1.5 fourth last vote, this msg will be dropped sicne state already changed
+                //1.5 fourth last vote, this message will be dropped since state already changed
                 lastVote = new LastVoteMessage();
                 lastVote.SourceNode = cluster.Members[4].Name;
                 lastVote.TargetNode = cluster.Members[0].Name;
@@ -501,7 +501,7 @@ namespace Paxos.Tests
                     Assert.IsTrue(msgList.Count == 0);
                 }
 
-                // ongoing decree now changed decreeContent1 since it's the maximu vote decree
+                // ongoing decree now changed decreeContent1 since it's the maximum vote decree
                 Assert.AreEqual(proposerNote.OngoingPropose[1].Content, decreeContent1);
                 // now the state has changed
                 Assert.AreEqual(proposerNote.DecreeState[1].State, PropserState.BeginNewBallot);
@@ -510,7 +510,7 @@ namespace Paxos.Tests
                 Assert.IsTrue(ledger.CommitedDecrees.Count == 0);
 
 
-                // 1.6 lastvote with a commited vote will change the state to commit
+                // 1.6 lastvote with a committed vote will change the state to commit
                 proposerNote.Reset();
                 proposerNote.DecreeState.Add(1, new Propose()
                 {
@@ -556,7 +556,7 @@ namespace Paxos.Tests
                     Content = decreeContent
                 };
                 await proposer.DeliverLastVoteMessage(lastVote);
-                Assert.AreEqual(proposerNote.LastVoteMessages[1].Count, 2); // last vote recroded not change
+                Assert.AreEqual(proposerNote.LastVoteMessages[1].Count, 2); // last vote recorded not change
                 returnedLastVote = proposerNote.LastVoteMessages[1][0];
                 Assert.AreEqual(returnedLastVote.DecreeNo, (ulong)1);
                 Assert.AreEqual(returnedLastVote.BallotNo, (ulong)2);
@@ -571,7 +571,7 @@ namespace Paxos.Tests
                 // last tried ballot is 2
                 Assert.AreEqual(proposerNote.LastTriedBallot[1], (ulong)2);
 
-                // ongoing decree now changed decreeContent since it's the commited decree
+                // ongoing decree now changed decreeContent since it's the committed decree
                 Assert.AreEqual(proposerNote.OngoingPropose[1].Content, decreeContent);
                 // now the state has changed
                 Assert.AreEqual(proposerNote.DecreeState[1].State, PropserState.Commited);
@@ -593,8 +593,8 @@ namespace Paxos.Tests
                 Assert.IsTrue(ledger.CommitedDecrees.Count == 1);
                 Assert.IsTrue(ledger.CommitedDecrees[1].Content.Equals(decreeContent));
 
-                //1.7 proposer's ledger has commited decree, all the messages should be abandoned
-                // based on above test, new lastvote will be dropped, nothting changed
+                //1.7 proposer's ledger has committed decree, all the messages should be abandoned
+                // based on above test, new lastvote will be dropped, nothing changed
                 //proposerNote.ClearDecree(1);
                 lastVote = new LastVoteMessage();
                 lastVote.SourceNode = cluster.Members[3].Name;
@@ -607,7 +607,7 @@ namespace Paxos.Tests
                     Content = decreeContent1
                 };
                 await proposer.DeliverLastVoteMessage(lastVote);  // dropped
-                Assert.AreEqual(proposerNote.LastVoteMessages[1].Count, 2); // last vote recroded not change
+                Assert.AreEqual(proposerNote.LastVoteMessages[1].Count, 2); // last vote recorded not change
                 returnedLastVote = proposerNote.LastVoteMessages[1][0];
                 Assert.AreEqual(returnedLastVote.DecreeNo, (ulong)1);
                 Assert.AreEqual(returnedLastVote.BallotNo, (ulong)2);
@@ -622,7 +622,7 @@ namespace Paxos.Tests
                 // last tried ballot is 2
                 Assert.AreEqual(proposerNote.LastTriedBallot[1], (ulong)2);
 
-                // ongoing decree now changed decreeContent since it's the commited decree
+                // ongoing decree now changed decreeContent since it's the committed decree
                 Assert.AreEqual(proposerNote.OngoingPropose[1].Content, decreeContent);
                 // now the state has changed
                 Assert.AreEqual(proposerNote.DecreeState[1].State, PropserState.Commited);

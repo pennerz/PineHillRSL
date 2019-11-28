@@ -18,7 +18,7 @@ namespace Paxos.Tests
 
             if (_nodeMap == null || string.IsNullOrEmpty(_nodeName))
             {
-                throw new ArgumentNullException("Invalid TestPaxosNodeTalkProxy argements");
+                throw new ArgumentNullException("Invalid TestPaxosNodeTalkProxy arguments");
             }
         }
 
