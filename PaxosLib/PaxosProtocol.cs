@@ -1,6 +1,6 @@
 ﻿
 
-namespace PaxosLib
+namespace Paxos.ProtocolLib
 {
     using System;
     using System.Collections.Generic;
@@ -468,74 +468,48 @@ namespace PaxosLib
 
         public bool Stop { get; set; }
 
-        public bool HandleMessageAsync { get; set; }
-
         public Task<ProposeResult> BeginNewPropose(PaxosDecree decree, ulong nextDecreeNo)
         {
             var completionSource = new TaskCompletionSource<ProposeResult>();
-
-            if (HandleMessageAsync)
-            {
-                Action action = () =>
-                {
-                    ProcessBeginNewBallotRequest(decree, nextDecreeNo, completionSource);
-                };
-                _tasksQueue.Add(new Task(action));
-            }
-            else
+            Action action = () =>
             {
                 ProcessBeginNewBallotRequest(decree, nextDecreeNo, completionSource);
-            }
-
+            };
+            _tasksQueue.Add(new Task(action));
             return completionSource.Task;
         }
 
-        public void DeliverStaleBallotMessage(StaleBallotMessage msg)
+        public Task DeliverStaleBallotMessage(StaleBallotMessage msg)
         {
-            if (HandleMessageAsync)
+            var completionSource = new TaskCompletionSource<bool>();
+            Action action = () =>
             {
-                Action action = () =>
-                {
-                    ProcessStaleBallotMessage(msg);
-                };
-                _tasksQueue.Add(new Task(action));
-            }
-            else
-            {
-                ProcessStaleBallotMessage(msg);
-            }
+                ProcessStaleBallotMessage(msg, completionSource);
+            };
+            _tasksQueue.Add(new Task(action));
+            return completionSource.Task;
         }
 
-        public void DeliverLastVoteMessage(LastVoteMessage msg)
+        public Task DeliverLastVoteMessage(LastVoteMessage msg)
         {
-            if (HandleMessageAsync)
+            var completionSource = new TaskCompletionSource<bool>();
+            Action action = () =>
             {
-                Action action = () =>
-                {
-                    ProcessLastVoteMessage(msg);
-                };
-                _tasksQueue.Add(new Task(action));
-            }
-            else
-            {
-                ProcessLastVoteMessage(msg);
-            }
+                ProcessLastVoteMessage(msg, completionSource);
+            };
+            _tasksQueue.Add(new Task(action));
+            return completionSource.Task;
         }
 
-        public void DeliverVoteMessage(VoteMessage msg)
+        public Task DeliverVoteMessage(VoteMessage msg)
         {
-            if (HandleMessageAsync)
+            var completionSource = new TaskCompletionSource<bool>();
+            Action action = () =>
             {
-                Action action = () =>
-                {
-                    ProcessVoteMessage(msg);
-                };
-                _tasksQueue.Add(new Task(action));
-            }
-            else
-            {
-                ProcessVoteMessage(msg);
-            }
+                ProcessVoteMessage(msg, completionSource);
+            };
+            _tasksQueue.Add(new Task(action));
+            return completionSource.Task;
         }
 
         private void ProcessBeginNewBallotRequest(PaxosDecree decree, ulong nextDecreeNo, TaskCompletionSource<ProposeResult> completionSource)
@@ -620,7 +594,8 @@ namespace PaxosLib
                 }
             }
         }
-        private void ProcessStaleBallotMessage(StaleBallotMessage msg)
+
+        private void ProcessStaleBallotMessage(StaleBallotMessage msg, TaskCompletionSource<bool> completionSource)
         {
             /*
             if (!_decreeState.ContainsKey(msg.DecreeNo) ||
@@ -632,10 +607,12 @@ namespace PaxosLib
 
             if (!_proposerNote.LastTriedBallot.ContainsKey(msg.DecreeNo))
             {
+                completionSource.SetResult(false);
                 return;
             }
             if (_proposerNote.LastTriedBallot[msg.DecreeNo] != msg.BallotNo)
             {
+                completionSource.SetResult(false);
                 return;
             }
 
@@ -654,28 +631,34 @@ namespace PaxosLib
 
             _proposerNote.DecreeState[msg.DecreeNo].State = PropserState.QueryLastVote;
             QueryLastVote(msg.DecreeNo, nextBallotNo);
+
+            completionSource.SetResult(true);
         }
 
-        private void ProcessLastVoteMessage(LastVoteMessage msg)
+        private void ProcessLastVoteMessage(LastVoteMessage msg, TaskCompletionSource<bool> completionSource)
         {
             if (!_proposerNote.DecreeState.ContainsKey(msg.DecreeNo) ||
                 _proposerNote.DecreeState[msg.DecreeNo].State != PropserState.QueryLastVote)
             {
+                completionSource.SetResult(false);
                 return;
             }
 
             if (!_proposerNote.LastTriedBallot.ContainsKey(msg.DecreeNo))
             {
+                completionSource.SetResult(false);
                 return;
             }
             if (_proposerNote.LastTriedBallot[msg.DecreeNo] != msg.BallotNo)
             {
+                completionSource.SetResult(false);
                 return;
             }
 
             if (_ledger.CommitedDecrees.ContainsKey(msg.DecreeNo))
             {
                 // already commited
+                completionSource.SetResult(false);
                 return;
             }
 
@@ -686,6 +669,8 @@ namespace PaxosLib
 
                 _proposerNote.DecreeState[msg.DecreeNo].State = PropserState.BeginCommit;
                 BeginCommit(msg.DecreeNo);
+
+                completionSource.SetResult(false);
                 return;
             }
 
@@ -710,24 +695,29 @@ namespace PaxosLib
                 // begin new ballot
                 BeginNewBallot(msg.DecreeNo, msg.BallotNo);
             }
+
+            completionSource.SetResult(true);
         }
 
-        private void ProcessVoteMessage(VoteMessage msg)
+        private void ProcessVoteMessage(VoteMessage msg, TaskCompletionSource<bool> completionSource)
         {
             if (!_proposerNote.DecreeState.ContainsKey(msg.DecreeNo) ||
                 _proposerNote.DecreeState[msg.DecreeNo].State != PropserState.BeginNewBallot)
             {
+                completionSource.SetResult(false);
                 return;
             }
 
             if (!_proposerNote.LastTriedBallot.ContainsKey(msg.DecreeNo))
             {
                 // not recognized decree
+                completionSource.SetResult(false);
                 return;
             }
             if (_proposerNote.LastTriedBallot[msg.DecreeNo] != msg.BallotNo)
             {
                 // not the vote ballot
+                completionSource.SetResult(false);
                 return;
             }
 
@@ -745,6 +735,7 @@ namespace PaxosLib
                 _proposerNote.DecreeState[msg.DecreeNo].State = PropserState.BeginCommit;
                 BeginCommit(msg.DecreeNo);
             }
+            completionSource.SetResult(true);
         }
 
         private LastVoteMessage GetMaximumVote(UInt64 decreeNo)

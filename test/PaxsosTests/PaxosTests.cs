@@ -1,5 +1,5 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
-using PaxosLib;
+using Paxos.ProtocolLib;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -236,7 +236,7 @@ namespace Paxos.Tests
         }
 
         [TestMethod()]
-        public void ProposerRoleTest()
+        public async Task ProposerRoleTest()
         {
             /// <summary>
             /// Three phase commit (3PC)
@@ -297,7 +297,6 @@ namespace Paxos.Tests
                 string decreeContent1 = "test0";
                 string decreeContent = "test1";
                 var proposer = new ProposerRole(cluster.Members[0], cluster, proposerFakeTalker, proposerNote, ledger);
-                proposer.HandleMessageAsync = false;
                 proposerNote.LastTriedBallot.Add(1, 2); // decreeNo, ballotNo
                 proposerNote.OngoingPropose.Add(1, new PaxosDecree()
                 {
@@ -312,7 +311,7 @@ namespace Paxos.Tests
                 lastVote.BallotNo = 2;
                 lastVote.VoteBallotNo = 0; // never vote
                 lastVote.VoteDecree = null;
-                proposer.DeliverLastVoteMessage(lastVote);
+                await proposer.DeliverLastVoteMessage(lastVote);
                 // none message for all nodes
                 foreach(var msgList in nodeMsgList)
                 {
@@ -343,7 +342,7 @@ namespace Paxos.Tests
                 {
                     Content = decreeContent1
                 };
-                proposer.DeliverLastVoteMessage(lastVote);
+                await proposer.DeliverLastVoteMessage(lastVote);
                 // none message for all nodes
                 foreach (var msgList in nodeMsgList)
                 {
@@ -378,7 +377,7 @@ namespace Paxos.Tests
                 lastVote.BallotNo = 1;
                 lastVote.VoteBallotNo = 0; // never vote
                 lastVote.VoteDecree = null;
-                proposer.DeliverLastVoteMessage(lastVote);
+                await proposer.DeliverLastVoteMessage(lastVote);
                 // none message for all nodes
                 foreach (var msgList in nodeMsgList)
                 {
@@ -417,7 +416,7 @@ namespace Paxos.Tests
                 {
                     Content = decreeContent1
                 };
-                proposer.DeliverLastVoteMessage(lastVote);
+                await proposer.DeliverLastVoteMessage(lastVote);
                 Assert.AreEqual(proposerNote.LastVoteMessages[1].Count, 3);
                 returnedLastVote = proposerNote.LastVoteMessages[1][0];
                 Assert.AreEqual(returnedLastVote.DecreeNo, (ulong)1);
@@ -473,7 +472,7 @@ namespace Paxos.Tests
                 {
                     Content = decreeContent1
                 };
-                proposer.DeliverLastVoteMessage(lastVote);
+                await proposer.DeliverLastVoteMessage(lastVote);
                 Assert.AreEqual(proposerNote.LastVoteMessages[1].Count, 3);
                 returnedLastVote = proposerNote.LastVoteMessages[1][0];
                 Assert.AreEqual(returnedLastVote.DecreeNo, (ulong)1);
@@ -530,7 +529,7 @@ namespace Paxos.Tests
                 lastVote.BallotNo = 2;
                 lastVote.VoteBallotNo = 0; // never vote
                 lastVote.VoteDecree = null;
-                proposer.DeliverLastVoteMessage(lastVote);
+                await proposer.DeliverLastVoteMessage(lastVote);
 
                 lastVote = new LastVoteMessage();
                 lastVote.SourceNode = cluster.Members[2].Name;
@@ -542,7 +541,7 @@ namespace Paxos.Tests
                 {
                     Content = decreeContent1
                 };
-                proposer.DeliverLastVoteMessage(lastVote);
+                await proposer.DeliverLastVoteMessage(lastVote);
 
 
                 lastVote = new LastVoteMessage();
@@ -556,7 +555,7 @@ namespace Paxos.Tests
                 {
                     Content = decreeContent
                 };
-                proposer.DeliverLastVoteMessage(lastVote);
+                await proposer.DeliverLastVoteMessage(lastVote);
                 Assert.AreEqual(proposerNote.LastVoteMessages[1].Count, 2); // last vote recroded not change
                 returnedLastVote = proposerNote.LastVoteMessages[1][0];
                 Assert.AreEqual(returnedLastVote.DecreeNo, (ulong)1);
@@ -607,7 +606,7 @@ namespace Paxos.Tests
                 {
                     Content = decreeContent1
                 };
-                proposer.DeliverLastVoteMessage(lastVote);  // dropped
+                await proposer.DeliverLastVoteMessage(lastVote);  // dropped
                 Assert.AreEqual(proposerNote.LastVoteMessages[1].Count, 2); // last vote recroded not change
                 returnedLastVote = proposerNote.LastVoteMessages[1][0];
                 Assert.AreEqual(returnedLastVote.DecreeNo, (ulong)1);
@@ -637,7 +636,7 @@ namespace Paxos.Tests
                 Assert.IsTrue(ledger.CommitedDecrees[1].Content.Equals(decreeContent));
 
                 proposerNote.ClearDecree(1);
-                proposer.DeliverLastVoteMessage(lastVote);  // dropped
+                await proposer.DeliverLastVoteMessage(lastVote);  // dropped
                 for (int i = 0; i < nodeMsgList.Count; i++)
                 {
                     Assert.IsTrue(nodeMsgList[i].Count == 0);
@@ -659,7 +658,6 @@ namespace Paxos.Tests
                 string decreeContent1 = "test0";
                 string decreeContent = "test1";
                 var proposer = new ProposerRole(cluster.Members[0], cluster, proposerFakeTalker, proposerNote,ledger);
-                proposer.HandleMessageAsync = false;
                 proposerNote.LastTriedBallot.Add(1, 3); // decreeNo, ballotNo
                 proposerNote.OngoingPropose.Add(1, new PaxosDecree()
                 {
@@ -698,7 +696,7 @@ namespace Paxos.Tests
                 lastVote.BallotNo = 3;
                 lastVote.VoteBallotNo = 0; // never vote
                 lastVote.VoteDecree = null;
-                proposer.DeliverLastVoteMessage(lastVote);
+                await proposer.DeliverLastVoteMessage(lastVote);
                 // none message for all nodes
                 foreach (var msgList in nodeMsgList)
                 {
@@ -717,7 +715,7 @@ namespace Paxos.Tests
                     VoteDecree = new PaxosDecree()
                     { Content = decreeContent }
                 };
-                proposer.DeliverVoteMessage(voteMsg);
+                await proposer.DeliverVoteMessage(voteMsg);
                 Assert.AreEqual(proposerNote.VoteMessages[1].Count, 1);
                 foreach (var msgList in nodeMsgList)
                 {
@@ -734,7 +732,7 @@ namespace Paxos.Tests
                     VoteDecree = new PaxosDecree()
                     { Content = decreeContent }
                 };
-                proposer.DeliverVoteMessage(voteMsg);
+                await proposer.DeliverVoteMessage(voteMsg);
                 Assert.AreEqual(proposerNote.VoteMessages[1].Count, 1);
 
                 // stale ballot message
@@ -746,7 +744,7 @@ namespace Paxos.Tests
                     TargetNode = cluster.Members[0].Name,
                     NextBallotNo = 4
                 };
-                proposer.DeliverStaleBallotMessage(staleMsg);
+                await proposer.DeliverStaleBallotMessage(staleMsg);
                 // every thing will be reset, and new query last vote message will be send
                 Assert.AreEqual(proposerNote.DecreeState[1].State, PropserState.QueryLastVote);
                 Assert.AreEqual(proposerNote.LastTriedBallot[1], (ulong)5);
@@ -813,7 +811,7 @@ namespace Paxos.Tests
                         VoteDecree = new PaxosDecree()
                         { Content = decreeContent1 }
                     };
-                    proposer.DeliverVoteMessage(voteMsg);
+                    await proposer.DeliverVoteMessage(voteMsg);
                     Assert.AreEqual(proposerNote.VoteMessages[1].Count, i);
                     if (i == 3)
                     {
@@ -840,7 +838,6 @@ namespace Paxos.Tests
                         Assert.AreEqual(proposerNote.DecreeState[1].State, PropserState.BeginNewBallot);
                     }
                 }
-
             }
         }
 

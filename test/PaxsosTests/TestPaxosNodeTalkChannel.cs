@@ -1,5 +1,5 @@
 ﻿using System;
-using PaxosLib;
+using Paxos.ProtocolLib;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
