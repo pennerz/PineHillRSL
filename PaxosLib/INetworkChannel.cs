@@ -1,4 +1,4 @@
-﻿using Paxos.Protocol;
+﻿using Paxos.Message;
 using System;
 using System.Collections.Generic;
 using System.Text;
