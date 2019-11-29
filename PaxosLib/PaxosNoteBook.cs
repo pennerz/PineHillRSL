@@ -1,14 +1,15 @@
 ﻿using Paxos.Message;
+using Paxos.Persistence;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Text;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Paxos.Notebook
 {
-
     public class Ledger
     {
         private readonly ConcurrentDictionary<ulong, PaxosDecree> _committedDecrees = new ConcurrentDictionary<ulong, PaxosDecree>();
@@ -57,48 +58,135 @@ namespace Paxos.Notebook
         }
     }
 
+    public class LockStub
+    {
+
+    }
+
+    public class DecreeBallotInfo
+    {
+        private SemaphoreSlim _lock = new SemaphoreSlim(1);
+
+        public DecreeBallotInfo()
+        {
+            DecreeNo = 0;
+            NextBallotNo = 0;
+            VotedMessage = null;
+        }
+
+        public Task AcquireLock()
+        {
+            return _lock.WaitAsync();
+        }
+        public void ReleaseLock()
+        {
+            _lock.Release();
+        }
+        public ulong DecreeNo { get; set; }
+        public ulong NextBallotNo { get; set; }
+        public VoteMessage VotedMessage { get; set; }
+    }
+
     public class VoterNote
     {
+        // persistent module
+        private readonly IPaxosNotePeisisent _persistenter = null;
         // voter role
-        private readonly ConcurrentDictionary<ulong, VoteMessage> _voteMessages = new ConcurrentDictionary<ulong, VoteMessage>();
-        private readonly ConcurrentDictionary<ulong, ulong> _nextBallot = new ConcurrentDictionary<ulong, ulong>();
+        private readonly ConcurrentDictionary<ulong, DecreeBallotInfo> _ballotInfo = new ConcurrentDictionary<ulong, DecreeBallotInfo>();
 
-        //public IDictionary<ulong, VoteMessage> VotedMessage => _voteMessages;
-        //public IDictionary<ulong, ulong> NextBallotNo => _nextBallot;
+        public VoterNote(IPaxosNotePeisisent persistenter)
+        {
+            _persistenter = persistenter;
+        }
+
         public ulong GetNextBallotNo(ulong decreeNo)
         {
-            ulong nextBallotNo = 0;
-            if (_nextBallot.TryGetValue(decreeNo, out nextBallotNo))
+            DecreeBallotInfo decreeBallotInfo = null;
+            if (_ballotInfo.TryGetValue(decreeNo, out decreeBallotInfo))
             {
-                return nextBallotNo;
+                return decreeBallotInfo.NextBallotNo;
             }
             return 0;
         }
 
-        public void UpdateNextBallotNo(ulong decreeNo, ulong nextBallotNo)
+        public async Task<Tuple<ulong, VoteMessage>> UpdateNextBallotNo(ulong decreeNo, ulong nextBallotNo)
         {
-            _nextBallot.AddOrUpdate(decreeNo, nextBallotNo, (key, oldValue) => nextBallotNo);
+            DecreeBallotInfo decreeBallotInfo = AddDecreeBallotInfo(decreeNo);
+            ulong oldNextBallotNo = 0;
+            await decreeBallotInfo.AcquireLock();
+            oldNextBallotNo = decreeBallotInfo.NextBallotNo;
+            var result = new Tuple<ulong, VoteMessage>(oldNextBallotNo, decreeBallotInfo.VotedMessage);
+            if (nextBallotNo <= oldNextBallotNo)
+            {
+                // copy a decreeBallotInfo
+                decreeBallotInfo.ReleaseLock();
+                return result;
+            }
+            decreeBallotInfo.NextBallotNo = nextBallotNo;
+            await _persistenter.SaveVoterVoteInfo(decreeNo, decreeBallotInfo);
+            decreeBallotInfo.ReleaseLock();
+            return result;
         }
 
         public VoteMessage GetLastVote(ulong decreeNo)
         {
-            VoteMessage voteMsg = null;
-            if (_voteMessages.TryGetValue(decreeNo, out voteMsg))
-            {
-                return voteMsg;
-            }
-            return null;
+            DecreeBallotInfo decreeBallotInfo = AddDecreeBallotInfo(decreeNo);
+            return decreeBallotInfo.VotedMessage;
         }
 
-        public void UpdateLastVote(ulong decreeNo, VoteMessage voteMsg)
+        public async Task<ulong> UpdateLastVote(ulong decreeNo, ulong nextBallotNo, VoteMessage voteMsg)
         {
-            _voteMessages.AddOrUpdate(decreeNo, voteMsg, (key, oldValue) => voteMsg);
+            DecreeBallotInfo decreeBallotInfo = AddDecreeBallotInfo(decreeNo);
+            await decreeBallotInfo.AcquireLock();
+            decreeBallotInfo.VotedMessage = voteMsg;
+            await _persistenter.SaveVoterVoteInfo(decreeNo, decreeBallotInfo);
+            decreeBallotInfo.ReleaseLock();
+
+            ulong oldNextBallotNo = 0;
+            await decreeBallotInfo.AcquireLock();
+            oldNextBallotNo = decreeBallotInfo.NextBallotNo;
+            if (nextBallotNo != oldNextBallotNo)
+            {
+                // copy a decreeBallotInfo
+                decreeBallotInfo.ReleaseLock();
+                return oldNextBallotNo;
+            }
+            decreeBallotInfo.VotedMessage = voteMsg;
+            await _persistenter.SaveVoterVoteInfo(decreeNo, decreeBallotInfo);
+            decreeBallotInfo.ReleaseLock();
+            return oldNextBallotNo;
         }
 
         public void Reset()
         {
-            _voteMessages.Clear();
-            _nextBallot.Clear();
+            _ballotInfo.Clear();
+        }
+
+        private DecreeBallotInfo GetDecreeBallotInfo(ulong decreeNo)
+        {
+            DecreeBallotInfo decreeBallotInfo = null;
+            if (_ballotInfo.TryGetValue(decreeNo, out decreeBallotInfo))
+            {
+                return decreeBallotInfo;
+            }
+
+            return null;
+        }
+
+        private DecreeBallotInfo AddDecreeBallotInfo(ulong decreeNo)
+        {
+            do
+            {
+                _ballotInfo.TryAdd(decreeNo, new DecreeBallotInfo()
+                {
+                     DecreeNo = decreeNo
+                });
+                var decreeBallotInfo = GetDecreeBallotInfo(decreeNo);
+                if (decreeBallotInfo != null)
+                {
+                    return decreeBallotInfo;
+                }
+            } while (true);
         }
     }
 
@@ -153,16 +241,6 @@ namespace Paxos.Notebook
     {
         // proposer role
         private ConcurrentDictionary<ulong, Propose> _decreeState = new ConcurrentDictionary<ulong, Propose>();
-
-        //public IDictionary<UInt64, List<LastVoteMessage>> LastVoteMessages => _lastVoteMessages;
-
-        //public IDictionary<UInt64, List<VoteMessage>> VoteMessages => _voteMessages;
-
-        //public IDictionary<UInt64, PaxosDecree> OngoingPropose => _ongoingPropose;
-
-        //public IDictionary<UInt64, UInt64> LastTriedBallot => _lastTriedBallot;
-
-        //public IDictionary<ulong, Propose> DecreeState => _decreeState;
 
         public ulong GetMaxOngoingDecreeNo()
         {

@@ -1,6 +1,7 @@
 ﻿using Paxos.Network;
 using Paxos.Notebook;
 using Paxos.Message;
+using Paxos.Persistence;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -70,7 +71,7 @@ namespace Paxos.Protocol
             _ledger = ledger;
         }
 
-        public void DeliverNextBallotMessage(NextBallotMessage msg)
+        public async Task DeliverNextBallotMessage(NextBallotMessage msg)
         {
             // check if the decree committed
             LastVoteMessage lastVoteMsg;
@@ -87,28 +88,36 @@ namespace Paxos.Protocol
                     VoteDecree = commitedDecree
                 };
 
-                _nodeTalkChannel.SendMessage(lastVoteMsg);
+                await _nodeTalkChannel.SendMessage(lastVoteMsg);
                 return;
             }
 
-            var recordedNextBallotNo = _note.GetNextBallotNo(msg.DecreeNo);
-            if (recordedNextBallotNo >= msg.BallotNo)
+            var result = await _note.UpdateNextBallotNo(msg.DecreeNo, msg.BallotNo);
+            var oldBallotNo = result.Item1;
+            var lastVote = result.Item2;
+            if (oldBallotNo >= msg.BallotNo)
             {
                 // do not response the ballotNo < current nextBallotNo
                 var staleBallotMsg = new StaleBallotMessage()
                 {
-                    NextBallotNo = recordedNextBallotNo
+                    NextBallotNo = oldBallotNo
                 };
                 staleBallotMsg.TargetNode = msg.SourceNode;
                 staleBallotMsg.BallotNo = msg.BallotNo;
                 staleBallotMsg.DecreeNo = msg.DecreeNo;
 
-                _nodeTalkChannel.SendMessage(staleBallotMsg);
+                await _nodeTalkChannel.SendMessage(staleBallotMsg);
 
                 return;
             }
 
-            VoteMessage lastVote = _note.GetLastVote(msg.DecreeNo);
+            // it could be possible when this lastvotemessage is sent out
+            // a new ballot has been voted, in that case, when this LastVoteMessage
+            // returned, two case
+            // 1. the new ballot is triggered by same node as this one, in this case
+            //    this LastVoteMessage will be abandoned
+            // 2. the new ballot is triggered by other node, in this case, the node
+            //    trigger this ballot will accept this last LastVoteMessage, and it
 
             // send back the last vote information
             lastVoteMsg = new LastVoteMessage();
@@ -118,37 +127,25 @@ namespace Paxos.Protocol
             lastVoteMsg.VoteBallotNo = lastVote != null ? lastVote.BallotNo : 0;
             lastVoteMsg.VoteDecree = lastVote?.VoteDecree;
 
-            _note.UpdateNextBallotNo(msg.DecreeNo, msg.BallotNo);
-
-            _nodeTalkChannel.SendMessage(lastVoteMsg);
+            await _nodeTalkChannel.SendMessage(lastVoteMsg);
         }
 
-        public void DeliverBeginBallotMessage(BeginBallotMessage msg)
+        public async Task DeliverBeginBallotMessage(BeginBallotMessage msg)
         {
-            ulong nextBallotNo = _note.GetNextBallotNo(msg.DecreeNo);
-            if (msg.BallotNo > nextBallotNo)
-            {
-                return;
-            }
-
             if (_ledger.GetCommittedDecree(msg.DecreeNo) != null)
             {
                 return;
             }
 
+            ulong nextBallotNo = _note.GetNextBallotNo(msg.DecreeNo);
+            if (msg.BallotNo > nextBallotNo)
+            {
+                // should not happend, send alert
+                return;
+            }
+
             if (msg.BallotNo < nextBallotNo)
             {
-                var staleBallotMsg = new StaleBallotMessage()
-                {
-                    NextBallotNo = nextBallotNo
-                };
-                staleBallotMsg.TargetNode = msg.SourceNode;
-                staleBallotMsg.BallotNo = msg.BallotNo;
-                staleBallotMsg.DecreeNo = msg.DecreeNo;
-
-                _nodeTalkChannel.SendMessage(staleBallotMsg);
-
-                return;
             }
 
             // vote this ballot
@@ -159,10 +156,29 @@ namespace Paxos.Protocol
             voteMsg.VoteDecree = msg.Decree;
 
             // save last vote
-            _note.UpdateLastVote(msg.DecreeNo, voteMsg);
+            var oldNextBallotNo = await _note.UpdateLastVote(msg.DecreeNo, msg.BallotNo, voteMsg);
+            if (oldNextBallotNo > msg.BallotNo)
+            {
+                var staleBallotMsg = new StaleBallotMessage()
+                {
+                    NextBallotNo = nextBallotNo
+                };
+                staleBallotMsg.TargetNode = msg.SourceNode;
+                staleBallotMsg.BallotNo = msg.BallotNo;
+                staleBallotMsg.DecreeNo = msg.DecreeNo;
+
+                await _nodeTalkChannel.SendMessage(staleBallotMsg);
+
+                return;
+            }
+            if (oldNextBallotNo < msg.BallotNo)
+            {
+                // cant be, send alert
+                return;
+            }
 
             // deliver the vote message
-            _nodeTalkChannel.SendMessage(voteMsg);
+            await _nodeTalkChannel.SendMessage(voteMsg);
         }
 
         public void DeliverSuccessMessage(SuccessMessage msg)
@@ -592,7 +608,10 @@ namespace Paxos.Protocol
         NodeInfo _nodeInfo;
 
 
-        public PaxosNode(IPaxosNodeTalkChannel nodeTalkChannel, PaxosCluster cluster, NodeInfo nodeInfo)
+        public PaxosNode(
+            IPaxosNodeTalkChannel nodeTalkChannel,
+            PaxosCluster cluster,
+            NodeInfo nodeInfo)
         {
             if (nodeTalkChannel == null)
             {
@@ -611,8 +630,10 @@ namespace Paxos.Protocol
             _cluster = cluster;
             _nodeInfo = nodeInfo;
 
+            var persistenter = new MemoryPaxosNotePersistent();
+
             var ledger = new Ledger();
-            var voterNote = new VoterNote();
+            var voterNote = new VoterNote(persistenter);
             _voterRole = new VoterRole(_nodeInfo, _cluster, _nodeTalkChannel, voterNote, ledger);
             var proposerNote = new ProposerNote();
             _proposerRole = new ProposerRole(_nodeInfo, _cluster, _nodeTalkChannel, proposerNote, ledger);
