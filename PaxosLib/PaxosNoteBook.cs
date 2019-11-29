@@ -118,8 +118,27 @@ namespace Paxos.Notebook
 
     public class Propose
     {
-        private List<TaskCompletionSource<ProposeResult>> _subscribedCompletionSource = new List<TaskCompletionSource<ProposeResult>>();
+        private readonly List<TaskCompletionSource<ProposeResult>> _subscribedCompletionSource = new List<TaskCompletionSource<ProposeResult>>();
+        private readonly List<LastVoteMessage> _lastVoteMessages = new List<LastVoteMessage>();
+        private readonly List<VoteMessage> _voteMessages = new List<VoteMessage>();
+
+        public Propose()
+        {
+            State = PropserState.Init;
+            LastTriedBallot = 0;
+            OngoingDecree = null;
+        }
+
         public PropserState State { get; set; }
+
+        public ulong LastTriedBallot { get; set; }
+
+        public PaxosDecree OngoingDecree { get; set; }
+
+        public List<VoteMessage> VotedMessages { get { return _voteMessages; } }
+
+        public List<LastVoteMessage> LastVoteMessages { get { return _lastVoteMessages; } }
+
         public List<TaskCompletionSource<ProposeResult>> CompletionEvents
         {
             get
@@ -133,46 +152,63 @@ namespace Paxos.Notebook
     public class ProposerNote
     {
         // proposer role
-        private readonly ConcurrentDictionary<UInt64, List<LastVoteMessage>> _lastVoteMessages = new ConcurrentDictionary<UInt64, List<LastVoteMessage>>();
-        private readonly ConcurrentDictionary<UInt64, List<VoteMessage>> _voteMessages = new ConcurrentDictionary<UInt64, List<VoteMessage>>();
-        private readonly ConcurrentDictionary<UInt64, PaxosDecree> _ongoingPropose = new ConcurrentDictionary<ulong, PaxosDecree>();
-
-        private ConcurrentDictionary<UInt64, UInt64> _lastTriedBallot = new ConcurrentDictionary<ulong, ulong>();
         private ConcurrentDictionary<ulong, Propose> _decreeState = new ConcurrentDictionary<ulong, Propose>();
 
-        public IDictionary<UInt64, List<LastVoteMessage>> LastVoteMessages => _lastVoteMessages;
+        //public IDictionary<UInt64, List<LastVoteMessage>> LastVoteMessages => _lastVoteMessages;
 
-        public IDictionary<UInt64, List<VoteMessage>> VoteMessages => _voteMessages;
+        //public IDictionary<UInt64, List<VoteMessage>> VoteMessages => _voteMessages;
 
-        public IDictionary<UInt64, PaxosDecree> OngoingPropose => _ongoingPropose;
+        //public IDictionary<UInt64, PaxosDecree> OngoingPropose => _ongoingPropose;
 
-        public IDictionary<UInt64, UInt64> LastTriedBallot => _lastTriedBallot;
+        //public IDictionary<UInt64, UInt64> LastTriedBallot => _lastTriedBallot;
 
-        public IDictionary<ulong, Propose> DecreeState => _decreeState;
+        //public IDictionary<ulong, Propose> DecreeState => _decreeState;
+
+        public ulong GetMaxOngoingDecreeNo()
+        {
+            if (_decreeState.Count == 0)
+            {
+                return 0;
+            }
+            return _decreeState.LastOrDefault().Key;
+        }
+
+        public Propose GetPropose(ulong decreeNo)
+        {
+            Propose propose = null;
+            if (_decreeState.TryGetValue(decreeNo, out propose))
+            {
+                return propose;
+            }
+
+            return null;
+        }
+
+        public Propose AddPropose(ulong decreeNo)
+        {
+            do
+            {
+                _decreeState.TryAdd(decreeNo, new Propose());
+                var propose = GetPropose(decreeNo);
+                if (propose != null)
+                {
+                    return propose;
+                }
+            } while (true);
+        }
+
+        public void UpdatePropose(ulong decreeNo, Propose propose)
+        {
+            _decreeState.AddOrUpdate(decreeNo, propose, (key, oldValue) => propose);
+        }
 
         public void Reset()
         {
-            _lastVoteMessages.Clear();
-            _voteMessages.Clear();
-            _ongoingPropose.Clear();
-            _lastTriedBallot.Clear();
             _decreeState.Clear();
         }
 
         public void ClearDecree(ulong decreeNo)
         {
-            List<LastVoteMessage> lastVoteMsgs = null;
-            _lastVoteMessages.Remove(decreeNo, out lastVoteMsgs);
-
-            List<VoteMessage> voteMsgs = null;
-            _voteMessages.Remove(decreeNo, out voteMsgs);
-
-            PaxosDecree onogingDecree = null;
-            _ongoingPropose.Remove(decreeNo, out onogingDecree);
-
-            ulong lastTriedBallotNo = 0;
-            _lastTriedBallot.Remove(decreeNo, out lastTriedBallotNo);
-
             Propose propose = null;
             _decreeState.Remove(decreeNo, out propose);
         }
