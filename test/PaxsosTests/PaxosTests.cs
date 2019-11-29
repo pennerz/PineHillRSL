@@ -299,18 +299,16 @@ namespace Paxos.Tests
 
             // 1. State: QueryLastVote
             {
-                proposerNote.DecreeState.Add(1, new Propose()
-                {
-                    State = PropserState.QueryLastVote
-                });
+                var propose = proposerNote.AddPropose(1);
+                propose.State = PropserState.QueryLastVote;
                 string decreeContent1 = "test0";
                 string decreeContent = "test1";
                 var proposer = new ProposerRole(cluster.Members[0], cluster, proposerFakeTalker, proposerNote, ledger);
-                proposerNote.LastTriedBallot.Add(1, 2); // decreeNo, ballotNo
-                proposerNote.OngoingPropose.Add(1, new PaxosDecree()
+                propose.LastTriedBallot = 2;
+                propose.OngoingDecree = new PaxosDecree()
                 {
                     Content = decreeContent
-                });
+                };
 
                 // 1.1 first last vote message(with null vote) will not change state
                 var lastVote = new LastVoteMessage();
@@ -326,17 +324,17 @@ namespace Paxos.Tests
                 {
                     Assert.IsTrue(msgList.Count == 0);
                 }
-                Assert.AreEqual(proposerNote.LastVoteMessages[1].Count, 1);
-                var returnedLastVote = proposerNote.LastVoteMessages[1][0];
+                Assert.AreEqual(propose.LastVoteMessages.Count, 1);
+                var returnedLastVote = propose.LastVoteMessages[0];
                 Assert.AreEqual(returnedLastVote.DecreeNo, (ulong)1);
                 Assert.AreEqual(returnedLastVote.BallotNo, (ulong)2);
                 Assert.AreEqual(returnedLastVote.VoteBallotNo, (ulong)0);
                 Assert.IsNull(returnedLastVote.VoteDecree);
                 // last tried ballot is 2
-                Assert.AreEqual(proposerNote.LastTriedBallot[1], (ulong)2);
+                Assert.AreEqual(propose.LastTriedBallot, (ulong)2);
                 // ongoing decree is decreeContent
-                Assert.AreEqual(proposerNote.OngoingPropose[1].Content, decreeContent);
-                Assert.AreEqual(proposerNote.DecreeState[1].State, PropserState.QueryLastVote);
+                Assert.AreEqual(propose.OngoingDecree.Content, decreeContent);
+                Assert.AreEqual(propose.State, PropserState.QueryLastVote);
                 // ledger unchanged
                 Assert.IsTrue(ledger.GetCommittedDecreeCount() == 0);
 
@@ -357,24 +355,24 @@ namespace Paxos.Tests
                 {
                     Assert.IsTrue(msgList.Count == 0);
                 }
-                Assert.AreEqual(proposerNote.LastVoteMessages[1].Count, 2);
-                returnedLastVote = proposerNote.LastVoteMessages[1][0];
+                Assert.AreEqual(propose.LastVoteMessages.Count, 2);
+                returnedLastVote = propose.LastVoteMessages[0];
                 Assert.AreEqual(returnedLastVote.DecreeNo, (ulong)1);
                 Assert.AreEqual(returnedLastVote.BallotNo, (ulong)2);
                 Assert.AreEqual(returnedLastVote.VoteBallotNo, (ulong)0);
                 Assert.IsNull(returnedLastVote.VoteDecree);
-                returnedLastVote = proposerNote.LastVoteMessages[1][1];
+                returnedLastVote = propose.LastVoteMessages[1];
                 Assert.AreEqual(returnedLastVote.DecreeNo, (ulong)1);
                 Assert.AreEqual(returnedLastVote.BallotNo, (ulong)2);
                 Assert.AreEqual(returnedLastVote.VoteBallotNo, (ulong)1);
                 Assert.IsNotNull(returnedLastVote.VoteDecree);
                 Assert.AreEqual(returnedLastVote.VoteDecree.Content, decreeContent1);
                 // last tried ballot is 2
-                Assert.AreEqual(proposerNote.LastTriedBallot[1], (ulong)2);
+                Assert.AreEqual(propose.LastTriedBallot, (ulong)2);
                 // ongoing decree is decreeContent, not changed
-                Assert.AreEqual(proposerNote.OngoingPropose[1].Content, decreeContent);
+                Assert.AreEqual(propose.OngoingDecree.Content, decreeContent);
                 // query last vote state
-                Assert.AreEqual(proposerNote.DecreeState[1].State, PropserState.QueryLastVote);
+                Assert.AreEqual(propose.State, PropserState.QueryLastVote);
                 // ledger unchanged
                 Assert.IsTrue(ledger.GetCommittedDecreeCount() == 0);
 
@@ -392,24 +390,24 @@ namespace Paxos.Tests
                 {
                     Assert.IsTrue(msgList.Count == 0);
                 }
-                Assert.AreEqual(proposerNote.LastVoteMessages[1].Count, 2);
-                returnedLastVote = proposerNote.LastVoteMessages[1][0];
+                Assert.AreEqual(propose.LastVoteMessages.Count, 2);
+                returnedLastVote = propose.LastVoteMessages[0];
                 Assert.AreEqual(returnedLastVote.DecreeNo, (ulong)1);
                 Assert.AreEqual(returnedLastVote.BallotNo, (ulong)2);
                 Assert.AreEqual(returnedLastVote.VoteBallotNo, (ulong)0);
                 Assert.IsNull(returnedLastVote.VoteDecree);
-                returnedLastVote = proposerNote.LastVoteMessages[1][1];
+                returnedLastVote = propose.LastVoteMessages[1];
                 Assert.AreEqual(returnedLastVote.DecreeNo, (ulong)1);
                 Assert.AreEqual(returnedLastVote.BallotNo, (ulong)2);
                 Assert.AreEqual(returnedLastVote.VoteBallotNo, (ulong)1);
                 Assert.IsNotNull(returnedLastVote.VoteDecree);
                 Assert.AreEqual(returnedLastVote.VoteDecree.Content, decreeContent1);
                 // last tried ballot is 2
-                Assert.AreEqual(proposerNote.LastTriedBallot[1], (ulong)2);
+                Assert.AreEqual(propose.LastTriedBallot, (ulong)2);
                 // ongoing decree is decreeContent, not changed
-                Assert.AreEqual(proposerNote.OngoingPropose[1].Content, decreeContent);
+                Assert.AreEqual(propose.OngoingDecree.Content, decreeContent);
                 // query last vote state
-                Assert.AreEqual(proposerNote.DecreeState[1].State, PropserState.QueryLastVote);
+                Assert.AreEqual(propose.State, PropserState.QueryLastVote);
 
                 // ledger unchanged
                 Assert.IsTrue(ledger.GetCommittedDecreeCount() == 0);
@@ -426,19 +424,19 @@ namespace Paxos.Tests
                     Content = decreeContent1
                 };
                 await proposer.DeliverLastVoteMessage(lastVote);
-                Assert.AreEqual(proposerNote.LastVoteMessages[1].Count, 3);
-                returnedLastVote = proposerNote.LastVoteMessages[1][0];
+                Assert.AreEqual(propose.LastVoteMessages.Count, 3);
+                returnedLastVote = propose.LastVoteMessages[0];
                 Assert.AreEqual(returnedLastVote.DecreeNo, (ulong)1);
                 Assert.AreEqual(returnedLastVote.BallotNo, (ulong)2);
                 Assert.AreEqual(returnedLastVote.VoteBallotNo, (ulong)0);
                 Assert.IsNull(returnedLastVote.VoteDecree);
-                returnedLastVote = proposerNote.LastVoteMessages[1][1];
+                returnedLastVote = propose.LastVoteMessages[1];
                 Assert.AreEqual(returnedLastVote.DecreeNo, (ulong)1);
                 Assert.AreEqual(returnedLastVote.BallotNo, (ulong)2);
                 Assert.AreEqual(returnedLastVote.VoteBallotNo, (ulong)1);
                 Assert.IsNotNull(returnedLastVote.VoteDecree);
                 Assert.AreEqual(returnedLastVote.VoteDecree.Content, decreeContent1);
-                returnedLastVote = proposerNote.LastVoteMessages[1][2];
+                returnedLastVote = propose.LastVoteMessages[2];
                 Assert.AreEqual(returnedLastVote.DecreeNo, (ulong)1);
                 Assert.AreEqual(returnedLastVote.BallotNo, (ulong)2);
                 Assert.AreEqual(returnedLastVote.VoteBallotNo, (ulong)1);
@@ -446,7 +444,7 @@ namespace Paxos.Tests
                 Assert.AreEqual(returnedLastVote.VoteDecree.Content, decreeContent1);
 
                 // last tried ballot is 2
-                Assert.AreEqual(proposerNote.LastTriedBallot[1], (ulong)2);
+                Assert.AreEqual(propose.LastTriedBallot, (ulong)2);
 
                 // one message for every nodes other than itself
                 Assert.IsTrue(nodeMsgList[0].Count == 0);
@@ -463,9 +461,9 @@ namespace Paxos.Tests
                 }
 
                 // ongoing decree now changed decreeContent1 since it's the maximum vote decree
-                Assert.AreEqual(proposerNote.OngoingPropose[1].Content, decreeContent1);
+                Assert.AreEqual(propose.OngoingDecree.Content, decreeContent1);
                 // now the state has changed
-                Assert.AreEqual(proposerNote.DecreeState[1].State, PropserState.BeginNewBallot);
+                Assert.AreEqual(propose.State, PropserState.BeginNewBallot);
 
                 // ledger unchanged
                 Assert.IsTrue(ledger.GetCommittedDecreeCount() == 0);
@@ -482,19 +480,19 @@ namespace Paxos.Tests
                     Content = decreeContent1
                 };
                 await proposer.DeliverLastVoteMessage(lastVote);
-                Assert.AreEqual(proposerNote.LastVoteMessages[1].Count, 3);
-                returnedLastVote = proposerNote.LastVoteMessages[1][0];
+                Assert.AreEqual(propose.LastVoteMessages.Count, 3);
+                returnedLastVote = propose.LastVoteMessages[0];
                 Assert.AreEqual(returnedLastVote.DecreeNo, (ulong)1);
                 Assert.AreEqual(returnedLastVote.BallotNo, (ulong)2);
                 Assert.AreEqual(returnedLastVote.VoteBallotNo, (ulong)0);
                 Assert.IsNull(returnedLastVote.VoteDecree);
-                returnedLastVote = proposerNote.LastVoteMessages[1][1];
+                returnedLastVote = propose.LastVoteMessages[1];
                 Assert.AreEqual(returnedLastVote.DecreeNo, (ulong)1);
                 Assert.AreEqual(returnedLastVote.BallotNo, (ulong)2);
                 Assert.AreEqual(returnedLastVote.VoteBallotNo, (ulong)1);
                 Assert.IsNotNull(returnedLastVote.VoteDecree);
                 Assert.AreEqual(returnedLastVote.VoteDecree.Content, decreeContent1);
-                returnedLastVote = proposerNote.LastVoteMessages[1][2];
+                returnedLastVote = propose.LastVoteMessages[2];
                 Assert.AreEqual(returnedLastVote.DecreeNo, (ulong)1);
                 Assert.AreEqual(returnedLastVote.BallotNo, (ulong)2);
                 Assert.AreEqual(returnedLastVote.VoteBallotNo, (ulong)1);
@@ -502,7 +500,7 @@ namespace Paxos.Tests
                 Assert.AreEqual(returnedLastVote.VoteDecree.Content, decreeContent1);
 
                 // last tried ballot is 2
-                Assert.AreEqual(proposerNote.LastTriedBallot[1], (ulong)2);
+                Assert.AreEqual(propose.LastTriedBallot, (ulong)2);
 
                 // no more messages
                 foreach (var msgList in nodeMsgList)
@@ -511,9 +509,9 @@ namespace Paxos.Tests
                 }
 
                 // ongoing decree now changed decreeContent1 since it's the maximum vote decree
-                Assert.AreEqual(proposerNote.OngoingPropose[1].Content, decreeContent1);
+                Assert.AreEqual(propose.OngoingDecree.Content, decreeContent1);
                 // now the state has changed
-                Assert.AreEqual(proposerNote.DecreeState[1].State, PropserState.BeginNewBallot);
+                Assert.AreEqual(propose.State, PropserState.BeginNewBallot);
 
                 // ledger unchanged
                 Assert.IsTrue(ledger.GetCommittedDecreeCount() == 0);
@@ -521,15 +519,13 @@ namespace Paxos.Tests
 
                 // 1.6 lastvote with a committed vote will change the state to commit
                 proposerNote.Reset();
-                proposerNote.DecreeState.Add(1, new Propose()
-                {
-                    State = PropserState.QueryLastVote
-                });
-                proposerNote.LastTriedBallot.Add(1, 2); // decreeNo, ballotNo
-                proposerNote.OngoingPropose.Add(1, new PaxosDecree()
+                propose = proposerNote.AddPropose(1);
+                propose.State = PropserState.QueryLastVote;
+                propose.LastTriedBallot = 2; // decreeNo, ballotNo
+                propose.OngoingDecree = new PaxosDecree()
                 {
                     Content = decreeContent
-                });
+                };
 
                 lastVote = new LastVoteMessage();
                 lastVote.SourceNode = cluster.Members[1].Name;
@@ -565,25 +561,25 @@ namespace Paxos.Tests
                     Content = decreeContent
                 };
                 await proposer.DeliverLastVoteMessage(lastVote);
-                Assert.AreEqual(proposerNote.LastVoteMessages[1].Count, 2); // last vote recorded not change
-                returnedLastVote = proposerNote.LastVoteMessages[1][0];
+                Assert.AreEqual(propose.LastVoteMessages.Count, 2); // last vote recorded not change
+                returnedLastVote = propose.LastVoteMessages[0];
                 Assert.AreEqual(returnedLastVote.DecreeNo, (ulong)1);
                 Assert.AreEqual(returnedLastVote.BallotNo, (ulong)2);
                 Assert.AreEqual(returnedLastVote.VoteBallotNo, (ulong)0);
                 Assert.IsNull(returnedLastVote.VoteDecree);
-                returnedLastVote = proposerNote.LastVoteMessages[1][1];
+                returnedLastVote = propose.LastVoteMessages[1];
                 Assert.AreEqual(returnedLastVote.DecreeNo, (ulong)1);
                 Assert.AreEqual(returnedLastVote.BallotNo, (ulong)2);
                 Assert.AreEqual(returnedLastVote.VoteBallotNo, (ulong)1);
                 Assert.IsNotNull(returnedLastVote.VoteDecree);
                 Assert.AreEqual(returnedLastVote.VoteDecree.Content, decreeContent1);
                 // last tried ballot is 2
-                Assert.AreEqual(proposerNote.LastTriedBallot[1], (ulong)2);
+                Assert.AreEqual(propose.LastTriedBallot, (ulong)2);
 
                 // ongoing decree now changed decreeContent since it's the committed decree
-                Assert.AreEqual(proposerNote.OngoingPropose[1].Content, decreeContent);
+                Assert.AreEqual(propose.OngoingDecree.Content, decreeContent);
                 // now the state has changed
-                Assert.AreEqual(proposerNote.DecreeState[1].State, PropserState.Commited);
+                Assert.AreEqual(propose.State, PropserState.Commited);
 
                 Assert.IsTrue(nodeMsgList[0].Count == 0);
                 for (int i = 1; i < nodeMsgList.Count; i++)
@@ -616,25 +612,25 @@ namespace Paxos.Tests
                     Content = decreeContent1
                 };
                 await proposer.DeliverLastVoteMessage(lastVote);  // dropped
-                Assert.AreEqual(proposerNote.LastVoteMessages[1].Count, 2); // last vote recorded not change
-                returnedLastVote = proposerNote.LastVoteMessages[1][0];
+                Assert.AreEqual(propose.LastVoteMessages.Count, 2); // last vote recorded not change
+                returnedLastVote = propose.LastVoteMessages[0];
                 Assert.AreEqual(returnedLastVote.DecreeNo, (ulong)1);
                 Assert.AreEqual(returnedLastVote.BallotNo, (ulong)2);
                 Assert.AreEqual(returnedLastVote.VoteBallotNo, (ulong)0);
                 Assert.IsNull(returnedLastVote.VoteDecree);
-                returnedLastVote = proposerNote.LastVoteMessages[1][1];
+                returnedLastVote = propose.LastVoteMessages[1];
                 Assert.AreEqual(returnedLastVote.DecreeNo, (ulong)1);
                 Assert.AreEqual(returnedLastVote.BallotNo, (ulong)2);
                 Assert.AreEqual(returnedLastVote.VoteBallotNo, (ulong)1);
                 Assert.IsNotNull(returnedLastVote.VoteDecree);
                 Assert.AreEqual(returnedLastVote.VoteDecree.Content, decreeContent1);
                 // last tried ballot is 2
-                Assert.AreEqual(proposerNote.LastTriedBallot[1], (ulong)2);
+                Assert.AreEqual(propose.LastTriedBallot, (ulong)2);
 
                 // ongoing decree now changed decreeContent since it's the committed decree
-                Assert.AreEqual(proposerNote.OngoingPropose[1].Content, decreeContent);
+                Assert.AreEqual(propose.OngoingDecree.Content, decreeContent);
                 // now the state has changed
-                Assert.AreEqual(proposerNote.DecreeState[1].State, PropserState.Commited);
+                Assert.AreEqual(propose.State, PropserState.Commited);
                 for (int i = 0; i < nodeMsgList.Count; i++)
                 {
                     Assert.IsTrue(nodeMsgList[i].Count == 0);
@@ -660,21 +656,18 @@ namespace Paxos.Tests
             {
                 ledger.Clear();
                 proposerNote.Reset();
-                proposerNote.DecreeState.Add(1, new Propose()
-                {
-                    State = PropserState.BeginNewBallot
-                });
+                var propose = proposerNote.AddPropose(1);
+                propose.State = PropserState.BeginNewBallot;
                 string decreeContent1 = "test0";
                 string decreeContent = "test1";
                 var proposer = new ProposerRole(cluster.Members[0], cluster, proposerFakeTalker, proposerNote,ledger);
-                proposerNote.LastTriedBallot.Add(1, 3); // decreeNo, ballotNo
-                proposerNote.OngoingPropose.Add(1, new PaxosDecree()
+                propose.LastTriedBallot = 3; // decreeNo, ballotNo
+                propose.OngoingDecree = new PaxosDecree()
                 {
                     Content = decreeContent
-                });
+                };
 
                 // build last vote messages
-                proposerNote.LastVoteMessages.Add(1, new List<LastVoteMessage>());
                 for (int i = 1; i < 3; i++)
                 {
                     var lastVoteMessage = new LastVoteMessage()
@@ -694,7 +687,7 @@ namespace Paxos.Tests
                             Content = decreeContent
                         };
                     }
-                    proposerNote.LastVoteMessages[1].Add(lastVoteMessage);
+                    propose.LastVoteMessages.Add(lastVoteMessage);
                 }
 
                 // last vote will be dropped directly
@@ -711,7 +704,7 @@ namespace Paxos.Tests
                 {
                     Assert.IsTrue(msgList.Count == 0);
                 }
-                Assert.AreEqual(proposerNote.LastVoteMessages[1].Count, 2);
+                Assert.AreEqual(propose.LastVoteMessages.Count, 2);
 
 
                 // first vote
@@ -725,7 +718,7 @@ namespace Paxos.Tests
                     { Content = decreeContent }
                 };
                 await proposer.DeliverVoteMessage(voteMsg);
-                Assert.AreEqual(proposerNote.VoteMessages[1].Count, 1);
+                Assert.AreEqual(propose.VotedMessages.Count, 1);
                 foreach (var msgList in nodeMsgList)
                 {
                     Assert.IsTrue(msgList.Count == 0);
@@ -742,7 +735,7 @@ namespace Paxos.Tests
                     { Content = decreeContent }
                 };
                 await proposer.DeliverVoteMessage(voteMsg);
-                Assert.AreEqual(proposerNote.VoteMessages[1].Count, 1);
+                Assert.AreEqual(propose.VotedMessages.Count, 1);
 
                 // stale ballot message
                 var staleMsg = new StaleBallotMessage()
@@ -755,10 +748,10 @@ namespace Paxos.Tests
                 };
                 await proposer.DeliverStaleBallotMessage(staleMsg);
                 // every thing will be reset, and new query last vote message will be send
-                Assert.AreEqual(proposerNote.DecreeState[1].State, PropserState.QueryLastVote);
-                Assert.AreEqual(proposerNote.LastTriedBallot[1], (ulong)5);
-                Assert.AreEqual(proposerNote.LastVoteMessages[1].Count, 0);
-                Assert.AreEqual(proposerNote.VoteMessages[1].Count, 0);
+                Assert.AreEqual(propose.State, PropserState.QueryLastVote);
+                Assert.AreEqual(propose.LastTriedBallot, (ulong)5);
+                Assert.AreEqual(propose.LastVoteMessages.Count, 0);
+                Assert.AreEqual(propose.VotedMessages.Count, 0);
                 for (int i = 1; i < nodeMsgList.Count; i++)
                 {
                     Assert.IsTrue(nodeMsgList[i].Count == 1);
@@ -772,7 +765,7 @@ namespace Paxos.Tests
 
 
                 // build vote state
-                proposerNote.DecreeState[1].State = PropserState.BeginNewBallot;
+                propose.State = PropserState.BeginNewBallot;
                 // build last vote messages
                 for (int i = 1; i < 4; i++)
                 {
@@ -801,12 +794,12 @@ namespace Paxos.Tests
                             Content = decreeContent1
                         };
                     }
-                    proposerNote.LastVoteMessages[1].Add(lastVoteMessage);
+                    propose.LastVoteMessages.Add(lastVoteMessage);
                 }
 
 
-                proposerNote.LastTriedBallot[1] = 5; // decreeNo, ballotNo
-                proposerNote.OngoingPropose[1].Content = decreeContent1;
+                propose.LastTriedBallot = 5; // decreeNo, ballotNo
+                propose.OngoingDecree.Content = decreeContent1;
 
                 // first vote
                 for (int i = 1; i < 4; i++)
@@ -821,7 +814,7 @@ namespace Paxos.Tests
                         { Content = decreeContent1 }
                     };
                     await proposer.DeliverVoteMessage(voteMsg);
-                    Assert.AreEqual(proposerNote.VoteMessages[1].Count, i);
+                    Assert.AreEqual(propose.VotedMessages.Count, i);
                     if (i == 3)
                     {
                         Assert.IsTrue(nodeMsgList[0].Count == 0);
@@ -836,7 +829,7 @@ namespace Paxos.Tests
                             Assert.AreEqual(commitMsg.Decree.Content, decreeContent1);
                             nodeMsgList[j].Clear();
                         }
-                        Assert.AreEqual(proposerNote.DecreeState[1].State, PropserState.Commited);
+                        Assert.AreEqual(propose.State, PropserState.Commited);
                     }
                     else
                     {
@@ -844,7 +837,7 @@ namespace Paxos.Tests
                         {
                             Assert.IsTrue(msgList.Count == 0);
                         }
-                        Assert.AreEqual(proposerNote.DecreeState[1].State, PropserState.BeginNewBallot);
+                        Assert.AreEqual(propose.State, PropserState.BeginNewBallot);
                     }
                 }
             }
