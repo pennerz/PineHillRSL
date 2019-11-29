@@ -1,5 +1,7 @@
-﻿using System;
-using PaxosLib;
+﻿using Paxos.Message;
+using Paxos.Network;
+using Paxos.Protocol;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
@@ -18,7 +20,7 @@ namespace Paxos.Tests
 
             if (_nodeMap == null || string.IsNullOrEmpty(_nodeName))
             {
-                throw new ArgumentNullException("Invalid TestPaxosNodeTalkProxy argements");
+                throw new ArgumentNullException("Invalid TestPaxosNodeTalkProxy arguments");
             }
         }
 
