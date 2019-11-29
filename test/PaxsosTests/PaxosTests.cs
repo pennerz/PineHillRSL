@@ -32,21 +32,27 @@ namespace Paxos.Tests
                 nodeMap[nodeInfo.Name] = node;
             }
 
-            var properser = nodeMap[cluster.Members[0].Name];
+            var proposer = nodeMap[cluster.Members[0].Name];
 
             var decree = new PaxosDecree()
             {
                 Content = "test"
             };
-            var result = await properser.ProposeDecree(decree, 0);
-            var properser2 = nodeMap[cluster.Members[1].Name];
+            var result = await proposer.ProposeDecree(decree, 0);
+            var proposer2 = nodeMap[cluster.Members[1].Name];
 
             var decree2 = new PaxosDecree()
             {
                 Content = "test2"
             };
-            var result1 = await properser2.ProposeDecree(decree2, result.DecreeNo);
+            result = await proposer2.ProposeDecree(decree2, result.DecreeNo);
+            Assert.IsTrue(result.Decree.Content.Equals("test"));
 
+            result = await proposer.ProposeDecree(decree2, 1);
+            Assert.IsTrue(result.Decree.Content.Equals("test"));
+
+            result = await proposer.ProposeDecree(decree2, 0);
+            Assert.IsTrue(result.Decree.Content.Equals("test2"));
         }
 
         [TestMethod()]

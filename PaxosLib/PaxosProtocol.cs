@@ -327,64 +327,33 @@ namespace Paxos.Protocol
                 {
                     State = PropserState.Init,
                 });
-                var completionEventList = _proposerNote.DecreeState[nextDecreeNo].CompletionEvents;
-
-                completionEventList.Add(completionSource);
                 _proposerNote.OngoingPropose.Add(nextDecreeNo, decree);
-
-                _proposerNote.DecreeState[nextDecreeNo].State = PropserState.QueryLastVote;
-                QueryLastVote(nextDecreeNo, nextBallotNo);
             }
             else
             {
-                // already have a decree on it
-                if (_proposerNote.DecreeState[nextDecreeNo].State == PropserState.BeginCommit)
-                {
-                    _proposerNote.DecreeState[nextDecreeNo].CompletionEvents.Add(completionSource);
-                    // commit it
-                    BeginCommit(nextDecreeNo);
-                }
-                else if (_proposerNote.DecreeState[nextDecreeNo].State == PropserState.Commited)
-                {
-                    var result = new ProposeResult()
-                    {
-                        DecreeNo = nextDecreeNo,
-                        Decree = _proposerNote.OngoingPropose[nextDecreeNo]
-                    };
-                    completionSource.SetResult(result);
-                    return;
-                }
-                else
-                {
-                    _proposerNote.LastTriedBallot.Add(nextDecreeNo, nextBallotNo);
-                    _proposerNote.DecreeState.Add(nextDecreeNo, new Propose()
-                    {
-                        State = PropserState.Init
-                    });
-                    _proposerNote.OngoingPropose.Add(nextDecreeNo, decree);
+                // already have a decree on it, and not committed yet, retry
+                _proposerNote.LastTriedBallot[nextDecreeNo] = nextBallotNo;
+                _proposerNote.OngoingPropose[nextDecreeNo] = decree;
 
-                    _proposerNote.DecreeState[nextDecreeNo].CompletionEvents.Add(completionSource);
-                    _proposerNote.DecreeState[nextDecreeNo].State = PropserState.QueryLastVote;
-                    QueryLastVote(nextDecreeNo, nextBallotNo);
-                }
             }
+            var completionEventList = _proposerNote.DecreeState[nextDecreeNo].CompletionEvents;
+            completionEventList.Add(completionSource);
+
+            _proposerNote.DecreeState[nextDecreeNo].State = PropserState.QueryLastVote;
+            QueryLastVote(nextDecreeNo, nextBallotNo);
         }
 
         private void ProcessStaleBallotMessage(StaleBallotMessage msg, TaskCompletionSource<bool> completionSource)
         {
-            /*
-            if (!_decreeState.ContainsKey(msg.DecreeNo) ||
-                _decreeState[msg.DecreeNo].State != PropserState.QueryLastVote)
+            // QueryLastVote || BeginNewBallot
+            if (!_proposerNote.DecreeState.ContainsKey(msg.DecreeNo) ||
+                !_proposerNote.LastTriedBallot.ContainsKey(msg.DecreeNo) || // this should be consistent with above condition
+                (_proposerNote.DecreeState[msg.DecreeNo].State != PropserState.QueryLastVote &&
+                _proposerNote.DecreeState[msg.DecreeNo].State != PropserState.BeginNewBallot))
             {
                 return;
             }
-            */
 
-            if (!_proposerNote.LastTriedBallot.ContainsKey(msg.DecreeNo))
-            {
-                completionSource.SetResult(false);
-                return;
-            }
             if (_proposerNote.LastTriedBallot[msg.DecreeNo] != msg.BallotNo)
             {
                 completionSource.SetResult(false);
@@ -413,29 +382,29 @@ namespace Paxos.Protocol
         private void ProcessLastVoteMessage(LastVoteMessage msg, TaskCompletionSource<bool> completionSource)
         {
             if (!_proposerNote.DecreeState.ContainsKey(msg.DecreeNo) ||
+                !_proposerNote.LastTriedBallot.ContainsKey(msg.DecreeNo) || // this should be consistent with DecreeState.ContainKey(DecreeNo)
                 _proposerNote.DecreeState[msg.DecreeNo].State != PropserState.QueryLastVote)
             {
                 completionSource.SetResult(false);
                 return;
             }
 
-            if (!_proposerNote.LastTriedBallot.ContainsKey(msg.DecreeNo))
-            {
-                completionSource.SetResult(false);
-                return;
-            }
+            // LastTriedBallot 
             if (_proposerNote.LastTriedBallot[msg.DecreeNo] != msg.BallotNo)
             {
                 completionSource.SetResult(false);
                 return;
             }
 
-            if (_ledger.GetCommittedDecree(msg.DecreeNo) != null)
-            {
-                // already committed
-                completionSource.SetResult(false);
-                return;
-            }
+            // cant not go to the following path, either proposer's note has no information
+            // about the decree, or the state in the proposer's note already comes to committed
+            // which will return at the first condition check
+            //if (_ledger.GetCommittedDecree(msg.DecreeNo) != null)
+            //{
+            //    // already committed
+            //    completionSource.SetResult(false);
+            //    return;
+            //}
 
             if (msg.Commited)
             {
@@ -713,12 +682,6 @@ namespace Paxos.Protocol
         private void ProcessStaleBallotMessage(StaleBallotMessage msg)
         {
             _proposerRole.DeliverStaleBallotMessage(msg);
-        }
-
-        private Task<LastVoteMessage> GetLastVoteMessage()
-        {
-            var completionSource = new TaskCompletionSource<LastVoteMessage>();
-            return completionSource.Task;
         }
 
     }
