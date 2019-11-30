@@ -42,7 +42,8 @@ namespace Paxos.Notebook
                 {
                     if (_committedDecrees.ContainsKey(decreeNo))
                     {
-                        throw new Exception("decree already committed");
+                        return Task.CompletedTask;
+                        //throw new Exception("decree already committed");
                     }
                     if (_committedDecrees.TryAdd(decreeNo, decree))
                     {
@@ -56,11 +57,6 @@ namespace Paxos.Notebook
         {
             _committedDecrees.Clear();
         }
-    }
-
-    public class LockStub
-    {
-
     }
 
     public class DecreeBallotInfo
@@ -206,6 +202,7 @@ namespace Paxos.Notebook
 
     public class Propose
     {
+        private SemaphoreSlim _lock = new SemaphoreSlim(1);
         private readonly List<TaskCompletionSource<ProposeResult>> _subscribedCompletionSource = new List<TaskCompletionSource<ProposeResult>>();
         private readonly List<LastVoteMessage> _lastVoteMessages = new List<LastVoteMessage>();
         private readonly List<VoteMessage> _voteMessages = new List<VoteMessage>();
@@ -217,6 +214,112 @@ namespace Paxos.Notebook
             OngoingDecree = null;
         }
 
+        public Task AcquireLock()
+        {
+            return _lock.WaitAsync();
+        }
+
+        public void ReleaseLock()
+        {
+            _lock.Release();
+        }
+
+        public void SubscribeCompletionNotification(TaskCompletionSource<ProposeResult> completionSource)
+        {
+            lock(_subscribedCompletionSource)
+            {
+                if (completionSource != null)
+                {
+                    _subscribedCompletionSource.Add(completionSource);
+                }
+            }
+        }
+
+        public ulong PrepareNewBallot(PaxosDecree decree)
+        {
+            lock(_subscribedCompletionSource)
+            {
+                LastTriedBallot++;
+                OngoingDecree = decree;
+                _lastVoteMessages.Clear();
+                _voteMessages.Clear();
+                State = PropserState.QueryLastVote;
+                return LastTriedBallot;
+            }
+        }
+
+        public void BeginCommit(ulong decreeNo, PaxosDecree committingDecree)
+        {
+            lock(_subscribedCompletionSource)
+            {
+                OngoingDecree = committingDecree;
+                State = PropserState.BeginCommit;
+            }
+        }
+
+        public ulong AddLastVoteMessage(LastVoteMessage lastVoteMsg)
+        {
+            lock(_subscribedCompletionSource)
+            {
+                LastVoteMessages.Add(lastVoteMsg);
+
+                return (ulong)LastVoteMessages.Count;
+            }
+        }
+
+        public PaxosDecree BeginNewBallot(ulong ballotNo)
+        {
+            lock(_subscribedCompletionSource)
+            {
+                if (LastTriedBallot != ballotNo)
+                {
+                    // last tried ballot no not match
+                    return null;
+                }
+                var maxVoteMsg = GetMaximumVote();
+                if (maxVoteMsg != null)
+                {
+                    OngoingDecree = maxVoteMsg.VoteDecree;
+                }
+                State = PropserState.BeginNewBallot;
+
+                return OngoingDecree;
+            }
+        }
+
+        public ulong AddVoteMessage(VoteMessage voteMsg)
+        {
+            lock (_subscribedCompletionSource)
+            {
+                VotedMessages.Add(voteMsg);
+
+                return (ulong)VotedMessages.Count;
+            }
+        }
+
+
+        private LastVoteMessage GetMaximumVote()
+        {
+            LastVoteMessage maxVoteMsg = null;
+            foreach (var voteMsg in LastVoteMessages)
+            {
+                if (maxVoteMsg == null || voteMsg.VoteBallotNo > maxVoteMsg.VoteBallotNo)
+                {
+                    maxVoteMsg = voteMsg;
+                }
+            }
+
+            if (maxVoteMsg == null)
+            {
+                return null;
+            }
+
+            if (maxVoteMsg.VoteBallotNo > 0)
+            {
+                return maxVoteMsg;
+            }
+            return null;
+        }
         public PropserState State { get; set; }
 
         public ulong LastTriedBallot { get; set; }
@@ -241,6 +344,142 @@ namespace Paxos.Notebook
     {
         // proposer role
         private ConcurrentDictionary<ulong, Propose> _decreeState = new ConcurrentDictionary<ulong, Propose>();
+        private Ledger _ledger = new Ledger();
+
+        public ProposerNote(Ledger otherLedger)
+        {
+            if (otherLedger != null)
+            {
+                _ledger = otherLedger;
+            }
+        }
+
+        public ulong GetNewDecreeNo()
+        {
+            ulong nextDecreeNo = 0;
+
+            // new decree no generation is syncrhonized
+            lock(_ledger)
+            {
+                nextDecreeNo = _ledger.GetMaxCommittedDecreeNo() + 1;
+                var maxOngoingDecreeNo = GetMaxOngoingDecreeNo();
+                if (nextDecreeNo < maxOngoingDecreeNo + 1)
+                {
+                    nextDecreeNo = maxOngoingDecreeNo + 1;
+                }
+                var propose = AddPropose(nextDecreeNo);
+            }
+
+            return nextDecreeNo;
+        }
+
+        public void PrepareDecreeBallot(ulong decreeNo)
+        {
+            AddPropose(decreeNo);
+        }
+
+        public async Task<PaxosDecree> GetCommittedDecree(ulong decreeNo)
+        {
+            var propose = GetPropose(decreeNo);
+            if (propose == null)
+            {
+                return null;
+            }
+            await propose.AcquireLock();
+            var committedDecree = _ledger.GetCommittedDecree(decreeNo);
+            propose.ReleaseLock();
+            return committedDecree;
+        }
+
+        public void SubscribeCompletionNotification(ulong decreeNo, TaskCompletionSource<ProposeResult> completionSource)
+        {
+            var propose = GetPropose(decreeNo);
+            if (propose == null)
+            {
+                return;
+            }
+            propose.SubscribeCompletionNotification(completionSource);
+        }
+
+        public ulong PrepareNewBallot(ulong decreeNo, PaxosDecree decree)
+        {
+            var propose = GetPropose(decreeNo);
+            if (propose == null)
+            {
+                return 0;
+            }
+            return propose.PrepareNewBallot(decree);
+        }
+
+        public void BeginCommit(ulong decreeNo, PaxosDecree committingDecree)
+        {
+            var propose = GetPropose(decreeNo);
+            if (propose == null)
+            {
+                return ;
+            }
+            propose.BeginCommit(decreeNo, committingDecree);
+        }
+
+        public ulong  AddLastVoteMessage(ulong decreeNo, LastVoteMessage lastVoteMsg)
+        {
+            var propose = GetPropose(decreeNo);
+            if (propose == null)
+            {
+                return 0;
+            }
+
+            return propose.AddLastVoteMessage(lastVoteMsg);
+        }
+
+        public PaxosDecree BeginNewBallot(ulong decreeNo, ulong ballotNo)
+        {
+            var propose = GetPropose(decreeNo);
+            if (propose == null)
+            {
+                return null;
+            }
+
+            return propose.BeginNewBallot(ballotNo);
+        }
+
+        public ulong AddVoteMessage(ulong decreeNo, VoteMessage voteMsg)
+        {
+            var propose = GetPropose(decreeNo);
+            if (propose == null)
+            {
+                return 0;
+            }
+
+            return propose.AddVoteMessage(voteMsg);
+        }
+
+        public async Task<Propose> Commit(ulong decreeNo)
+        {
+            var propose = GetPropose(decreeNo);
+            if (propose == null)
+            {
+                return null;
+            }
+
+            // write the decree to ledge
+            await propose.AcquireLock();
+            var commitedDecree = propose.OngoingDecree;
+            if (commitedDecree == null)
+            {
+                propose.ReleaseLock();
+                return null;
+            }
+
+            await _ledger.CommitDecree(decreeNo, commitedDecree);
+
+            propose.State = PropserState.Commited; // committed
+
+            propose.ReleaseLock();
+
+            return propose;
+        }
+
 
         public ulong GetMaxOngoingDecreeNo()
         {

@@ -292,7 +292,7 @@ namespace Paxos.Tests
 
             var proposerFakeTalker = new FakePaxosNodeTalker(cluster.Members[0].Name);
             var ledger = new Ledger();
-            var proposerNote = new ProposerNote();
+            var proposerNote = new ProposerNote(ledger);
             var nodeMsgList = new List<List<PaxosMessage>>();
             foreach (var node in cluster.Members)
             {
