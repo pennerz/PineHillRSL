@@ -93,7 +93,8 @@ namespace Paxos.Protocol
                     BallotNo = msg.BallotNo,
                     DecreeNo = msg.DecreeNo,
                     VoteBallotNo = 0, // not applicable
-                    VoteDecree = commitedDecree
+                    VoteDecree = commitedDecree,
+                    CommittedDecrees = _ledger.GetFollowingCommittedDecress(msg.DecreeNo)
                 };
 
                 await _nodeTalkChannel.SendMessage(lastVoteMsg);
@@ -301,7 +302,17 @@ namespace Paxos.Protocol
             var completionSource = new TaskCompletionSource<ProposeResult>();
             Action action = async () =>
             {
-                await ProcessBeginNewBallotRequest(decree, completionSource);
+                do
+                {
+                    var oneInstanceCompletionSource = new TaskCompletionSource<ProposeResult>();
+                    await ProcessBeginNewBallotRequest(decree, oneInstanceCompletionSource);
+                    var result = await oneInstanceCompletionSource.Task;
+                    if (result.Decree.Content.Equals(decree.Content))
+                    {
+                        completionSource.SetResult(result);
+                        break;
+                    }
+                } while (true);
             };
             _tasksQueue.Add(new Task(action));
             return completionSource.Task;
@@ -627,7 +638,7 @@ namespace Paxos.Protocol
             var ledger = new Ledger();
             var voterNote = new VoterNote(persistenter);
             _voterRole = new VoterRole(_nodeInfo, _cluster, _nodeTalkChannel, voterNote, ledger);
-            var proposerNote = new ProposerNote(null);
+            var proposerNote = new ProposerNote(ledger);
             _proposerRole = new ProposerRole(_nodeInfo, _cluster, _nodeTalkChannel, proposerNote, ledger);
         }
 

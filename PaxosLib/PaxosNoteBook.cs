@@ -34,6 +34,21 @@ namespace Paxos.Notebook
             return null;
         }
 
+        public Dictionary<ulong, PaxosDecree> GetFollowingCommittedDecress(ulong beginDecreeNo)
+        {
+            var committedDecrees = new Dictionary<ulong, PaxosDecree>();
+            for (ulong decreeNo = beginDecreeNo; decreeNo <= GetMaxCommittedDecreeNo(); decreeNo++)
+            {
+                PaxosDecree committedDecree = null;
+                if (_committedDecrees.TryGetValue(decreeNo, out committedDecree))
+                {
+                    committedDecrees.Add(decreeNo, committedDecree);
+                }
+            }
+
+            return committedDecrees.Count > 0 ? committedDecrees : null;
+        }
+
         public Task CommitDecree(ulong decreeNo, PaxosDecree decree)
         {
             lock (_committedDecrees)

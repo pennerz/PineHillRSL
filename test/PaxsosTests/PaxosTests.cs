@@ -52,12 +52,6 @@ namespace Paxos.Tests
                 Content = "test2"
             };
             result = await proposer2.ProposeDecree(decree2);
-            // now multiple decree support is not enough
-            // proposer2 does not know the decree 1 is occupied
-            // so it propose with decree no 1, and found it's committed
-            // proposer2 will get the decree which is committed
-            // by proposer1
-            /*
             Assert.IsTrue(result.Decree.Content.Equals("test2"));
             Assert.IsTrue(result.DecreeNo == 2);
 
@@ -70,7 +64,6 @@ namespace Paxos.Tests
             Assert.IsTrue(readReslut.IsFound);
             Assert.IsTrue(readReslut.Decree.Content.Equals("test2"));
             Assert.IsTrue(readReslut.MaxDecreeNo == 2);
-            */
         }
 
         [TestMethod()]
