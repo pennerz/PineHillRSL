@@ -265,9 +265,9 @@ namespace Paxos.Protocol
         public Task<ProposeResult> BeginNewPropose(PaxosDecree decree, ulong nextDecreeNo)
         {
             var completionSource = new TaskCompletionSource<ProposeResult>();
-            Action action = () =>
+            Action action = async () =>
             {
-                ProcessBeginNewBallotRequest(decree, nextDecreeNo, completionSource);
+                await ProcessBeginNewBallotRequest(decree, nextDecreeNo, completionSource);
             };
             _tasksQueue.Add(new Task(action));
             return completionSource.Task;
@@ -278,7 +278,8 @@ namespace Paxos.Protocol
             var completionSource = new TaskCompletionSource<bool>();
             Action action = () =>
             {
-                ProcessStaleBallotMessage(msg, completionSource);
+                var ret = ProcessStaleBallotMessage(msg);
+                completionSource.SetResult(ret);
             };
             _tasksQueue.Add(new Task(action));
             return completionSource.Task;
@@ -287,9 +288,10 @@ namespace Paxos.Protocol
         public Task DeliverLastVoteMessage(LastVoteMessage msg)
         {
             var completionSource = new TaskCompletionSource<bool>();
-            Action action = () =>
+            Action action = async () =>
             {
-                ProcessLastVoteMessage(msg, completionSource);
+                var ret = await ProcessLastVoteMessage(msg);
+                completionSource.SetResult(ret);
             };
             _tasksQueue.Add(new Task(action));
             return completionSource.Task;
@@ -298,9 +300,10 @@ namespace Paxos.Protocol
         public Task DeliverVoteMessage(VoteMessage msg)
         {
             var completionSource = new TaskCompletionSource<bool>();
-            Action action = () =>
+            Action action = async () =>
             {
-                ProcessVoteMessage(msg, completionSource);
+                var ret = await ProcessVoteMessage(msg);
+                completionSource.SetResult(ret);
             };
             _tasksQueue.Add(new Task(action));
             return completionSource.Task;
@@ -309,7 +312,7 @@ namespace Paxos.Protocol
         private async Task ProcessBeginNewBallotRequest(
             PaxosDecree decree,
             ulong nextDecreeNo, 
-            TaskCompletionSource<ProposeResult> completionSource)
+            TaskCompletionSource<ProposeResult> proposeCompletionNotification)
         {
             if (nextDecreeNo == 0)
             {
@@ -333,11 +336,11 @@ namespace Paxos.Protocol
                     Decree = committedDecree
                 };
 
-                completionSource?.SetResult(result);
+                proposeCompletionNotification?.SetResult(result);
                 return;
             }
 
-            _proposerNote.SubscribeCompletionNotification(nextDecreeNo, completionSource);
+            _proposerNote.SubscribeCompletionNotification(nextDecreeNo, proposeCompletionNotification);
 
             var ballotNo = _proposerNote.PrepareNewBallot(nextDecreeNo, decree);
             if (ballotNo == 0)
@@ -348,25 +351,22 @@ namespace Paxos.Protocol
             QueryLastVote(nextDecreeNo, ballotNo);
         }
 
-        private void ProcessStaleBallotMessage(StaleBallotMessage msg, TaskCompletionSource<bool> completionSource)
+        private bool ProcessStaleBallotMessage(StaleBallotMessage msg)
         {
             // QueryLastVote || BeginNewBallot
             var propose = _proposerNote.GetPropose(msg.DecreeNo);
             if (propose == null)
             {
-                completionSource.SetResult(false);
-                return;
+                return false;
             }
             if (propose.State != PropserState.QueryLastVote && propose.State != PropserState.BeginNewBallot)
             {
-                completionSource.SetResult(false);
-                return;
+                return false;
             }
 
             if (propose.LastTriedBallot != msg.BallotNo)
             {
-                completionSource.SetResult(false);
-                return;
+                return false;
             }
 
             // query last vote again
@@ -380,28 +380,25 @@ namespace Paxos.Protocol
 
             QueryLastVote(msg.DecreeNo, nextBallotNo);
 
-            completionSource.SetResult(true);
+            return true;
         }
 
-        private async Task ProcessLastVoteMessage(LastVoteMessage msg, TaskCompletionSource<bool> completionSource)
+        private async Task<bool> ProcessLastVoteMessage(LastVoteMessage msg)
         {
             var propose = _proposerNote.GetPropose(msg.DecreeNo);
             if (propose == null)
             {
-                completionSource.SetResult(false);
-                return;
+                return false;
             }
             if (propose.State != PropserState.QueryLastVote)
             {
-                completionSource.SetResult(false);
-                return;
+                return false;
             }
 
             // LastTriedBallot 
             if (propose.LastTriedBallot != msg.BallotNo)
             {
-                completionSource.SetResult(false);
-                return;
+                return false;
             }
 
             // cant not go to the following path, either proposer's note has no information
@@ -421,8 +418,7 @@ namespace Paxos.Protocol
 
                 await BeginCommit(msg.DecreeNo, msg.BallotNo);
 
-                completionSource.SetResult(false);
-                return;
+                return false;
             }
 
             // TODO: check if message come from existing node
@@ -434,36 +430,32 @@ namespace Paxos.Protocol
                 if (newBallotDecree == null)
                 {
                     // sombody else is doing the job
-                    completionSource.SetResult(false);
-                    return;
+                    return false;
                 }
 
                 // begin new ballot
                 BeginNewBallot(msg.DecreeNo, msg.BallotNo, newBallotDecree);
             }
 
-            completionSource.SetResult(true);
+            return true;
         }
 
-        private async Task ProcessVoteMessage(VoteMessage msg, TaskCompletionSource<bool> completionSource)
+        private async Task<bool> ProcessVoteMessage(VoteMessage msg)
         {
             var propose = _proposerNote.GetPropose(msg.DecreeNo);
             if (propose == null)
             {
-                completionSource.SetResult(false);
-                return;
+                return false;
             }
             if (propose.State != PropserState.BeginNewBallot)
             {
-                completionSource.SetResult(false);
-                return;
+                return false;
             }
 
             if (propose.LastTriedBallot != msg.BallotNo)
             {
                 // not the vote ballot
-                completionSource.SetResult(false);
-                return;
+                return false;
             }
 
             // TODO: check if message come from existing node
@@ -476,7 +468,7 @@ namespace Paxos.Protocol
 
                 await BeginCommit(msg.DecreeNo, msg.BallotNo);
             }
-            completionSource.SetResult(true);
+            return true;
         }
 
         private LastVoteMessage GetMaximumVote(UInt64 decreeNo)
