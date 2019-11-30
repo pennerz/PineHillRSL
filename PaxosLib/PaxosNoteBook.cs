@@ -237,6 +237,8 @@ namespace Paxos.Notebook
 
         public ulong PrepareNewBallot(PaxosDecree decree)
         {
+            // lastvote message, vote message can touch the propose's state
+            // lock it
             lock(_subscribedCompletionSource)
             {
                 LastTriedBallot++;
@@ -248,12 +250,18 @@ namespace Paxos.Notebook
             }
         }
 
-        public void BeginCommit(ulong decreeNo, PaxosDecree committingDecree)
+        public bool BeginCommit(ulong decreeNo, ulong ballotNo, PaxosDecree committingDecree)
         {
             lock(_subscribedCompletionSource)
             {
+                if (ballotNo != LastTriedBallot)
+                {
+                    // stale commit
+                    return false;
+                }
                 OngoingDecree = committingDecree;
                 State = PropserState.BeginCommit;
+                return true;
             }
         }
 
@@ -373,22 +381,30 @@ namespace Paxos.Notebook
             return nextDecreeNo;
         }
 
+        public ulong GetMaximumCommittedDecreeNo()
+        {
+            return _ledger.GetMaxCommittedDecreeNo();
+        }
+
         public void PrepareDecreeBallot(ulong decreeNo)
         {
             AddPropose(decreeNo);
         }
 
-        public async Task<PaxosDecree> GetCommittedDecree(ulong decreeNo)
+        public Task<PaxosDecree> GetCommittedDecree(ulong decreeNo)
         {
+            // committed dcree can never be changed
+            return Task.FromResult(_ledger.GetCommittedDecree(decreeNo));
+            /*
             var propose = GetPropose(decreeNo);
             if (propose == null)
             {
                 return null;
             }
             await propose.AcquireLock();
-            var committedDecree = _ledger.GetCommittedDecree(decreeNo);
+            committedDecree = _ledger.GetCommittedDecree(decreeNo);
             propose.ReleaseLock();
-            return committedDecree;
+            return committedDecree;*/
         }
 
         public void SubscribeCompletionNotification(ulong decreeNo, TaskCompletionSource<ProposeResult> completionSource)
@@ -411,14 +427,14 @@ namespace Paxos.Notebook
             return propose.PrepareNewBallot(decree);
         }
 
-        public void BeginCommit(ulong decreeNo, PaxosDecree committingDecree)
+        public bool BeginCommit(ulong decreeNo, ulong ballotNo, PaxosDecree committingDecree)
         {
             var propose = GetPropose(decreeNo);
             if (propose == null)
             {
-                return ;
+                return false;
             }
-            propose.BeginCommit(decreeNo, committingDecree);
+            return propose.BeginCommit(decreeNo, ballotNo, committingDecree);
         }
 
         public ulong  AddLastVoteMessage(ulong decreeNo, LastVoteMessage lastVoteMsg)
@@ -474,6 +490,10 @@ namespace Paxos.Notebook
             await _ledger.CommitDecree(decreeNo, commitedDecree);
 
             propose.State = PropserState.Commited; // committed
+
+            // propose commited, remove it from ongoing proposes
+
+            while (!_decreeState.TryRemove(decreeNo, out propose)) ;
 
             propose.ReleaseLock();
 

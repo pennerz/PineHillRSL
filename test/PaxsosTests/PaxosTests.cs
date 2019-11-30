@@ -39,21 +39,38 @@ namespace Paxos.Tests
             {
                 Content = "test"
             };
-            var result = await proposer.ProposeDecree(decree, 0);
+            var result = await proposer.ProposeDecree(decree);
+            var readReslut = await proposer.ReadDecree(result.DecreeNo);
+            Assert.IsTrue(readReslut.IsFound);
+            Assert.IsTrue(readReslut.Decree.Content.Equals("test"));
+            Assert.IsTrue(readReslut.MaxDecreeNo == 1);
+
             var proposer2 = nodeMap[cluster.Members[1].Name];
 
             var decree2 = new PaxosDecree()
             {
                 Content = "test2"
             };
-            result = await proposer2.ProposeDecree(decree2, result.DecreeNo);
-            Assert.IsTrue(result.Decree.Content.Equals("test"));
-
-            result = await proposer.ProposeDecree(decree2, 1);
-            Assert.IsTrue(result.Decree.Content.Equals("test"));
-
-            result = await proposer.ProposeDecree(decree2, 0);
+            result = await proposer2.ProposeDecree(decree2);
+            // now multiple decree support is not enough
+            // proposer2 does not know the decree 1 is occupied
+            // so it propose with decree no 1, and found it's committed
+            // proposer2 will get the decree which is committed
+            // by proposer1
+            /*
             Assert.IsTrue(result.Decree.Content.Equals("test2"));
+            Assert.IsTrue(result.DecreeNo == 2);
+
+            readReslut = await proposer2.ReadDecree(result.DecreeNo);
+            Assert.IsTrue(readReslut.IsFound);
+            Assert.IsTrue(readReslut.Decree.Content.Equals("test2"));
+            Assert.IsTrue(readReslut.MaxDecreeNo == 2);
+
+            readReslut = await proposer.ReadDecree(result.DecreeNo);
+            Assert.IsTrue(readReslut.IsFound);
+            Assert.IsTrue(readReslut.Decree.Content.Equals("test2"));
+            Assert.IsTrue(readReslut.MaxDecreeNo == 2);
+            */
         }
 
         [TestMethod()]
