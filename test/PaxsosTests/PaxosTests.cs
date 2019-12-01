@@ -39,7 +39,7 @@ namespace Paxos.Tests
             {
                 Content = "test"
             };
-            var result = await proposer.ProposeDecree(decree);
+            var result = await proposer.ProposeDecree(decree, 0/*nextDecreNo*/);
             var readReslut = await proposer.ReadDecree(result.DecreeNo);
             Assert.IsTrue(readReslut.IsFound);
             Assert.IsTrue(readReslut.Decree.Content.Equals("test"));
@@ -51,19 +51,42 @@ namespace Paxos.Tests
             {
                 Content = "test2"
             };
-            result = await proposer2.ProposeDecree(decree2);
-            Assert.IsTrue(result.Decree.Content.Equals("test2"));
-            Assert.IsTrue(result.DecreeNo == 2);
+            // this will get the committed decree in proposer1
+            result = await proposer2.ProposeDecree(decree2, result.DecreeNo);
+            Assert.IsTrue(result.Decree.Content.Equals("test"));
+            Assert.IsTrue(result.DecreeNo == 1);
 
             readReslut = await proposer2.ReadDecree(result.DecreeNo);
             Assert.IsTrue(readReslut.IsFound);
-            Assert.IsTrue(readReslut.Decree.Content.Equals("test2"));
-            Assert.IsTrue(readReslut.MaxDecreeNo == 2);
+            Assert.IsTrue(readReslut.Decree.Content.Equals("test"));
+            Assert.IsTrue(readReslut.MaxDecreeNo == 1);
 
+            // proposer1 propose a new decree
+            result = await proposer.ProposeDecree(decree2, 0);
+            Assert.IsTrue(result.Decree.Content.Equals("test2"));
+            Assert.IsTrue(result.DecreeNo == 2);
             readReslut = await proposer.ReadDecree(result.DecreeNo);
             Assert.IsTrue(readReslut.IsFound);
             Assert.IsTrue(readReslut.Decree.Content.Equals("test2"));
             Assert.IsTrue(readReslut.MaxDecreeNo == 2);
+
+            // proposer2 propose a new decree
+            var decree3 = new PaxosDecree()
+            {
+                Content = "test3"
+            };
+            result = await proposer2.ProposeDecree(decree3, 0);
+            Assert.IsTrue(result.Decree.Content.Equals("test3"));
+            Assert.IsTrue(result.DecreeNo == 3);
+            readReslut = await proposer.ReadDecree(result.DecreeNo);
+            Assert.IsTrue(readReslut.IsFound);
+            Assert.IsTrue(readReslut.Decree.Content.Equals("test3"));
+            Assert.IsTrue(readReslut.MaxDecreeNo == 3);
+
+            readReslut = await proposer.ReadDecree(result.DecreeNo);
+            Assert.IsTrue(readReslut.IsFound);
+            Assert.IsTrue(readReslut.Decree.Content.Equals("test3"));
+            Assert.IsTrue(readReslut.MaxDecreeNo == 3);
         }
 
         [TestMethod()]
