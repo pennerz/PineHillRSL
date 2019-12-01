@@ -40,7 +40,11 @@ namespace Paxos.Message
         public LastVoteMessage()
         {
             MessageType = PaxosMessageType.LASTVOTE;
+            CommittedDecrees = new Dictionary<ulong, PaxosDecree>();
         }
+
+        // all committed messages, whose decreee no > DecreeNo in this message
+        public Dictionary<ulong, PaxosDecree> CommittedDecrees { get; set; }
 
         public bool Commited { get; set; }
         public ulong VoteBallotNo { get; set; }

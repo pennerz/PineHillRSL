@@ -3,6 +3,7 @@ using Paxos.Message;
 using Paxos.Network;
 using Paxos.Notebook;
 using Paxos.Protocol;
+using Paxos.Persistence;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -38,25 +39,35 @@ namespace Paxos.Tests
             {
                 Content = "test"
             };
-            var result = await proposer.ProposeDecree(decree, 0);
+            var result = await proposer.ProposeDecree(decree);
+            var readReslut = await proposer.ReadDecree(result.DecreeNo);
+            Assert.IsTrue(readReslut.IsFound);
+            Assert.IsTrue(readReslut.Decree.Content.Equals("test"));
+            Assert.IsTrue(readReslut.MaxDecreeNo == 1);
+
             var proposer2 = nodeMap[cluster.Members[1].Name];
 
             var decree2 = new PaxosDecree()
             {
                 Content = "test2"
             };
-            result = await proposer2.ProposeDecree(decree2, result.DecreeNo);
-            Assert.IsTrue(result.Decree.Content.Equals("test"));
-
-            result = await proposer.ProposeDecree(decree2, 1);
-            Assert.IsTrue(result.Decree.Content.Equals("test"));
-
-            result = await proposer.ProposeDecree(decree2, 0);
+            result = await proposer2.ProposeDecree(decree2);
             Assert.IsTrue(result.Decree.Content.Equals("test2"));
+            Assert.IsTrue(result.DecreeNo == 2);
+
+            readReslut = await proposer2.ReadDecree(result.DecreeNo);
+            Assert.IsTrue(readReslut.IsFound);
+            Assert.IsTrue(readReslut.Decree.Content.Equals("test2"));
+            Assert.IsTrue(readReslut.MaxDecreeNo == 2);
+
+            readReslut = await proposer.ReadDecree(result.DecreeNo);
+            Assert.IsTrue(readReslut.IsFound);
+            Assert.IsTrue(readReslut.Decree.Content.Equals("test2"));
+            Assert.IsTrue(readReslut.MaxDecreeNo == 2);
         }
 
         [TestMethod()]
-        public void VoteRoleTest()
+        public async Task VoteRoleTest()
         {
             var cluster = new PaxosCluster();
             for (int i = 0; i < 5; i++)
@@ -79,7 +90,8 @@ namespace Paxos.Tests
 
             var ledger = new Ledger();
             var voterFakeTalker = new FakePaxosNodeTalker(cluster.Members[1].Name);
-            var voterNote = new VoterNote();
+            var persistenter = new MemoryPaxosNotePersistent();
+            var voterNote = new VoterNote(persistenter);
             // 1. NextBallotMessage
             {
                 // 1.1. voter have voted no ballot for a decree
@@ -89,7 +101,7 @@ namespace Paxos.Tests
                 nextBallotMsg.BallotNo = 1;
                 nextBallotMsg.SourceNode = sourceNode;
                 nextBallotMsg.TargetNode = targetNode;
-                voter.DeliverNextBallotMessage(nextBallotMsg);
+                await voter.DeliverNextBallotMessage(nextBallotMsg);
                 var msgList = voterFakeTalker.GetNodeMessages(sourceNode);
                 Assert.AreEqual(msgList.Count, 1);
                 var lastVoteMsg = msgList[0] as LastVoteMessage;
@@ -105,7 +117,7 @@ namespace Paxos.Tests
                 // now the NextBalloNo is 1
                 // 1.2. New ballot no > 1 will be accepted and got a last vote
                 nextBallotMsg.BallotNo = 2;
-                voter.DeliverNextBallotMessage(nextBallotMsg);
+                await voter.DeliverNextBallotMessage(nextBallotMsg);
                 Assert.AreEqual(msgList.Count, 1);
                 lastVoteMsg = msgList[0] as LastVoteMessage;
                 Assert.IsNotNull(lastVoteMsg);
@@ -120,7 +132,7 @@ namespace Paxos.Tests
                 // now NextBallotNo is 2
 
                 // 1.3. NextBallotNo <= 2 will not be accepted and got a stale ballot message
-                voter.DeliverNextBallotMessage(nextBallotMsg);
+                await voter.DeliverNextBallotMessage(nextBallotMsg);
                 Assert.AreEqual(msgList.Count, 1);
                 var staleBallotMsg = msgList[0] as StaleBallotMessage;
                 Assert.IsNotNull(staleBallotMsg);
@@ -131,7 +143,7 @@ namespace Paxos.Tests
                 voterFakeTalker.ClearNodeMessage(sourceNode);
 
                 nextBallotMsg.BallotNo = 1;
-                voter.DeliverNextBallotMessage(nextBallotMsg);
+                await voter.DeliverNextBallotMessage(nextBallotMsg);
                 Assert.AreEqual(msgList.Count, 1);
                 staleBallotMsg = msgList[0] as StaleBallotMessage;
                 Assert.IsNotNull(staleBallotMsg);
@@ -150,10 +162,11 @@ namespace Paxos.Tests
                 { Content = voteContent };
                 voteMsg.SourceNode = sourceNode;
                 voteMsg.TargetNode = targetNode;
-                voterNote.UpdateLastVote(1, voteMsg);
+
+                await voterNote.UpdateLastVote(1, 2, voteMsg);
 
                 nextBallotMsg.BallotNo = 3;
-                voter.DeliverNextBallotMessage(nextBallotMsg);
+                await voter.DeliverNextBallotMessage(nextBallotMsg);
                 Assert.AreEqual(msgList.Count, 1);
                 lastVoteMsg = msgList[0] as LastVoteMessage;
                 Assert.IsNotNull(lastVoteMsg);
@@ -165,10 +178,10 @@ namespace Paxos.Tests
                 voterFakeTalker.ClearNodeMessage(sourceNode);
 
                 //1.5 decree has been committed in ledger
-                ledger.CommitDecree(1, voteMsg.VoteDecree);
+                await ledger.CommitDecree(1, voteMsg.VoteDecree);
                 nextBallotMsg.BallotNo = 2; // do not care about the ballot no for committed decree
 
-                voter.DeliverNextBallotMessage(nextBallotMsg);
+                await voter.DeliverNextBallotMessage(nextBallotMsg);
                 Assert.AreEqual(msgList.Count, 1);
                 lastVoteMsg = msgList[0] as LastVoteMessage;
                 Assert.IsNotNull(lastVoteMsg);
@@ -201,12 +214,12 @@ namespace Paxos.Tests
                 {
                     Content = voteContent
                 };
-                voter.DeliverBeginBallotMessage(beginBallotMsg);    // no response
+                await voter.DeliverBeginBallotMessage(beginBallotMsg);    // no response
                 var msgList = voterFakeTalker.GetNodeMessages(sourceNode);
                 Assert.AreEqual(msgList.Count, 0);
 
-                voterNote.UpdateNextBallotNo(1, 2); // nextBallotNo = 2, > 1
-                voter.DeliverBeginBallotMessage(beginBallotMsg);    // state ballot response
+                await voterNote.UpdateNextBallotNo(1, 2); // nextBallotNo = 2, > 1
+                await voter.DeliverBeginBallotMessage(beginBallotMsg);    // state ballot response
                 Assert.AreEqual(msgList.Count, 1);
                 var staleBallotMsg = msgList[0] as StaleBallotMessage;
                 Assert.IsNotNull(staleBallotMsg);
@@ -218,7 +231,7 @@ namespace Paxos.Tests
 
                 // 2.2 NextBallotNo match
                 beginBallotMsg.BallotNo = 2;
-                voter.DeliverBeginBallotMessage(beginBallotMsg);    // vote
+                await voter.DeliverBeginBallotMessage(beginBallotMsg);    // vote
                 Assert.AreEqual(msgList.Count, 1);
 
                 var voteMsg = msgList[0] as VoteMessage;
@@ -231,9 +244,9 @@ namespace Paxos.Tests
                 voterFakeTalker.ClearNodeMessage(sourceNode);
 
                 // 2.3 Decree committed, no response
-                ledger.CommitDecree(beginBallotMsg.DecreeNo, voteMsg.VoteDecree);
+                await ledger.CommitDecree(beginBallotMsg.DecreeNo, voteMsg.VoteDecree);
                 beginBallotMsg.BallotNo = 3;
-                voter.DeliverBeginBallotMessage(beginBallotMsg);    // vote
+                await voter.DeliverBeginBallotMessage(beginBallotMsg);    // vote
                 Assert.AreEqual(msgList.Count, 0);
                 voterFakeTalker.ClearNodeMessage(sourceNode);
             }
@@ -289,7 +302,7 @@ namespace Paxos.Tests
 
             var proposerFakeTalker = new FakePaxosNodeTalker(cluster.Members[0].Name);
             var ledger = new Ledger();
-            var proposerNote = new ProposerNote();
+            var proposerNote = new ProposerNote(ledger);
             var nodeMsgList = new List<List<PaxosMessage>>();
             foreach (var node in cluster.Members)
             {
