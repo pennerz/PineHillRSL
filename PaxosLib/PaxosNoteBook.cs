@@ -1,5 +1,6 @@
 ﻿using Paxos.Message;
 using Paxos.Persistence;
+using Paxos.Request;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -208,11 +209,6 @@ namespace Paxos.Notebook
         BeginNewBallot,     // prepare commit
         BeginCommit,        // commit
         Commited            // done
-    }
-    public class ProposeResult
-    {
-        public ulong DecreeNo { get; set; }
-        public PaxosDecree Decree { get; set; }
     }
 
     public class Propose

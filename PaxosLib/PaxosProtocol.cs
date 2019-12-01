@@ -2,6 +2,8 @@
 using Paxos.Notebook;
 using Paxos.Message;
 using Paxos.Persistence;
+using Paxos.Node;
+using Paxos.Request;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -34,12 +36,6 @@ namespace Paxos.Protocol
         }
     }
 
-    public class DecreeReadResult
-    {
-        public bool IsFound { get; set; }
-        public ulong MaxDecreeNo { get; set; }
-        public PaxosDecree Decree { get; set; }
-    }
 
 
     /// <summary>
@@ -52,7 +48,7 @@ namespace Paxos.Protocol
     ///
     public class VoterRole
     {
-        IPaxosNodeTalkChannel _nodeTalkChannel;
+        IMessageTransport _messageTransport;
         private readonly NodeInfo _nodeInfo;
         private readonly PaxosCluster _cluster;
 
@@ -62,19 +58,19 @@ namespace Paxos.Protocol
         public VoterRole(
             NodeInfo nodeInfo,
             PaxosCluster cluster,
-            IPaxosNodeTalkChannel talkChannel,
+            IMessageTransport messageTransport,
             VoterNote paxoserNote,
             Ledger ledger)
         {
             if (cluster == null) throw new ArgumentNullException("cluster");
             if (nodeInfo == null) throw new ArgumentNullException("nodeInfo");
-            if (talkChannel == null) throw new ArgumentNullException("IPaxosNodeTalkChannel");
+            if (messageTransport == null) throw new ArgumentNullException("IMessageTransport");
             if (paxoserNote == null) throw new ArgumentNullException("no note book");
             if (ledger == null) throw new ArgumentNullException("ledger");
 
             _nodeInfo = nodeInfo;
             _cluster = cluster;
-            _nodeTalkChannel = talkChannel;
+            _messageTransport = messageTransport;
             _note = paxoserNote;
             _ledger = ledger;
         }
@@ -97,7 +93,7 @@ namespace Paxos.Protocol
                     CommittedDecrees = _ledger.GetFollowingCommittedDecress(msg.DecreeNo)
                 };
 
-                await _nodeTalkChannel.SendMessage(lastVoteMsg);
+                await _messageTransport.SendMessage(lastVoteMsg);
                 return;
             }
 
@@ -115,7 +111,7 @@ namespace Paxos.Protocol
                 staleBallotMsg.BallotNo = msg.BallotNo;
                 staleBallotMsg.DecreeNo = msg.DecreeNo;
 
-                await _nodeTalkChannel.SendMessage(staleBallotMsg);
+                await _messageTransport.SendMessage(staleBallotMsg);
 
                 return;
             }
@@ -136,7 +132,7 @@ namespace Paxos.Protocol
             lastVoteMsg.VoteBallotNo = lastVote != null ? lastVote.BallotNo : 0;
             lastVoteMsg.VoteDecree = lastVote?.VoteDecree;
 
-            await _nodeTalkChannel.SendMessage(lastVoteMsg);
+            await _messageTransport.SendMessage(lastVoteMsg);
         }
 
         public async Task DeliverBeginBallotMessage(BeginBallotMessage msg)
@@ -176,7 +172,7 @@ namespace Paxos.Protocol
                 staleBallotMsg.BallotNo = msg.BallotNo;
                 staleBallotMsg.DecreeNo = msg.DecreeNo;
 
-                await _nodeTalkChannel.SendMessage(staleBallotMsg);
+                await _messageTransport.SendMessage(staleBallotMsg);
 
                 return;
             }
@@ -187,7 +183,7 @@ namespace Paxos.Protocol
             }
 
             // deliver the vote message
-            await _nodeTalkChannel.SendMessage(voteMsg);
+            await _messageTransport.SendMessage(voteMsg);
         }
 
         public void DeliverSuccessMessage(SuccessMessage msg)
@@ -221,7 +217,7 @@ namespace Paxos.Protocol
 
     public class ProposerRole
     {
-        IPaxosNodeTalkChannel _nodeTalkChannel;
+        IMessageTransport _messageTransport;
         private readonly NodeInfo _nodeInfo;
         private readonly PaxosCluster _cluster;
 
@@ -233,19 +229,19 @@ namespace Paxos.Protocol
         public ProposerRole(
             NodeInfo nodeInfo,
             PaxosCluster cluster,
-            IPaxosNodeTalkChannel talkChannel,
+            IMessageTransport messageTransport,
             ProposerNote proposerNote,
             Ledger ledger)
         {
             if (cluster == null) throw new ArgumentNullException("cluster");
             if (nodeInfo == null) throw new ArgumentNullException("nodeInfo");
-            if (talkChannel == null) throw new ArgumentNullException("IPaxosNodeTalkChannel");
+            if (messageTransport == null) throw new ArgumentNullException("IMessageTransport");
             if (proposerNote == null) throw new ArgumentNullException("proposer note");
             if (ledger == null) throw new ArgumentNullException("ledger");
 
             _nodeInfo = nodeInfo;
             _cluster = cluster;
-            _nodeTalkChannel = talkChannel;
+            _messageTransport = messageTransport;
             _proposerNote = proposerNote;
             _ledger = ledger;
 
@@ -553,7 +549,7 @@ namespace Paxos.Protocol
                 nextBallotMessage.DecreeNo = decreeNo;
                 nextBallotMessage.BallotNo = nextBallotNo;
 
-                _nodeTalkChannel.SendMessage(nextBallotMessage);
+                _messageTransport.SendMessage(nextBallotMessage);
             }
 
         }
@@ -570,7 +566,7 @@ namespace Paxos.Protocol
                 beginBallotMessage.BallotNo = ballotNo;
                 beginBallotMessage.TargetNode = node.Name;
                 beginBallotMessage.Decree = newBallotDecree;
-                _nodeTalkChannel.SendMessage(beginBallotMessage);
+                _messageTransport.SendMessage(beginBallotMessage);
             }
         }
 
@@ -594,7 +590,7 @@ namespace Paxos.Protocol
                 successMessage.DecreeNo = decreeNo;
                 successMessage.BallotNo = ballotNo;
                 successMessage.Decree = propose.OngoingDecree;
-                await _nodeTalkChannel.SendMessage(successMessage);
+                await _messageTransport.SendMessage(successMessage);
             }
 
             // TODO: confirm the commit succeeded on other nodes
@@ -609,129 +605,6 @@ namespace Paxos.Protocol
             }
 
         }
-    }
-
-    public class PaxosNode
-    {
-        IPaxosNodeTalkChannel _nodeTalkChannel;
-        VoterRole _voterRole;
-        ProposerRole _proposerRole;
-
-        PaxosCluster _cluster;
-        NodeInfo _nodeInfo;
-
-
-        public PaxosNode(
-            IPaxosNodeTalkChannel nodeTalkChannel,
-            PaxosCluster cluster,
-            NodeInfo nodeInfo)
-        {
-            if (nodeTalkChannel == null)
-            {
-                throw new ArgumentNullException("Node talk channel is null");
-            }
-            if (cluster == null)
-            {
-                throw new ArgumentNullException("cluster is null");
-            }
-            if (nodeInfo == null)
-            {
-                throw new ArgumentNullException("nodeInfo is null");
-            }
-
-            _nodeTalkChannel = nodeTalkChannel;
-            _cluster = cluster;
-            _nodeInfo = nodeInfo;
-
-            var persistenter = new MemoryPaxosNotePersistent();
-
-            var ledger = new Ledger();
-            var voterNote = new VoterNote(persistenter);
-            _voterRole = new VoterRole(_nodeInfo, _cluster, _nodeTalkChannel, voterNote, ledger);
-            var proposerNote = new ProposerNote(ledger);
-            _proposerRole = new ProposerRole(_nodeInfo, _cluster, _nodeTalkChannel, proposerNote, ledger);
-        }
-
-        public Task<ProposeResult> ProposeDecree(PaxosDecree decree, ulong decreeNo)
-        {
-            //
-            // three phase commit
-            // 1. collect decree for this instance
-            // 2. prepare commit decree
-            // 3. commit decree
-            //
-
-           return  _proposerRole.BeginNewPropose(decree, decreeNo);
-        }
-
-        public async Task<DecreeReadResult> ReadDecree(ulong decreeNo)
-        {
-            var result = await _proposerRole.ReadDecree(decreeNo);
-            return result;
-        }
-
-
-        ///
-        /// Following are messages channel, should be moved out of the node interface
-        ///
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="message"></param>
-
-        public async Task DeliverMessage(PaxosMessage message)
-        {
-            switch (message.MessageType)
-            {
-                case PaxosMessageType.NEXTBALLOT:
-                    await ProcessNextBallot(message as NextBallotMessage);
-                    break;
-                case PaxosMessageType.LASTVOTE:
-                    ProcessLastVote(message as LastVoteMessage);
-                    break;
-                case PaxosMessageType.BEGINBALLOT:
-                    await ProcessBeginBallot(message as BeginBallotMessage);
-                    break;
-                case PaxosMessageType.VOTE:
-                    ProcessVote(message as VoteMessage);
-                    break;
-                case PaxosMessageType.SUCCESS:
-                    ProcessSuccess(message as SuccessMessage);
-                    break;
-                case PaxosMessageType.STALEBALLOT:
-                    ProcessStaleBallotMessage(message as StaleBallotMessage);
-                    break;
-                default:
-                    break;
-            }
-        }
-
-        private async Task ProcessNextBallot(NextBallotMessage msg)
-        {
-            await _voterRole.DeliverNextBallotMessage(msg);
-        }
-        private void ProcessLastVote(LastVoteMessage msg)
-        {
-            _proposerRole.DeliverLastVoteMessage(msg);
-        }
-        private async Task ProcessBeginBallot(BeginBallotMessage msg)
-        {
-            await _voterRole.DeliverBeginBallotMessage(msg);
-        }
-        private void ProcessVote(VoteMessage msg)
-        {
-            _proposerRole.DeliverVoteMessage(msg);
-        }
-        private void ProcessSuccess(SuccessMessage msg)
-        {
-            _voterRole.DeliverSuccessMessage(msg);
-        }
-
-        private void ProcessStaleBallotMessage(StaleBallotMessage msg)
-        {
-            _proposerRole.DeliverStaleBallotMessage(msg);
-        }
-
     }
 
 }

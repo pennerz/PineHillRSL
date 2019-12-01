@@ -4,16 +4,19 @@ using Paxos.Protocol;
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Paxos.Tests
 {
-    class TestPaxosNodeTalkProxy : IPaxosNodeTalkChannel
+    class TestMessageTransport : IMessageTransport
     {
         private string _nodeName;
-        private Dictionary<string, PaxosNode> _nodeMap;
+        private Dictionary<string, TestMessageTransport> _nodeMap;
+        private List<PaxosMessage> _receivedMessages = new List<PaxosMessage>();
+        private SemaphoreSlim _receivedMessageSemaphore = new SemaphoreSlim(0);
 
-        public TestPaxosNodeTalkProxy(string nodeName, Dictionary<string, PaxosNode> nodeMap)
+        public TestMessageTransport(string nodeName, Dictionary<string, TestMessageTransport> nodeMap)
         {
             _nodeName = nodeName;
             _nodeMap = nodeMap;
@@ -34,9 +37,34 @@ namespace Paxos.Tests
             return Task.CompletedTask;
         }
 
+        public async Task<PaxosMessage> ReceiveMessage()
+        {
+            do
+            {
+                await _receivedMessageSemaphore.WaitAsync();
+                lock (_receivedMessages)
+                {
+                    if (_receivedMessages.Count > 0)
+                    {
+                        var message = _receivedMessages[0];
+                        _receivedMessages.RemoveAt(0);
+                        return message;
+                    }
+                }
+            } while (true);
+        }
+
+        public void DeliverMessage(PaxosMessage message)
+        {
+            lock(_receivedMessages)
+            {
+                _receivedMessages.Add(message);
+                _receivedMessageSemaphore.Release();
+            }
+        }
     }
 
-    class FakePaxosNodeTalker : IPaxosNodeTalkChannel
+    class FakePaxosNodeTalker : IMessageTransport
     {
         private readonly string _nodeName;
         private readonly Dictionary<string, List<PaxosMessage>> _messageList = new Dictionary<string, List<PaxosMessage>>();
@@ -94,6 +122,10 @@ namespace Paxos.Tests
 
             return Task.CompletedTask;
         }
-    }
 
+        public Task<PaxosMessage> ReceiveMessage()
+        {
+            return Task.FromResult((PaxosMessage)null);
+        }
+    }
 }

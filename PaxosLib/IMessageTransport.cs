@@ -13,9 +13,10 @@ namespace Paxos.Network
     }
 
     //TODO: abstract the PaxosMessage
-    public interface IPaxosNodeTalkChannel
+    public interface IMessageTransport
     {
         Task SendMessage(PaxosMessage msg);
+        Task<PaxosMessage> ReceiveMessage();
     }
 
 }

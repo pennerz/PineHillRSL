@@ -4,6 +4,8 @@ using Paxos.Network;
 using Paxos.Notebook;
 using Paxos.Protocol;
 using Paxos.Persistence;
+using Paxos.Node;
+using Paxos.Request;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -25,16 +27,17 @@ namespace Paxos.Tests
                 cluster.Members.Add(node);
             }
 
-            Dictionary<string, PaxosNode> nodeMap = new Dictionary<string, PaxosNode>();
+            var nodeMap = new Dictionary<string, PaxosNode>();
+            var transportMap = new Dictionary<string, TestMessageTransport>();
             foreach (var nodeInfo in cluster.Members)
             {
-                var proxy = new TestPaxosNodeTalkProxy(nodeInfo.Name, nodeMap);
-                var node = new PaxosNode(proxy, cluster, nodeInfo);
+                var messageTransport = new TestMessageTransport(nodeInfo.Name, transportMap);
+                var node = new PaxosNode(messageTransport, cluster, nodeInfo);
+                transportMap[nodeInfo.Name] = messageTransport;
                 nodeMap[nodeInfo.Name] = node;
             }
 
             var proposer = nodeMap[cluster.Members[0].Name];
-
             var decree = new PaxosDecree()
             {
                 Content = "test"
@@ -100,12 +103,12 @@ namespace Paxos.Tests
                 cluster.Members.Add(node);
             }
 
-            Dictionary<string, PaxosNode> nodeMap = new Dictionary<string, PaxosNode>();
+            Dictionary<string, TestMessageTransport> nodeMap = new Dictionary<string, TestMessageTransport>();
             foreach (var nodeInfo in cluster.Members)
             {
-                var proxy = new TestPaxosNodeTalkProxy(nodeInfo.Name, nodeMap);
-                var node = new PaxosNode(proxy, cluster, nodeInfo);
-                nodeMap[nodeInfo.Name] = node;
+                var messageTransport = new TestMessageTransport(nodeInfo.Name, nodeMap);
+                var node = new PaxosNode(messageTransport, cluster, nodeInfo);
+                nodeMap[nodeInfo.Name] = messageTransport;
             }
 
             var sourceNode = cluster.Members[0].Name;
@@ -312,13 +315,16 @@ namespace Paxos.Tests
                 cluster.Members.Add(node);
             }
 
-            Dictionary<string, PaxosNode> nodeMap = new Dictionary<string, PaxosNode>();
+            var nodeMap = new Dictionary<string, PaxosNode>();
+            var transportMap = new Dictionary<string, TestMessageTransport>();
             foreach (var nodeInfo in cluster.Members)
             {
-                var proxy = new TestPaxosNodeTalkProxy(nodeInfo.Name, nodeMap);
-                var node = new PaxosNode(proxy, cluster, nodeInfo);
+                var messageTransport = new TestMessageTransport(nodeInfo.Name, transportMap);
+                var node = new PaxosNode(messageTransport, cluster, nodeInfo);
+                transportMap[nodeInfo.Name] = messageTransport;
                 nodeMap[nodeInfo.Name] = node;
             }
+
 
             //var sourceNode = cluster.Members[0].Name;
             //var targetNode = cluster.Members[1].Name;

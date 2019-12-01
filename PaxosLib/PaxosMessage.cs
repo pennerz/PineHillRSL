@@ -1,14 +1,10 @@
-﻿using System;
+﻿using Paxos.Request;
+using System;
 using System.Collections.Generic;
 using System.Text;
 
 namespace Paxos.Message
 {
-    public class PaxosDecree
-    {
-        public string Content;
-    }
-
     public enum PaxosMessageType
     {
         NEXTBALLOT,
