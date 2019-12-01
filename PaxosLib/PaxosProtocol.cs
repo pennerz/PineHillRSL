@@ -297,22 +297,32 @@ namespace Paxos.Protocol
             return result;
         }
 
-        public Task<ProposeResult> BeginNewPropose(PaxosDecree decree)
+        public Task<ProposeResult> BeginNewPropose(PaxosDecree decree, ulong decreeNo)
         {
             var completionSource = new TaskCompletionSource<ProposeResult>();
             Action action = async () =>
             {
-                do
+                if (decreeNo == 0)
                 {
-                    var oneInstanceCompletionSource = new TaskCompletionSource<ProposeResult>();
-                    await ProcessBeginNewBallotRequest(decree, oneInstanceCompletionSource);
-                    var result = await oneInstanceCompletionSource.Task;
-                    if (result.Decree.Content.Equals(decree.Content))
+                    // other node may already proposed a same decreeNo
+                    // continue untill the decree proposed committed
+                    do
                     {
-                        completionSource.SetResult(result);
-                        break;
-                    }
-                } while (true);
+                        var oneInstanceCompletionSource = new TaskCompletionSource<ProposeResult>();
+                        await ProcessBeginNewBallotRequest(decree, decreeNo, oneInstanceCompletionSource);
+                        var result = await oneInstanceCompletionSource.Task;
+                        if (result.Decree.Content.Equals(decree.Content))
+                        {
+                            completionSource.SetResult(result);
+                            break;
+                        }
+                    } while (true);
+
+                }
+                else
+                {
+                    await ProcessBeginNewBallotRequest(decree, decreeNo, completionSource);
+                }
             };
             _tasksQueue.Add(new Task(action));
             return completionSource.Task;
@@ -354,21 +364,21 @@ namespace Paxos.Protocol
             return completionSource.Task;
         }
 
-        private Task ProcessBeginNewBallotRequest(
+        private async Task ProcessBeginNewBallotRequest(
             PaxosDecree decree,
+            ulong nextDecreeNo,
             TaskCompletionSource<ProposeResult> proposeCompletionNotification)
         {
-            ulong nextDecreeNo = _proposerNote.GetNewDecreeNo();
+            if (nextDecreeNo == 0)
+            {
+                //
+                // several propose may happen concurrently. All of them will
+                // get a unique decree no.
+                //
+                nextDecreeNo = _proposerNote.GetNewDecreeNo();
+            }
 
-            //
-            // several propose may happen concurrently. All of them will
-            // get a unique decree no.
-            //
 
-            // never have chance propose a committed decree since every time
-            // new decree no will be got
-
-            /*
             var committedDecree = await _proposerNote.GetCommittedDecree(nextDecreeNo);
             if (committedDecree != null)
             {
@@ -381,7 +391,7 @@ namespace Paxos.Protocol
 
                 proposeCompletionNotification?.SetResult(result);
                 return;
-            }*/
+            }
 
             _proposerNote.SubscribeCompletionNotification(nextDecreeNo, proposeCompletionNotification);
 
@@ -393,7 +403,7 @@ namespace Paxos.Protocol
 
             QueryLastVote(nextDecreeNo, ballotNo);
 
-            return Task.CompletedTask;
+            return;
         }
 
         private bool ProcessStaleBallotMessage(StaleBallotMessage msg)
@@ -642,7 +652,7 @@ namespace Paxos.Protocol
             _proposerRole = new ProposerRole(_nodeInfo, _cluster, _nodeTalkChannel, proposerNote, ledger);
         }
 
-        public Task<ProposeResult> ProposeDecree(PaxosDecree decree)
+        public Task<ProposeResult> ProposeDecree(PaxosDecree decree, ulong decreeNo)
         {
             //
             // three phase commit
@@ -651,7 +661,7 @@ namespace Paxos.Protocol
             // 3. commit decree
             //
 
-           return  _proposerRole.BeginNewPropose(decree);
+           return  _proposerRole.BeginNewPropose(decree, decreeNo);
         }
 
         public async Task<DecreeReadResult> ReadDecree(ulong decreeNo)
