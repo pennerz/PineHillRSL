@@ -49,7 +49,7 @@ namespace Paxos.MessageDelivery
                     await _proposerRole.DeliverVoteMessage(message as VoteMessage);
                     break;
                 case PaxosMessageType.SUCCESS:
-                    _voterRole.DeliverSuccessMessage(message as SuccessMessage);
+                    await _voterRole.DeliverSuccessMessage(message as SuccessMessage);
                     break;
                 case PaxosMessageType.STALEBALLOT:
                     await _proposerRole.DeliverStaleBallotMessage(message as StaleBallotMessage);

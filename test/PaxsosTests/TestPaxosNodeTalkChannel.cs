@@ -54,6 +54,23 @@ namespace Paxos.Tests
             } while (true);
         }
 
+        public async Task WaitUntillAllReceivedMessageConsumed()
+        {
+            do
+            {
+                lock (_receivedMessages)
+                {
+                    if (_receivedMessages.Count == 0)
+                    {
+                        return;
+                    }
+                }
+
+                await Task.Delay(50);
+
+            } while (true);
+        }
+
         public void DeliverMessage(PaxosMessage message)
         {
             lock(_receivedMessages)

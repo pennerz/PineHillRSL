@@ -14,16 +14,17 @@ namespace Paxos.Node
 {
     public class PaxosNode
     {
-        private IMessageTransport _messageTransport;
-        private VoterRole _voterRole;
-        private ProposerRole _proposerRole;
+        private readonly IMessageTransport _messageTransport;
+        private readonly DecreeLockManager _decreeLockManager;
+        private readonly VoterRole _voterRole;
+        private readonly ProposerRole _proposerRole;
 
-        private PaxosCluster _cluster;
-        private NodeInfo _nodeInfo;
+        private readonly PaxosCluster _cluster;
+        private readonly NodeInfo _nodeInfo;
 
-        private PaxosNodeMessageDelivery _messager;
+        private readonly PaxosNodeMessageDelivery _messager;
 
-        private Task _messageHandlerTask;
+        private readonly Task _messageHandlerTask;
 
 
         public PaxosNode(
@@ -48,13 +49,15 @@ namespace Paxos.Node
             _cluster = cluster;
             _nodeInfo = nodeInfo;
 
+            _decreeLockManager = new DecreeLockManager();
+
             var persistenter = new MemoryPaxosNotePersistent();
 
             var ledger = new Ledger();
             var voterNote = new VoterNote(persistenter);
-            _voterRole = new VoterRole(_nodeInfo, _cluster, _messageTransport, voterNote, ledger);
+            _voterRole = new VoterRole(_nodeInfo, _cluster, _messageTransport, _decreeLockManager, voterNote, ledger);
             var proposerNote = new ProposerNote(ledger);
-            _proposerRole = new ProposerRole(_nodeInfo, _cluster, _messageTransport, proposerNote, ledger);
+            _proposerRole = new ProposerRole(_nodeInfo, _cluster, _messageTransport, _decreeLockManager, proposerNote, ledger);
 
             _messager = new PaxosNodeMessageDelivery(_proposerRole, _voterRole);
 
