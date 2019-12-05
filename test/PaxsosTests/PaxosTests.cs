@@ -8,6 +8,7 @@ using Paxos.Node;
 using Paxos.Request;
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -28,14 +29,17 @@ namespace Paxos.Tests
             }
 
             var nodeMap = new Dictionary<string, PaxosNode>();
-            var transportMap = new Dictionary<string, TestMessageTransport>();
+            var network = new TestNetwork();
+            network.CreateNetworkMap(cluster.Members);
             foreach (var nodeInfo in cluster.Members)
             {
-                var messageTransport = new TestMessageTransport(nodeInfo.Name, transportMap);
-                var node = new PaxosNode(messageTransport, cluster, nodeInfo);
-                transportMap[nodeInfo.Name] = messageTransport;
+                var rpcConnections = network.GetRpcConnectionsFromSrc(nodeInfo.Name);
+
+                var networkServer = new NetworkServer(nodeInfo.Name, rpcConnections);
+                var node = new PaxosNode(networkServer, cluster, nodeInfo);
                 nodeMap[nodeInfo.Name] = node;
             }
+
 
             var proposer = nodeMap[cluster.Members[0].Name];
             var decree = new PaxosDecree()
@@ -81,7 +85,7 @@ namespace Paxos.Tests
             result = await proposer2.ProposeDecree(decree3, 0);
             Assert.IsTrue(result.Decree.Content.Equals("test3"));
             Assert.IsTrue(result.DecreeNo == 3);
-            await transportMap[cluster.Members[0].Name].WaitUntillAllReceivedMessageConsumed();
+            await network.WaitUntillAllReceivedMessageConsumed();
             readReslut = await proposer.ReadDecree(result.DecreeNo);
             Assert.IsTrue(readReslut.IsFound);
             Assert.IsTrue(readReslut.Decree.Content.Equals("test3"));
@@ -104,33 +108,48 @@ namespace Paxos.Tests
                 cluster.Members.Add(node);
             }
 
+            var network = new FakeTestNetwork();
+            network.CreateNetworkMap(cluster.Members);
+            foreach (var nodeInfo in cluster.Members)
+            {
+                var rpcConnections = network.GetRpcConnectionsFromSrc(nodeInfo.Name);
+
+                var networkServer = new NetworkServer(nodeInfo.Name, rpcConnections);
+                var node = new PaxosNode(networkServer, cluster, nodeInfo);
+            }
+
+            /*
             Dictionary<string, TestMessageTransport> nodeMap = new Dictionary<string, TestMessageTransport>();
             foreach (var nodeInfo in cluster.Members)
             {
                 var messageTransport = new TestMessageTransport(nodeInfo.Name, nodeMap);
                 var node = new PaxosNode(messageTransport, cluster, nodeInfo);
                 nodeMap[nodeInfo.Name] = messageTransport;
-            }
+            }*/
 
             var sourceNode = cluster.Members[0].Name;
             var targetNode = cluster.Members[1].Name;
 
             var ledger = new Ledger();
-            var voterFakeTalker = new FakePaxosNodeTalker(cluster.Members[1].Name);
+
             var persistenter = new MemoryPaxosNotePersistent();
             var voterNote = new VoterNote(persistenter);
             var decreeLockManager = new DecreeLockManager();
             // 1. NextBallotMessage
             {
                 // 1.1. voter have voted no ballot for a decree
-                var voter = new VoterRole(cluster.Members[1], cluster, voterFakeTalker, decreeLockManager, voterNote, ledger);
+                var rpcConnections = network.GetRpcConnectionsFromSrc(cluster.Members[1].Name);
+                var networkServer = new NetworkServer(cluster.Members[1].Name, rpcConnections);
+                var voter = new VoterRole(cluster.Members[1], cluster, networkServer, decreeLockManager, voterNote, ledger);
                 var nextBallotMsg = new NextBallotMessage();
                 nextBallotMsg.DecreeNo = 1;
                 nextBallotMsg.BallotNo = 1;
                 nextBallotMsg.SourceNode = sourceNode;
                 nextBallotMsg.TargetNode = targetNode;
                 await voter.DeliverNextBallotMessage(nextBallotMsg);
-                var msgList = voterFakeTalker.GetNodeMessages(sourceNode);
+
+                var voterFakeTalker = network.GetConnection(sourceNode);
+                var msgList = voterFakeTalker.GetNodeMessages();
                 Assert.AreEqual(msgList.Count, 1);
                 var lastVoteMsg = msgList[0] as LastVoteMessage;
                 Assert.IsNotNull(lastVoteMsg);
@@ -140,14 +159,14 @@ namespace Paxos.Tests
                 Assert.IsNull(lastVoteMsg.VoteDecree);
                 Assert.AreEqual(voterNote.GetNextBallotNo(nextBallotMsg.DecreeNo), (ulong)1);
                 Assert.IsFalse(lastVoteMsg.Commited);
-                voterFakeTalker.ClearNodeMessage(sourceNode);
+                voterFakeTalker.ClearMessage();
 
                 // now the NextBalloNo is 1
                 // 1.2. New ballot no > 1 will be accepted and got a last vote
                 nextBallotMsg.BallotNo = 2;
                 await voter.DeliverNextBallotMessage(nextBallotMsg);
                 Assert.AreEqual(msgList.Count, 1);
-                lastVoteMsg = msgList[0] as LastVoteMessage;
+                lastVoteMsg =  msgList[0] as LastVoteMessage;
                 Assert.IsNotNull(lastVoteMsg);
                 Assert.AreEqual(lastVoteMsg.DecreeNo, (ulong)1);
                 Assert.AreEqual(lastVoteMsg.BallotNo, (ulong)2);
@@ -155,31 +174,31 @@ namespace Paxos.Tests
                 Assert.IsNull(lastVoteMsg.VoteDecree);
                 Assert.AreEqual(voterNote.GetNextBallotNo(nextBallotMsg.DecreeNo), (ulong)2);
                 Assert.IsFalse(lastVoteMsg.Commited);
-                voterFakeTalker.ClearNodeMessage(sourceNode);
+                voterFakeTalker.ClearMessage();
 
                 // now NextBallotNo is 2
 
                 // 1.3. NextBallotNo <= 2 will not be accepted and got a stale ballot message
                 await voter.DeliverNextBallotMessage(nextBallotMsg);
                 Assert.AreEqual(msgList.Count, 1);
-                var staleBallotMsg = msgList[0] as StaleBallotMessage;
+                var staleBallotMsg =  msgList[0] as StaleBallotMessage;
                 Assert.IsNotNull(staleBallotMsg);
                 Assert.AreEqual(staleBallotMsg.DecreeNo, (ulong)1);
                 Assert.AreEqual(staleBallotMsg.BallotNo, (ulong)2);
                 Assert.AreEqual(staleBallotMsg.NextBallotNo, (ulong)2);
                 Assert.IsFalse(lastVoteMsg.Commited);
-                voterFakeTalker.ClearNodeMessage(sourceNode);
+                voterFakeTalker.ClearMessage();
 
                 nextBallotMsg.BallotNo = 1;
                 await voter.DeliverNextBallotMessage(nextBallotMsg);
                 Assert.AreEqual(msgList.Count, 1);
-                staleBallotMsg = msgList[0] as StaleBallotMessage;
+                staleBallotMsg =  msgList[0] as StaleBallotMessage;
                 Assert.IsNotNull(staleBallotMsg);
                 Assert.AreEqual(staleBallotMsg.DecreeNo, (ulong)1);
                 Assert.AreEqual(staleBallotMsg.BallotNo, (ulong)1);
                 Assert.AreEqual(staleBallotMsg.NextBallotNo, (ulong)2);
                 Assert.IsFalse(lastVoteMsg.Commited);
-                voterFakeTalker.ClearNodeMessage(sourceNode);
+                voterFakeTalker.ClearMessage();
 
                 //1.4 voter has voted ballot before
                 string voteContent = "test1";
@@ -196,14 +215,14 @@ namespace Paxos.Tests
                 nextBallotMsg.BallotNo = 3;
                 await voter.DeliverNextBallotMessage(nextBallotMsg);
                 Assert.AreEqual(msgList.Count, 1);
-                lastVoteMsg = msgList[0] as LastVoteMessage;
+                lastVoteMsg =  msgList[0] as LastVoteMessage;
                 Assert.IsNotNull(lastVoteMsg);
                 Assert.AreEqual(lastVoteMsg.DecreeNo, (ulong)1);
                 Assert.AreEqual(lastVoteMsg.BallotNo, (ulong)3);
                 Assert.AreEqual(lastVoteMsg.VoteBallotNo, (ulong)2);
                 Assert.AreEqual(lastVoteMsg.VoteDecree.Content, voteContent);
                 Assert.IsFalse(lastVoteMsg.Commited);
-                voterFakeTalker.ClearNodeMessage(sourceNode);
+                voterFakeTalker.ClearMessage();
 
                 //1.5 decree has been committed in ledger
                 await ledger.CommitDecree(1, voteMsg.VoteDecree);
@@ -211,14 +230,14 @@ namespace Paxos.Tests
 
                 await voter.DeliverNextBallotMessage(nextBallotMsg);
                 Assert.AreEqual(msgList.Count, 1);
-                lastVoteMsg = msgList[0] as LastVoteMessage;
+                lastVoteMsg =  msgList[0] as LastVoteMessage;
                 Assert.IsNotNull(lastVoteMsg);
                 Assert.AreEqual(lastVoteMsg.DecreeNo, (ulong)1);
                 Assert.AreEqual(lastVoteMsg.BallotNo, (ulong)2);
                 //Assert.AreEqual(lastVoteMsg.VoteBallotNo, (ulong)2);
                 Assert.AreEqual(lastVoteMsg.VoteDecree.Content, voteContent);
                 Assert.IsTrue(lastVoteMsg.Commited);
-                voterFakeTalker.ClearNodeMessage(sourceNode);
+                voterFakeTalker.ClearMessage();
 
                 // cleanup
                 ledger.Clear();
@@ -230,7 +249,11 @@ namespace Paxos.Tests
                 voterNote.Reset();
 
                 // 2.2 has no NextBallotNo yet
-                var voter = new VoterRole(cluster.Members[1], cluster, voterFakeTalker, decreeLockManager, voterNote, ledger);
+                var rpcConnections = network.GetRpcConnectionsFromSrc(cluster.Members[1].Name);
+                var networkServer = new NetworkServer(cluster.Members[1].Name, rpcConnections);
+                var voter = new VoterRole(cluster.Members[1], cluster, networkServer, decreeLockManager, voterNote, ledger);
+
+                var voterFakeTalker = network.GetConnection(sourceNode);
 
                 string voteContent = "test1";
                 var beginBallotMsg = new BeginBallotMessage();
@@ -243,40 +266,39 @@ namespace Paxos.Tests
                     Content = voteContent
                 };
                 await voter.DeliverBeginBallotMessage(beginBallotMsg);    // no response
-                var msgList = voterFakeTalker.GetNodeMessages(sourceNode);
+                var msgList = voterFakeTalker.GetNodeMessages();
                 Assert.AreEqual(msgList.Count, 0);
 
                 await voterNote.UpdateNextBallotNo(1, 2); // nextBallotNo = 2, > 1
                 await voter.DeliverBeginBallotMessage(beginBallotMsg);    // state ballot response
                 Assert.AreEqual(msgList.Count, 1);
-                var staleBallotMsg = msgList[0] as StaleBallotMessage;
+                var staleBallotMsg =  msgList[0] as StaleBallotMessage;
                 Assert.IsNotNull(staleBallotMsg);
                 Assert.AreEqual(staleBallotMsg.DecreeNo, (ulong)1);
                 Assert.AreEqual(staleBallotMsg.BallotNo, (ulong)1);
                 Assert.AreEqual(staleBallotMsg.NextBallotNo, (ulong)2);    //nextBallotNo > ballotNo 
-                voterFakeTalker.ClearNodeMessage(sourceNode);
+                voterFakeTalker.ClearMessage();
 
 
                 // 2.2 NextBallotNo match
                 beginBallotMsg.BallotNo = 2;
                 await voter.DeliverBeginBallotMessage(beginBallotMsg);    // vote
                 Assert.AreEqual(msgList.Count, 1);
-
-                var voteMsg = msgList[0] as VoteMessage;
+                var voteMsg =  msgList[0] as VoteMessage;
                 Assert.IsNotNull(voteMsg);
                 Assert.AreEqual(voteMsg.DecreeNo, (ulong)1);
                 Assert.AreEqual(voteMsg.BallotNo, (ulong)2);
                 Assert.IsNotNull(voteMsg.VoteDecree);
                 Assert.AreEqual(voteMsg.VoteDecree.Content, voteContent);
 
-                voterFakeTalker.ClearNodeMessage(sourceNode);
+                voterFakeTalker.ClearMessage();
 
                 // 2.3 Decree committed, no response
                 await ledger.CommitDecree(beginBallotMsg.DecreeNo, voteMsg.VoteDecree);
                 beginBallotMsg.BallotNo = 3;
                 await voter.DeliverBeginBallotMessage(beginBallotMsg);    // vote
                 Assert.AreEqual(msgList.Count, 0);
-                voterFakeTalker.ClearNodeMessage(sourceNode);
+                voterFakeTalker.ClearMessage();
             }
 
             // 3 Commit
@@ -317,29 +339,30 @@ namespace Paxos.Tests
                 cluster.Members.Add(node);
             }
 
-            var nodeMap = new Dictionary<string, PaxosNode>();
-            var transportMap = new Dictionary<string, TestMessageTransport>();
+
+            var network = new FakeTestNetwork();
+            network.CreateNetworkMap(cluster.Members);
             foreach (var nodeInfo in cluster.Members)
             {
-                var messageTransport = new TestMessageTransport(nodeInfo.Name, transportMap);
-                var node = new PaxosNode(messageTransport, cluster, nodeInfo);
-                transportMap[nodeInfo.Name] = messageTransport;
-                nodeMap[nodeInfo.Name] = node;
+                var rpcConnections = network.GetRpcConnectionsFromSrc(nodeInfo.Name);
+
+                var networkServer = new NetworkServer(nodeInfo.Name, rpcConnections);
+                var node = new PaxosNode(networkServer, cluster, nodeInfo);
             }
 
 
             //var sourceNode = cluster.Members[0].Name;
             //var targetNode = cluster.Members[1].Name;
 
-            var proposerFakeTalker = new FakePaxosNodeTalker(cluster.Members[0].Name);
+            //var proposerFakeTalker = new FakePaxosNodeTalker(cluster.Members[0].Name);
             var ledger = new Ledger();
             var proposerNote = new ProposerNote(ledger);
             var decreeLockManager = new DecreeLockManager();
             var nodeMsgList = new List<List<PaxosMessage>>();
             foreach (var node in cluster.Members)
             {
-                proposerFakeTalker.BuildNodeMessageList(node.Name);
-                nodeMsgList.Add(proposerFakeTalker.GetNodeMessages(node.Name));
+                //proposerFakeTalker.BuildNodeMessageList(node.Name);
+                nodeMsgList.Add(network.GetConnection(node.Name).GetNodeMessages());
             }
 
             // 1. State: QueryLastVote
@@ -348,7 +371,11 @@ namespace Paxos.Tests
                 propose.State = PropserState.QueryLastVote;
                 string decreeContent1 = "test0";
                 string decreeContent = "test1";
-                var proposer = new ProposerRole(cluster.Members[0], cluster, proposerFakeTalker, decreeLockManager, proposerNote, ledger);
+
+                var rpcConnections = network.GetRpcConnectionsFromSrc(cluster.Members[0].Name);
+                var networkServer = new NetworkServer(cluster.Members[0].Name, rpcConnections);
+
+                var proposer = new ProposerRole(cluster.Members[0], cluster, networkServer, decreeLockManager, proposerNote, ledger);
                 propose.LastTriedBallot = 2;
                 propose.OngoingDecree = new PaxosDecree()
                 {
@@ -705,7 +732,10 @@ namespace Paxos.Tests
                 propose.State = PropserState.BeginNewBallot;
                 string decreeContent1 = "test0";
                 string decreeContent = "test1";
-                var proposer = new ProposerRole(cluster.Members[0], cluster, proposerFakeTalker, decreeLockManager, proposerNote,ledger);
+                var rpcConnections = network.GetRpcConnectionsFromSrc(cluster.Members[0].Name);
+                var networkServer = new NetworkServer(cluster.Members[0].Name, rpcConnections);
+
+                var proposer = new ProposerRole(cluster.Members[0], cluster, networkServer, decreeLockManager, proposerNote,ledger);
                 propose.LastTriedBallot = 3; // decreeNo, ballotNo
                 propose.OngoingDecree = new PaxosDecree()
                 {

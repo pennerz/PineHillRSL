@@ -4,6 +4,7 @@ using System.Text;
 
 namespace Paxos.Request
 {
+    [Serializable()]
     public class PaxosDecree
     {
         public string Content;

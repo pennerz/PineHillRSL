@@ -165,7 +165,7 @@ namespace Paxos.Protocol
     ///
     public class VoterRole
     {
-        private readonly IMessageTransport _messageTransport;
+        private readonly NetworkServer _networkServer;
         private readonly DecreeLockManager _decreeLockManager;
 
         private readonly NodeInfo _nodeInfo;
@@ -177,21 +177,21 @@ namespace Paxos.Protocol
         public VoterRole(
             NodeInfo nodeInfo,
             PaxosCluster cluster,
-            IMessageTransport messageTransport,
+            NetworkServer networkServer,
             DecreeLockManager decreeLockManager,
             VoterNote paxoserNote,
             Ledger ledger)
         {
             if (cluster == null) throw new ArgumentNullException("cluster");
             if (nodeInfo == null) throw new ArgumentNullException("nodeInfo");
-            if (messageTransport == null) throw new ArgumentNullException("IMessageTransport");
+            if (networkServer == null) throw new ArgumentNullException("networkServer");
             if (paxoserNote == null) throw new ArgumentNullException("no note book");
             if (ledger == null) throw new ArgumentNullException("ledger");
             if (decreeLockManager == null) throw new ArgumentNullException("decree lock manager");
 
             _nodeInfo = nodeInfo;
             _cluster = cluster;
-            _messageTransport = messageTransport;
+            _networkServer = networkServer;
             _note = paxoserNote;
             _ledger = ledger;
             _decreeLockManager = decreeLockManager;
@@ -203,6 +203,7 @@ namespace Paxos.Protocol
             await decreeLock.AcquireLock();
 
             // check if the decree committed
+            PaxosMessage paxosMessageToSend = null;
             LastVoteMessage lastVoteMsg = null;
 
             try
@@ -220,8 +221,7 @@ namespace Paxos.Protocol
                         VoteDecree = commitedDecree,
                         CommittedDecrees = _ledger.GetFollowingCommittedDecress(msg.DecreeNo)
                     };
-
-                    await _messageTransport.SendMessage(lastVoteMsg);
+                    paxosMessageToSend = lastVoteMsg;
                     return;
                 }
 
@@ -239,7 +239,7 @@ namespace Paxos.Protocol
                     staleBallotMsg.BallotNo = msg.BallotNo;
                     staleBallotMsg.DecreeNo = msg.DecreeNo;
 
-                    await _messageTransport.SendMessage(staleBallotMsg);
+                    paxosMessageToSend = staleBallotMsg;
 
                     return;
                 }
@@ -259,13 +259,12 @@ namespace Paxos.Protocol
                 lastVoteMsg.DecreeNo = msg.DecreeNo;
                 lastVoteMsg.VoteBallotNo = lastVote != null ? lastVote.BallotNo : 0;
                 lastVoteMsg.VoteDecree = lastVote?.VoteDecree;
-
-                await _messageTransport.SendMessage(lastVoteMsg);
-
+                paxosMessageToSend = lastVoteMsg;
             }
             finally
             {
                 decreeLock.ReleaseLock();
+                await SendPaxosMessage(paxosMessageToSend);
             }
         }
 
@@ -315,7 +314,7 @@ namespace Paxos.Protocol
                 staleBallotMsg.BallotNo = msg.BallotNo;
                 staleBallotMsg.DecreeNo = msg.DecreeNo;
 
-                await _messageTransport.SendMessage(staleBallotMsg);
+                await SendPaxosMessage(staleBallotMsg);
 
                 return;
             }
@@ -326,7 +325,7 @@ namespace Paxos.Protocol
             }
 
             // deliver the vote message
-            await _messageTransport.SendMessage(voteMsg);
+            await SendPaxosMessage(voteMsg);
         }
 
         public async Task DeliverSuccessMessage(SuccessMessage msg)
@@ -338,6 +337,15 @@ namespace Paxos.Protocol
             //_note.ClearDecree(msg.DecreeNo);
 
             decreeLock.ReleaseLock();
+        }
+
+        private async Task SendPaxosMessage(PaxosMessage paxosMessage)
+        {
+            paxosMessage.SourceNode = _nodeInfo.Name;
+            var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(paxosMessage);
+            var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
+            var rpcConnection = _networkServer.GetRpcTransport(paxosMessage.TargetNode);
+            await rpcConnection.SendRequest(rpcMsg);
         }
     }
 
@@ -364,7 +372,7 @@ namespace Paxos.Protocol
 
     public class ProposerRole
     {
-        private readonly IMessageTransport _messageTransport;
+        private readonly NetworkServer _networkServer;
         private readonly DecreeLockManager _decreeLockManager;
         private readonly NodeInfo _nodeInfo;
         private readonly PaxosCluster _cluster;
@@ -375,21 +383,21 @@ namespace Paxos.Protocol
         public ProposerRole(
             NodeInfo nodeInfo,
             PaxosCluster cluster,
-            IMessageTransport messageTransport,
+            NetworkServer networkServer,
             DecreeLockManager decreeLockManager,
             ProposerNote proposerNote,
             Ledger ledger)
         {
             if (cluster == null) throw new ArgumentNullException("cluster");
             if (nodeInfo == null) throw new ArgumentNullException("nodeInfo");
-            if (messageTransport == null) throw new ArgumentNullException("IMessageTransport");
+            if (networkServer == null) throw new ArgumentNullException("networkServer");
             if (proposerNote == null) throw new ArgumentNullException("proposer note");
             if (ledger == null) throw new ArgumentNullException("ledger");
             if (decreeLockManager == null) throw new ArgumentNullException("decreeLock manager");
 
             _nodeInfo = nodeInfo;
             _cluster = cluster;
-            _messageTransport = messageTransport;
+            _networkServer = networkServer;
             _proposerNote = proposerNote;
             _ledger = ledger;
             _decreeLockManager = decreeLockManager;
@@ -514,7 +522,7 @@ namespace Paxos.Protocol
                 decreeLock.ReleaseLock();
             }
 
-            QueryLastVote(nextDecreeNo, ballotNo);
+            await QueryLastVote(nextDecreeNo, ballotNo);
 
             return;
         }
@@ -563,7 +571,7 @@ namespace Paxos.Protocol
 
 
             // could be several different LastVote query on different ballot
-            QueryLastVote(msg.DecreeNo, nextBallotNo);
+            await QueryLastVote(msg.DecreeNo, nextBallotNo);
 
             return true;
         }
@@ -571,6 +579,9 @@ namespace Paxos.Protocol
         private async Task<bool> ProcessLastVoteMessage(LastVoteMessage msg)
         {
             var decreeLock = _decreeLockManager.GetDecreeLock(msg.DecreeNo);
+
+            List<SuccessMessage> successfullMsgList = null;
+            PaxosDecree newBallotDecree = null;
             await decreeLock.AcquireLock();
 
             try
@@ -607,7 +618,7 @@ namespace Paxos.Protocol
                         return false;
                     }
 
-                    await BeginCommit(msg.DecreeNo, msg.BallotNo);
+                    successfullMsgList = await BeginCommit(msg.DecreeNo, msg.BallotNo);
 
                     return false;
                 }
@@ -617,15 +628,13 @@ namespace Paxos.Protocol
                 if (lstVoteMsgCount >= (ulong)_cluster.Members.Count / 2 + 1)
                 {
                     // enough feedback got
-                    var newBallotDecree = _proposerNote.BeginNewBallot(msg.DecreeNo, msg.BallotNo);
+                    newBallotDecree = _proposerNote.BeginNewBallot(msg.DecreeNo, msg.BallotNo);
                     if (newBallotDecree == null)
                     {
                         // sombody else is doing the job
                         return false;
                     }
 
-                    // begin new ballot
-                    BeginNewBallot(msg.DecreeNo, msg.BallotNo, newBallotDecree);
                 }
 
                 return true;
@@ -633,6 +642,18 @@ namespace Paxos.Protocol
             finally
             {
                 decreeLock.ReleaseLock();
+                if (successfullMsgList != null)
+                {
+                    foreach(var successfullMsg in successfullMsgList)
+                    {
+                        await SendPaxosMessage(successfullMsg);
+                    }
+                }
+                else if (newBallotDecree != null)
+                {
+                    // begin new ballot
+                    await BeginNewBallot(msg.DecreeNo, msg.BallotNo, newBallotDecree);
+                }
             }
 
         }
@@ -640,6 +661,7 @@ namespace Paxos.Protocol
         private async Task<bool> ProcessVoteMessage(VoteMessage msg)
         {
             var decreeLock = _decreeLockManager.GetDecreeLock(msg.DecreeNo);
+            List<SuccessMessage> sucessfullMsgList = null;
             await decreeLock.AcquireLock();
 
             try
@@ -671,18 +693,25 @@ namespace Paxos.Protocol
                         return false;
                     }
 
-                    await BeginCommit(msg.DecreeNo, msg.BallotNo);
+                    sucessfullMsgList = await BeginCommit(msg.DecreeNo, msg.BallotNo);
                 }
                 return true;
             }
             finally
             {
                 decreeLock.ReleaseLock();
+                if (sucessfullMsgList != null)
+                {
+                    foreach(var successfullMsg in sucessfullMsgList)
+                    {
+                        await SendPaxosMessage(successfullMsg);
+                    }
+                }
             }
         }
 
 
-        private void QueryLastVote(UInt64 decreeNo, ulong nextBallotNo)
+        private async Task QueryLastVote(UInt64 decreeNo, ulong nextBallotNo)
         {
             // 1. collect decree for this instance, send NextBallotMessage
             foreach (var node in _cluster.Members)
@@ -696,11 +725,11 @@ namespace Paxos.Protocol
                 nextBallotMessage.DecreeNo = decreeNo;
                 nextBallotMessage.BallotNo = nextBallotNo;
 
-                _messageTransport.SendMessage(nextBallotMessage);
+                await SendPaxosMessage(nextBallotMessage);
             }
 
         }
-        private void BeginNewBallot(UInt64 decreeNo, UInt64 ballotNo, PaxosDecree newBallotDecree)
+        private async Task BeginNewBallot(UInt64 decreeNo, UInt64 ballotNo, PaxosDecree newBallotDecree)
         {
             foreach (var node in _cluster.Members)
             {
@@ -713,15 +742,17 @@ namespace Paxos.Protocol
                 beginBallotMessage.BallotNo = ballotNo;
                 beginBallotMessage.TargetNode = node.Name;
                 beginBallotMessage.Decree = newBallotDecree;
-                _messageTransport.SendMessage(beginBallotMessage);
+
+                await SendPaxosMessage(beginBallotMessage);
             }
         }
 
-        private async Task BeginCommit(ulong decreeNo, ulong ballotNo)
+        private async Task<List<SuccessMessage>> BeginCommit(ulong decreeNo, ulong ballotNo)
         {
             // write the decree to ledge
             var propose = await _proposerNote.Commit(decreeNo);
 
+            var successfullMessageList = new List<SuccessMessage>();
 
             var subscriberList = propose.CompletionEvents;
             //_proposerNote.ClearDecree(decreeNo);
@@ -737,7 +768,7 @@ namespace Paxos.Protocol
                 successMessage.DecreeNo = decreeNo;
                 successMessage.BallotNo = ballotNo;
                 successMessage.Decree = propose.OngoingDecree;
-                await _messageTransport.SendMessage(successMessage);
+                successfullMessageList.Add(successMessage);
             }
 
             // TODO: confirm the commit succeeded on other nodes
@@ -751,6 +782,16 @@ namespace Paxos.Protocol
                 completionSource.SetResult(result);
             }
 
+            return successfullMessageList;
+
+        }
+        private async Task SendPaxosMessage(PaxosMessage paxosMessage)
+        {
+            paxosMessage.SourceNode = _nodeInfo.Name;
+            var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(paxosMessage);
+            var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
+            var rpcConnection = _networkServer.GetRpcTransport(paxosMessage.TargetNode);
+            await rpcConnection.SendRequest(rpcMsg);
         }
     }
 

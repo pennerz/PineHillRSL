@@ -14,7 +14,6 @@ namespace Paxos.Node
 {
     public class PaxosNode
     {
-        private readonly IMessageTransport _messageTransport;
         private readonly DecreeLockManager _decreeLockManager;
         private readonly VoterRole _voterRole;
         private readonly ProposerRole _proposerRole;
@@ -24,18 +23,22 @@ namespace Paxos.Node
 
         private readonly PaxosNodeMessageDelivery _messager;
 
-        private readonly Task _messageHandlerTask;
+        //private readonly Task _messageHandlerTask;
+
+        private NetworkServer _networkSever;
 
 
         public PaxosNode(
-            IMessageTransport messageTransport,
+            NetworkServer networkServer,
             PaxosCluster cluster,
             NodeInfo nodeInfo)
         {
+            /*
             if (messageTransport == null)
             {
                 throw new ArgumentNullException("MessageTransport is null");
-            }
+            }*/
+
             if (cluster == null)
             {
                 throw new ArgumentNullException("cluster is null");
@@ -45,7 +48,7 @@ namespace Paxos.Node
                 throw new ArgumentNullException("nodeInfo is null");
             }
 
-            _messageTransport = messageTransport;
+            //_messageTransport = messageTransport;
             _cluster = cluster;
             _nodeInfo = nodeInfo;
 
@@ -55,22 +58,14 @@ namespace Paxos.Node
 
             var ledger = new Ledger();
             var voterNote = new VoterNote(persistenter);
-            _voterRole = new VoterRole(_nodeInfo, _cluster, _messageTransport, _decreeLockManager, voterNote, ledger);
+            _voterRole = new VoterRole(_nodeInfo, _cluster, networkServer, _decreeLockManager, voterNote, ledger);
             var proposerNote = new ProposerNote(ledger);
-            _proposerRole = new ProposerRole(_nodeInfo, _cluster, _messageTransport, _decreeLockManager, proposerNote, ledger);
+            _proposerRole = new ProposerRole(_nodeInfo, _cluster, networkServer, _decreeLockManager, proposerNote, ledger);
 
+            _networkSever = networkServer;
             _messager = new PaxosNodeMessageDelivery(_proposerRole, _voterRole);
-
-            Stop = false;
-            _messageHandlerTask = Task.Run(async () =>
-            {
-                while (!Stop)
-                {
-                    var message = await messageTransport.ReceiveMessage();
-                    await _messager.DeliverMessage(message);
-                }
-            });
-
+            var rpcRequestHandler = new PaxosMessageHandler(_messager, null);
+            _networkSever.RegisterRequestHandler(rpcRequestHandler);
         }
 
         public Task<ProposeResult> ProposeDecree(PaxosDecree decree, ulong decreeNo)
@@ -90,7 +85,5 @@ namespace Paxos.Node
             var result = await _proposerRole.ReadDecree(decreeNo);
             return result;
         }
-
-        public bool Stop { get; set; }
     }
 }

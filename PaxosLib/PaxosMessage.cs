@@ -14,6 +14,8 @@ namespace Paxos.Message
         SUCCESS,
         STALEBALLOT
     }
+
+    [Serializable()]
     public class PaxosMessage
     {
         public PaxosMessageType MessageType { get; set; }
@@ -23,6 +25,7 @@ namespace Paxos.Message
         public UInt64 BallotNo { get; set; }
     }
 
+    [Serializable()]
     public class NextBallotMessage : PaxosMessage
     {
         public NextBallotMessage()
@@ -31,22 +34,25 @@ namespace Paxos.Message
         }
     }
 
+    [Serializable()]
     public class LastVoteMessage : PaxosMessage
     {
+
         public LastVoteMessage()
         {
             MessageType = PaxosMessageType.LASTVOTE;
-            CommittedDecrees = new Dictionary<ulong, PaxosDecree>();
+            CommittedDecrees = new List<KeyValuePair<ulong, PaxosDecree>>();
         }
 
         // all committed messages, whose decreee no > DecreeNo in this message
-        public Dictionary<ulong, PaxosDecree> CommittedDecrees { get; set; }
+        public List<KeyValuePair<ulong, PaxosDecree>> CommittedDecrees { get; set; }
 
         public bool Commited { get; set; }
         public ulong VoteBallotNo { get; set; }
         public PaxosDecree VoteDecree { get; set; }
     }
 
+    [Serializable()]
     public class BeginBallotMessage : PaxosMessage
     {
         public BeginBallotMessage()
@@ -56,6 +62,7 @@ namespace Paxos.Message
         public PaxosDecree Decree { get; set; }
     }
 
+    [Serializable()]
     public class VoteMessage : PaxosMessage
     {
         public VoteMessage()
@@ -65,6 +72,7 @@ namespace Paxos.Message
         public PaxosDecree VoteDecree { get; set; }
     }
 
+    [Serializable()]
     public class SuccessMessage : PaxosMessage
     {
         public SuccessMessage()
@@ -74,6 +82,7 @@ namespace Paxos.Message
         public PaxosDecree Decree { get; set; }
     }
 
+    [Serializable()]
     public class StaleBallotMessage : PaxosMessage
     {
         public StaleBallotMessage()
