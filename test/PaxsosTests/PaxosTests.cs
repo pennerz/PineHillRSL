@@ -6,6 +6,7 @@ using Paxos.Protocol;
 using Paxos.Persistence;
 using Paxos.Node;
 using Paxos.Request;
+using Paxos.Rpc;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -110,23 +111,6 @@ namespace Paxos.Tests
 
             var network = new FakeTestNetwork();
             network.CreateNetworkMap(cluster.Members);
-            foreach (var nodeInfo in cluster.Members)
-            {
-                var rpcConnections = network.GetRpcConnectionsFromSrc(nodeInfo.Name);
-
-                var networkServer = new NetworkServer(nodeInfo.Name, rpcConnections);
-                var node = new PaxosNode(networkServer, cluster, nodeInfo);
-            }
-
-            /*
-            Dictionary<string, TestMessageTransport> nodeMap = new Dictionary<string, TestMessageTransport>();
-            foreach (var nodeInfo in cluster.Members)
-            {
-                var messageTransport = new TestMessageTransport(nodeInfo.Name, nodeMap);
-                var node = new PaxosNode(messageTransport, cluster, nodeInfo);
-                nodeMap[nodeInfo.Name] = messageTransport;
-            }*/
-
             var sourceNode = cluster.Members[0].Name;
             var targetNode = cluster.Members[1].Name;
 
@@ -342,26 +326,14 @@ namespace Paxos.Tests
 
             var network = new FakeTestNetwork();
             network.CreateNetworkMap(cluster.Members);
-            foreach (var nodeInfo in cluster.Members)
-            {
-                var rpcConnections = network.GetRpcConnectionsFromSrc(nodeInfo.Name);
-
-                var networkServer = new NetworkServer(nodeInfo.Name, rpcConnections);
-                var node = new PaxosNode(networkServer, cluster, nodeInfo);
-            }
 
 
-            //var sourceNode = cluster.Members[0].Name;
-            //var targetNode = cluster.Members[1].Name;
-
-            //var proposerFakeTalker = new FakePaxosNodeTalker(cluster.Members[0].Name);
             var ledger = new Ledger();
             var proposerNote = new ProposerNote(ledger);
             var decreeLockManager = new DecreeLockManager();
             var nodeMsgList = new List<List<PaxosMessage>>();
             foreach (var node in cluster.Members)
             {
-                //proposerFakeTalker.BuildNodeMessageList(node.Name);
                 nodeMsgList.Add(network.GetConnection(node.Name).GetNodeMessages());
             }
 

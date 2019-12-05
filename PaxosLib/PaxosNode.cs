@@ -2,12 +2,10 @@
 using Paxos.Network;
 using Paxos.Persistence;
 using Paxos.Notebook;
-using Paxos.Message;
 using Paxos.MessageDelivery;
 using Paxos.Request;
+using Paxos.Rpc;
 using System;
-using System.Collections.Generic;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace Paxos.Node

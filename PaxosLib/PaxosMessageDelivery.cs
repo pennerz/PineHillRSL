@@ -1,8 +1,6 @@
 ﻿using Paxos.Message;
 using Paxos.Protocol;
 using System;
-using System.Collections.Generic;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace Paxos.MessageDelivery

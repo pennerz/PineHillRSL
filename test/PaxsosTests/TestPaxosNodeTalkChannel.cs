@@ -1,6 +1,6 @@
 ﻿using Paxos.Message;
 using Paxos.Network;
-using Paxos.Protocol;
+using Paxos.Rpc;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;

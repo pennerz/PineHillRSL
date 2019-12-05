@@ -1,9 +1,8 @@
 ﻿using Paxos.Network;
 using Paxos.Notebook;
 using Paxos.Message;
-using Paxos.Persistence;
-using Paxos.Node;
 using Paxos.Request;
+using Paxos.Rpc;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -170,7 +169,6 @@ namespace Paxos.Protocol
 
         private readonly NodeInfo _nodeInfo;
         private readonly PaxosCluster _cluster;
-
         private readonly VoterNote _note;
         private readonly Ledger _ledger;
 
