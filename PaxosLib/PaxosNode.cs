@@ -23,11 +23,12 @@ namespace Paxos.Node
 
         //private readonly Task _messageHandlerTask;
 
-        private NetworkServer _networkSever;
+        //private NetworkServer _networkSever;
+        private RpcClient _rpcClient;
+        private RpcServer _rpcServer;
 
 
         public PaxosNode(
-            NetworkServer networkServer,
             PaxosCluster cluster,
             NodeInfo nodeInfo)
         {
@@ -50,20 +51,36 @@ namespace Paxos.Node
             _cluster = cluster;
             _nodeInfo = nodeInfo;
 
+            var localAddr = new NodeAddress()
+            {
+                Node = _nodeInfo,
+                Port = 0
+            };
+            _rpcClient = new RpcClient(localAddr);
+            var serverAddr = new NodeAddress()
+            {
+                Node = _nodeInfo,
+                Port = 88
+            };
+            _rpcServer = new RpcServer(serverAddr);
+
             _decreeLockManager = new DecreeLockManager();
-
             var persistenter = new MemoryPaxosNotePersistent();
-
             var ledger = new Ledger();
-            var voterNote = new VoterNote(persistenter);
-            _voterRole = new VoterRole(_nodeInfo, _cluster, networkServer, _decreeLockManager, voterNote, ledger);
-            var proposerNote = new ProposerNote(ledger);
-            _proposerRole = new ProposerRole(_nodeInfo, _cluster, networkServer, _decreeLockManager, proposerNote, ledger);
 
-            _networkSever = networkServer;
+
+            var voterNote = new VoterNote(persistenter);
+            _voterRole = new VoterRole(_nodeInfo, _cluster, _rpcClient, _decreeLockManager, voterNote, ledger);
+            var proposerNote = new ProposerNote(ledger);
+            _proposerRole = new ProposerRole(_nodeInfo, _cluster, _rpcClient, _decreeLockManager, proposerNote, ledger);
+
             _messager = new PaxosNodeMessageDelivery(_proposerRole, _voterRole);
             var rpcRequestHandler = new PaxosMessageHandler(_messager, null);
-            _networkSever.RegisterRequestHandler(rpcRequestHandler);
+            _rpcServer.RegisterRequestHandler(rpcRequestHandler);
+            var taask = _rpcServer.Start();
+
+            //_networkSever = networkServer;
+            //_networkSever.RegisterRequestHandler(rpcRequestHandler);
         }
 
         public Task<ProposeResult> ProposeDecree(PaxosDecree decree, ulong decreeNo)

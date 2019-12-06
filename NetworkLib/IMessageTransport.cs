@@ -8,10 +8,49 @@ using System.Xml.Serialization;
 
 namespace Paxos.Network
 {
-    public class NodeInfo
+    public class NodeInfo : IEquatable<NodeInfo>
     {
+        public bool Equals(NodeInfo rhs)
+        {
+            return Name.Equals(rhs.Name);
+        }
+        public override bool Equals(object obj)
+        {
+            return Equals(obj as NodeInfo);
+        }
+        public override int GetHashCode()
+        {
+            return 1;
+        }
         public string Name { get; set; }
+    }
 
+    public class NodeAddress : IEquatable<NodeAddress>
+    {
+        public bool Equals(NodeAddress rhs)
+        {
+            if (!Node.Equals(rhs.Node))
+            {
+                return false;
+            }
+            if (Port != rhs.Port)
+            {
+                return false;
+            }
+            return true;
+        }
+        public override bool Equals(object obj)
+        {
+            return Equals(obj as NodeAddress);
+        }
+
+        public override int GetHashCode()
+        {
+            return 1;
+        }
+
+        public NodeInfo Node { get; set; }
+        public ushort Port { get; set; }
     }
 
     public class RpcMessage
@@ -27,10 +66,69 @@ namespace Paxos.Network
         public string RequestContent { get; set; }
     }
 
+    /*
     public interface INetworkTransport
     {
         Task SendMessage(RpcMessage msg);
 
         Task<RpcMessage> ReceiveMessage();
+    }*/
+
+    public interface IConnection
+    {
+        Task SendMessage(RpcMessage msg);
+
+        Task<RpcMessage> ReceiveMessage();
+    }
+
+    public interface INetworkServerEventHandler
+    {
+        Task OnConnect(INetworkServer server, IConnection severChannel);
+    }
+
+    public interface IConnectionChangeNotification
+    {
+        void OnNewConnection(IConnection newConnection);
+    }
+
+    public interface INetworkCreator
+    {
+        Task<INetworkServer> CreateNetworkServer(NodeAddress serverAddr);
+        Task<IConnection> CreateNetworkClient(NodeAddress localAddrr, NodeAddress serverAddr);
+    }
+
+    public class NetworkFactory
+    {
+        private static INetworkCreator _creator = null;
+
+        public static void SetNetworkCreator(INetworkCreator creator)
+        {
+            _creator = creator;
+        }
+        public static async Task<INetworkServer> CreateNetworkServer(NodeAddress serverAddr)
+        {
+            if (_creator != null)
+            {
+                var networkServer = await _creator.CreateNetworkServer(serverAddr);
+                return networkServer;
+            }
+            return null;
+        }
+
+        public static async Task<IConnection> CreateNetworkClient(NodeAddress localAddr, NodeAddress serverAddr)
+        {
+            if (_creator != null)
+            {
+                var connection = await _creator.CreateNetworkClient(localAddr, serverAddr);
+                return connection;
+            }
+            return null;
+        }
+    }
+
+    public interface INetworkServer
+    {
+        Task StartServer(NodeAddress serverAddr);
+        void SubscribeConnectionChangeNotification(IConnectionChangeNotification notifier);
     }
 }

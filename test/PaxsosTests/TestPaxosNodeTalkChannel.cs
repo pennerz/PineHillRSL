@@ -7,9 +7,11 @@ using System.Collections.Concurrent;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Linq;
 
 namespace Paxos.Tests
 {
+    /*
     class TestNetworkTransport : INetworkTransport
     {
         private string _nodeName;
@@ -81,62 +83,6 @@ namespace Paxos.Tests
         }
     }
 
-    class TestNetwork
-    {
-        private Dictionary<Tuple<string, string>, TestNetworkTransport>  _transportMap = new Dictionary<Tuple<string, string>, TestNetworkTransport>();
-
-        public TestNetwork()
-        {
-
-        }
-
-        public void CreateNetworkMap(List<NodeInfo> nodeList)
-        {
-            foreach (var nodeInfo in nodeList)
-            {
-                foreach (var targetNodeInfo in nodeList)
-                {
-                    if (nodeInfo.Equals(targetNodeInfo))
-                    {
-                        continue;
-                    }
-
-                    var messageTransport = new TestNetworkTransport(nodeInfo.Name, targetNodeInfo.Name, this);
-                    var key = new Tuple<string, string>(nodeInfo.Name, targetNodeInfo.Name);
-                    _transportMap[key] = messageTransport;
-                }
-            }
-        }
-
-        public ConcurrentDictionary<string, IRpcTransport> GetRpcConnectionsFromSrc(string src)
-        {
-            var rpcConnections = new ConcurrentDictionary<string, IRpcTransport>();
-            foreach (var connection in _transportMap)
-            {
-                if (connection.Key.Item1.Equals(src))
-                {
-                    rpcConnections[connection.Key.Item2] = new RpcTransport(connection.Value);
-
-                }
-            }
-
-            return rpcConnections;
-        }
-
-        public TestNetworkTransport GetConnection(string src, string target)
-        {
-            return _transportMap[new Tuple<string, string>(src, target)];
-        }
-
-        public async Task WaitUntillAllReceivedMessageConsumed()
-        {
-            foreach(var connection in _transportMap)
-            {
-                await connection.Value.WaitUntillAllReceivedMessageConsumed();
-            }
-
-        }
-    }
 
     class FakePaxosNodeTalker : INetworkTransport
     {
@@ -174,7 +120,8 @@ namespace Paxos.Tests
             return completionSource.Task;
         }
     }
-
+    */
+    /*
     public class TestRpcTransport : IRpcTransport
     {
         private readonly string _nodeName;
@@ -217,8 +164,9 @@ namespace Paxos.Tests
         }
 
     }
+    */
 
-
+    /*
     public class FakeTestNetwork
     {
         private Dictionary<string, TestRpcTransport> _transportMap = new Dictionary<string, TestRpcTransport>();
@@ -259,5 +207,315 @@ namespace Paxos.Tests
         }
 
     }
+    */
 
+    class TestConnection : IConnection
+    {
+        private readonly TestNetworkInfr _networkInfr;
+        private readonly NodeAddress _localAddress;
+        private readonly NodeAddress _remoteAddress;
+
+        private readonly List<RpcMessage> _receivedMessages = new List<RpcMessage>();
+        private SemaphoreSlim _receivedMessageSemaphore = new SemaphoreSlim(0);
+
+        public TestConnection(NodeAddress localAddr, NodeAddress remoteAddr, TestNetworkInfr networkInfr)
+        {
+            _localAddress = localAddr;
+            _remoteAddress = remoteAddr;
+            _networkInfr = networkInfr;
+        }
+
+        public Task SendMessage(RpcMessage msg)
+        {
+            var connection = _networkInfr.GetConnection(_remoteAddress, _localAddress);
+            connection.DeliverMessage(msg);
+
+            return Task.CompletedTask;
+        }
+
+        public async Task<RpcMessage> ReceiveMessage()
+        {
+            do
+            {
+                await _receivedMessageSemaphore.WaitAsync();
+                lock (_receivedMessages)
+                {
+                    if (_receivedMessages.Count > 0)
+                    {
+                        var message = _receivedMessages[0];
+                        _receivedMessages.RemoveAt(0);
+                        return message;
+                    }
+                }
+            } while (true);
+        }
+
+        public async Task WaitUntillAllReceivedMessageConsumed()
+        {
+            do
+            {
+                lock (_receivedMessages)
+                {
+                    if (_receivedMessages.Count == 0)
+                    {
+                        return;
+                    }
+                }
+
+                await Task.Delay(50);
+
+            } while (true);
+        }
+
+        public void DeliverMessage(RpcMessage message)
+        {
+            lock (_receivedMessages)
+            {
+                _receivedMessages.Add(message);
+                _receivedMessageSemaphore.Release();
+            }
+        }
+
+
+
+        public NodeAddress LocalAddress => _localAddress;
+
+        public NodeAddress RemoteAddress => _remoteAddress;
+
+        public List<RpcMessage> ReceivedMessages => _receivedMessages;
+    }
+
+    class TestNodeConnections
+    {
+        private NodeAddress _localAddress;
+        private Dictionary<NodeAddress, TestConnection> _connections =
+            new Dictionary<NodeAddress, TestConnection>();
+        private TestNetworkInfr _networkInfr = null;
+
+        public TestNodeConnections(NodeAddress localAddr, TestNetworkInfr networkInfr)
+        {
+            _localAddress = localAddr;
+            _networkInfr = networkInfr;
+        }
+        public TestConnection GetConnectionWithRemoteNode(NodeAddress remoteAddr)
+        {
+            TestConnection connection = null;
+            if (_connections.TryGetValue(remoteAddr, out connection))
+            {
+                return connection;
+            }
+            return null;
+        }
+
+        public TestConnection AddConnection(NodeAddress remoteAddress)
+        {
+            lock(_connections)
+            {
+                if (!_connections.ContainsKey(remoteAddress))
+                {
+                    var connection = new TestConnection(
+                        _localAddress, remoteAddress, _networkInfr);
+
+                    _connections.Add(remoteAddress, connection);
+                    return connection;
+                }
+
+                return _connections[remoteAddress];
+
+            }
+        }
+    }
+
+    class TestNetworkInfr
+    {
+        List<TestConnection> _connections = new List<TestConnection>();
+        List<TestNetworkServer> _servers = new List<TestNetworkServer>();
+
+        public List<TestConnection> NetworkConnections  => _connections;
+
+        public List<TestNetworkServer> NetworkServers => _servers;
+
+        public TestConnection GetConnection(NodeAddress localAddr, NodeAddress remoteAddr)
+        {
+            if (_connections.Count == 0)
+            {
+                return null;
+            }
+            if (_connections.Where(connection =>
+                connection.LocalAddress.Equals(localAddr) &&
+                connection.RemoteAddress.Equals(remoteAddr)).Count() == 0)
+            {
+                return null;
+            }
+           return _connections.Where(connection =>
+                connection.LocalAddress.Equals(localAddr) &&
+                connection.RemoteAddress.Equals(remoteAddr)).First();
+        }
+
+        public TestNetworkServer GetServer(NodeAddress serverAddr)
+        {
+            if (_servers.Where(server =>
+                server.ServerAddress.Equals(serverAddr)).Count() == 0)
+            {
+                return null;
+            }
+            return _servers.Where(server =>
+                server.ServerAddress.Equals(serverAddr)).First();
+        }
+
+    }
+
+
+    class TestNetwork
+    {
+        TestNetworkInfr _netorkInfr;
+        public TestNetwork(TestNetworkInfr networkInfr)
+        {
+            _netorkInfr = networkInfr;
+        }
+
+        public void CreateNetworkMap(List<NodeInfo> nodeList)
+        {
+            /*
+            foreach (var nodeInfo in nodeList)
+            {
+                var server = new TestNetworkServer(_netorkInfr);
+                server.StartServer(new NodeAddress()
+                {
+                    Node = nodeInfo,
+                    Port = 0
+                });
+                _netorkInfr.NetworkServers.Add(server);
+            }
+
+            foreach(var nodeInfo in nodeList)
+            {
+                foreach (var targetNodeInfo in nodeList)
+                {
+                    if (nodeInfo.Equals(targetNodeInfo))
+                    {
+                        continue;
+                    }
+                    var localAddr = new NodeAddress()
+                    { Node = nodeInfo, Port = 0 };
+                    var remoteAddr = new NodeAddress()
+                    { Node = targetNodeInfo, Port = 0 };
+
+                    var clientConnection = new TestConnection(
+                        localAddr, remoteAddr, _netorkInfr);
+                    _netorkInfr.NetworkConnections.Add(clientConnection);
+                    var server = _netorkInfr.GetServer(remoteAddr);
+                    server.BuildNewConnection(localAddr);
+                }
+            }*/
+        }
+
+        public async Task WaitUntillAllReceivedMessageConsumed()
+        {
+            foreach (var connection in _netorkInfr.NetworkConnections)
+            {
+                await connection.WaitUntillAllReceivedMessageConsumed();
+            }
+
+        }
+    }
+
+    class TestNetworkServer : INetworkServer
+    {
+        private IConnectionChangeNotification _connectionNotifier;
+        private TestNodeConnections _clientConnections;
+        private NodeAddress _localAddr;
+        private readonly TestNetworkInfr _netowrkInfr;
+
+        public TestNetworkServer(TestNetworkInfr networkInfr)
+        {
+            _netowrkInfr = networkInfr;
+        }
+
+        public Task StartServer(NodeAddress serverAddr)
+        {
+            _localAddr = serverAddr;
+            _clientConnections = new TestNodeConnections(_localAddr, _netowrkInfr);
+
+            return Task.CompletedTask;
+        }
+
+        public void SubscribeConnectionChangeNotification(IConnectionChangeNotification notifier)
+        {
+            _connectionNotifier = notifier;
+        }
+
+        public bool BuildNewConnection(NodeAddress clientAddress)
+        {
+            var connection = _clientConnections.AddConnection(clientAddress);
+            if (connection == null)
+            {
+                return false;
+            }
+            _netowrkInfr.NetworkConnections.Add(connection);
+            _connectionNotifier?.OnNewConnection(connection);
+
+            return true;
+        }
+
+        public NodeAddress ServerAddress => _localAddr;
+    }
+
+
+
+
+    class TestNetworkCreator : INetworkCreator
+    {
+        private TestNetworkInfr _networkInfr;
+
+        public TestNetworkCreator(TestNetworkInfr networkInfr)
+        {
+            _networkInfr = networkInfr;
+        }
+
+        public async Task<INetworkServer> CreateNetworkServer(NodeAddress serverAddr)
+        {
+            var server = new TestNetworkServer(_networkInfr);
+            await server.StartServer(serverAddr);
+
+            _networkInfr.NetworkServers.Add(server);
+            return server;
+        }
+
+        public Task<IConnection> CreateNetworkClient(NodeAddress localAddrr, NodeAddress serverAddr)
+        {
+            lock(_networkInfr)
+            {
+                var clientConnection = _networkInfr.GetConnection(localAddrr, serverAddr);
+                if (clientConnection != null)
+                {
+                    return Task.FromResult(clientConnection as IConnection);
+                }
+                clientConnection = new TestConnection(localAddrr, serverAddr, _networkInfr);
+                var server = _networkInfr.GetServer(serverAddr);
+                if (!server.BuildNewConnection(localAddrr))
+                {
+                    return Task.FromResult((IConnection)null);
+                }
+                _networkInfr.NetworkConnections.Add(clientConnection);
+                return Task.FromResult(clientConnection as IConnection);
+            }
+        }
+    }
+
+    public class TestRpcRequestHandler : IRpcRequestHandler
+    {
+        private List<RpcMessage> _messageList;
+        public TestRpcRequestHandler(List<RpcMessage> rpcMssageList)
+        {
+            _messageList = rpcMssageList;
+        }
+
+        public Task<RpcMessage> HandleRequest(RpcMessage request)
+        {
+            _messageList.Add(request);
+
+            return Task.FromResult((RpcMessage)null);
+        }
+    }
 }

@@ -164,7 +164,7 @@ namespace Paxos.Protocol
     ///
     public class VoterRole
     {
-        private readonly NetworkServer _networkServer;
+        private readonly RpcClient _rpcClient;
         private readonly DecreeLockManager _decreeLockManager;
 
         private readonly NodeInfo _nodeInfo;
@@ -175,21 +175,21 @@ namespace Paxos.Protocol
         public VoterRole(
             NodeInfo nodeInfo,
             PaxosCluster cluster,
-            NetworkServer networkServer,
+            RpcClient rpcClient,
             DecreeLockManager decreeLockManager,
             VoterNote paxoserNote,
             Ledger ledger)
         {
             if (cluster == null) throw new ArgumentNullException("cluster");
             if (nodeInfo == null) throw new ArgumentNullException("nodeInfo");
-            if (networkServer == null) throw new ArgumentNullException("networkServer");
+            if (rpcClient == null) throw new ArgumentNullException("rpcClient");
             if (paxoserNote == null) throw new ArgumentNullException("no note book");
             if (ledger == null) throw new ArgumentNullException("ledger");
             if (decreeLockManager == null) throw new ArgumentNullException("decree lock manager");
 
             _nodeInfo = nodeInfo;
             _cluster = cluster;
-            _networkServer = networkServer;
+            _rpcClient = rpcClient;
             _note = paxoserNote;
             _ledger = ledger;
             _decreeLockManager = decreeLockManager;
@@ -342,8 +342,10 @@ namespace Paxos.Protocol
             paxosMessage.SourceNode = _nodeInfo.Name;
             var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(paxosMessage);
             var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
-            var rpcConnection = _networkServer.GetRpcTransport(paxosMessage.TargetNode);
-            await rpcConnection.SendRequest(rpcMsg);
+            var remoteAddr = new NodeAddress()
+            { Node = new NodeInfo() { Name = paxosMessage.TargetNode }, Port = 88};
+
+            await _rpcClient.SendRequest(remoteAddr, rpcMsg);
         }
     }
 
@@ -370,7 +372,7 @@ namespace Paxos.Protocol
 
     public class ProposerRole
     {
-        private readonly NetworkServer _networkServer;
+        private readonly RpcClient _rpcClient;
         private readonly DecreeLockManager _decreeLockManager;
         private readonly NodeInfo _nodeInfo;
         private readonly PaxosCluster _cluster;
@@ -381,21 +383,21 @@ namespace Paxos.Protocol
         public ProposerRole(
             NodeInfo nodeInfo,
             PaxosCluster cluster,
-            NetworkServer networkServer,
+            RpcClient rpcClient,
             DecreeLockManager decreeLockManager,
             ProposerNote proposerNote,
             Ledger ledger)
         {
             if (cluster == null) throw new ArgumentNullException("cluster");
             if (nodeInfo == null) throw new ArgumentNullException("nodeInfo");
-            if (networkServer == null) throw new ArgumentNullException("networkServer");
+            if (rpcClient == null) throw new ArgumentNullException("rpcClient");
             if (proposerNote == null) throw new ArgumentNullException("proposer note");
             if (ledger == null) throw new ArgumentNullException("ledger");
             if (decreeLockManager == null) throw new ArgumentNullException("decreeLock manager");
 
             _nodeInfo = nodeInfo;
             _cluster = cluster;
-            _networkServer = networkServer;
+            _rpcClient = rpcClient;
             _proposerNote = proposerNote;
             _ledger = ledger;
             _decreeLockManager = decreeLockManager;
@@ -788,8 +790,9 @@ namespace Paxos.Protocol
             paxosMessage.SourceNode = _nodeInfo.Name;
             var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(paxosMessage);
             var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
-            var rpcConnection = _networkServer.GetRpcTransport(paxosMessage.TargetNode);
-            await rpcConnection.SendRequest(rpcMsg);
+            var remoteAddr = new NodeAddress()
+            { Node = new NodeInfo() { Name = paxosMessage.TargetNode }, Port = 88 };
+            await _rpcClient.SendRequest(remoteAddr, rpcMsg);
         }
     }
 

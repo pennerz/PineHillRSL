@@ -20,4 +20,14 @@ namespace Paxos.Rpc
         Task<RpcMessage> SendRequest(RpcMessage request);
         void RegisterRequestHandler(IRpcRequestHandler requestHandler);
     }
+
+    public interface IRpcClient
+    {
+        Task<RpcMessage> SendRequest(NodeAddress targetNode, RpcMessage request);
+    }
+
+    public interface IRpcServer
+    {
+        void RegisterRequestHandler(IRpcRequestHandler requestHandler);
+    }
 }
