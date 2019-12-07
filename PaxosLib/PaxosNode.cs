@@ -2,7 +2,7 @@
 using Paxos.Network;
 using Paxos.Persistence;
 using Paxos.Notebook;
-using Paxos.MessageDelivery;
+using Paxos.Message;
 using Paxos.Request;
 using Paxos.Rpc;
 using System;
@@ -19,7 +19,7 @@ namespace Paxos.Node
         private readonly PaxosCluster _cluster;
         private readonly NodeInfo _nodeInfo;
 
-        private readonly PaxosNodeMessageDelivery _messager;
+        private readonly PaxosNodeMessageDeliver _messager;
 
         //private readonly Task _messageHandlerTask;
 
@@ -74,7 +74,7 @@ namespace Paxos.Node
             var proposerNote = new ProposerNote(ledger);
             _proposerRole = new ProposerRole(_nodeInfo, _cluster, _rpcClient, _decreeLockManager, proposerNote, ledger);
 
-            _messager = new PaxosNodeMessageDelivery(_proposerRole, _voterRole);
+            _messager = new PaxosNodeMessageDeliver(_proposerRole, _voterRole);
             var rpcRequestHandler = new PaxosMessageHandler(_messager, null);
             _rpcServer.RegisterRequestHandler(rpcRequestHandler);
             var taask = _rpcServer.Start();

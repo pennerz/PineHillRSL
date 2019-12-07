@@ -4,9 +4,12 @@ using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Paxos.MessageDelivery
+namespace Paxos.Message
 {
-    public interface IMessageDelivery
+    /// <summary>
+    /// Paxos message deliver interface
+    /// </summary>
+    public interface IMessageDeliver
     {
         ///
         /// Following are messages channel, should be moved out of the node interface

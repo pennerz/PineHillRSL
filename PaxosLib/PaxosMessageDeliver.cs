@@ -3,14 +3,17 @@ using Paxos.Protocol;
 using System;
 using System.Threading.Tasks;
 
-namespace Paxos.MessageDelivery
+namespace Paxos.Message
 {
-    public class PaxosNodeMessageDelivery : IMessageDelivery
+    /// <summary>
+    /// Deliver the paxos message to roles who will handle it
+    /// </summary>
+    public class PaxosNodeMessageDeliver : IMessageDeliver
     {
         private ProposerRole _proposerRole;
         private VoterRole _voterRole;
 
-        public PaxosNodeMessageDelivery(ProposerRole proposerRole, VoterRole voterRole)
+        public PaxosNodeMessageDeliver(ProposerRole proposerRole, VoterRole voterRole)
         {
             if (proposerRole == null)
             {
@@ -23,6 +26,7 @@ namespace Paxos.MessageDelivery
             _proposerRole = proposerRole;
             _voterRole = voterRole;
         }
+
         ///
         /// Following are messages channel, should be moved out of the node interface
         ///

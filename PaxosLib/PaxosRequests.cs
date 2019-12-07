@@ -4,12 +4,18 @@ using System.Text;
 
 namespace Paxos.Request
 {
+    /// <summary>
+    /// Paxos decree
+    /// </summary>
     [Serializable()]
     public class PaxosDecree
     {
         public string Content;
     }
 
+    /// <summary>
+    /// Decree read result
+    /// </summary>
     public class DecreeReadResult
     {
         public bool IsFound { get; set; }
@@ -17,6 +23,9 @@ namespace Paxos.Request
         public PaxosDecree Decree { get; set; }
     }
 
+    /// <summary>
+    /// Decree propose result
+    /// </summary>
     public class ProposeResult
     {
         public ulong DecreeNo { get; set; }

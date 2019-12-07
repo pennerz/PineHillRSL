@@ -33,9 +33,6 @@ namespace Paxos.Tests
             NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
 
             var nodeMap = new Dictionary<string, PaxosNode>();
-            var network = new TestNetwork(networkInfr);
-            network.CreateNetworkMap(cluster.Members);
-
             foreach (var nodeInfo in cluster.Members)
             {
                 var node = new PaxosNode(cluster, nodeInfo);
@@ -87,7 +84,7 @@ namespace Paxos.Tests
             result = await proposer2.ProposeDecree(decree3, 0);
             Assert.IsTrue(result.Decree.Content.Equals("test3"));
             Assert.IsTrue(result.DecreeNo == 3);
-            await network.WaitUntillAllReceivedMessageConsumed();
+            await networkInfr.WaitUntillAllReceivedMessageConsumed();
             readReslut = await proposer.ReadDecree(result.DecreeNo);
             Assert.IsTrue(readReslut.IsFound);
             Assert.IsTrue(readReslut.Decree.Content.Equals("test3"));
@@ -112,9 +109,7 @@ namespace Paxos.Tests
 
             var networkInfr = new TestNetworkInfr();
             NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
-            var network = new TestNetwork(networkInfr);
-            network.CreateNetworkMap(cluster.Members);
-            
+
             var sourceNode = cluster.Members[0].Name;
             var targetNode = cluster.Members[1].Name;
             var srcServerAddress = new NodeAddress()
@@ -266,9 +261,6 @@ namespace Paxos.Tests
 
                 networkInfr = new TestNetworkInfr();
                 NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
-                network = new TestNetwork(networkInfr);
-                network.CreateNetworkMap(cluster.Members);
-
 
                 var rpcServer = new RpcServer(srcServerAddress);
                 rpcServer.RegisterRequestHandler(new TestRpcRequestHandler(msgList));
@@ -371,9 +363,6 @@ namespace Paxos.Tests
 
             var networkInfr = new TestNetworkInfr();
             NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
-            var network = new TestNetwork(networkInfr);
-            network.CreateNetworkMap(cluster.Members);
-
             var sourceNode = cluster.Members[0].Name;
             var targetNode = cluster.Members[1].Name;
             var srcServerAddress = new NodeAddress()
@@ -784,14 +773,11 @@ namespace Paxos.Tests
 
             foreach(var rpcserver in serverList)
             {
-                rpcserver.Stop = true;
+                await rpcserver.Stop();
             }
 
             networkInfr = new TestNetworkInfr();
             NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
-            network = new TestNetwork(networkInfr);
-            network.CreateNetworkMap(cluster.Members);
-
             msgList = new List<List<RpcMessage>>();
             serverList = new List<RpcServer>();
             foreach (var node in nodeAddrList)
@@ -920,7 +906,6 @@ namespace Paxos.Tests
                     Assert.AreEqual(nextBallotMsg.TargetNode, cluster.Members[i].Name);
                     msgList[i].Clear();
                 }
-
 
                 // build vote state
                 propose.State = PropserState.BeginNewBallot;

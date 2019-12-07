@@ -25,6 +25,9 @@ namespace Paxos.Network
         public string Name { get; set; }
     }
 
+    /// <summary>
+    /// node address
+    /// </summary>
     public class NodeAddress : IEquatable<NodeAddress>
     {
         public bool Equals(NodeAddress rhs)
@@ -53,50 +56,64 @@ namespace Paxos.Network
         public ushort Port { get; set; }
     }
 
-    public class RpcMessage
+    /// <summary>
+    /// Network communication message
+    /// </summary>
+    public class NetworkMessage
     {
-        public RpcMessage()
+        public NetworkMessage()
         {
-            RequestId = Guid.NewGuid();
-            IsRequest = true;
         }
 
-        public Guid RequestId { get; set; }
-        public bool IsRequest { get; set; }
-        public string RequestContent { get; set; }
+        public Guid ActivityId { get; set; }
+        public string Data { get; set; }
     }
 
-    /*
-    public interface INetworkTransport
-    {
-        Task SendMessage(RpcMessage msg);
-
-        Task<RpcMessage> ReceiveMessage();
-    }*/
-
+    /// <summary>
+    /// Network connection interface
+    /// </summary>
     public interface IConnection
     {
-        Task SendMessage(RpcMessage msg);
+        NodeAddress RemoteAddress { get; }
 
-        Task<RpcMessage> ReceiveMessage();
+        NodeAddress LocalAddress { get; }
+
+        Task SendMessage(NetworkMessage msg);
+
+        Task<NetworkMessage> ReceiveMessage();
     }
 
-    public interface INetworkServerEventHandler
-    {
-        Task OnConnect(INetworkServer server, IConnection severChannel);
-    }
-
+    /// <summary>
+    /// Interface to notify connection changing, which is used by server.
+    /// </summary>
     public interface IConnectionChangeNotification
     {
         void OnNewConnection(IConnection newConnection);
     }
 
+    /// <summary>
+    /// Network server interface.
+    /// </summary>
+    public interface INetworkServer
+    {
+        Task StartServer(NodeAddress serverAddr);
+        Task StopServer();
+        void SubscribeConnectionChangeNotification(IConnectionChangeNotification notifier);
+    }
+
+    /// <summary>
+    /// Creator for create network objects. Different implementation should implment
+    /// a INetworkCreator too so to create the objects.
+    /// </summary>
     public interface INetworkCreator
     {
         Task<INetworkServer> CreateNetworkServer(NodeAddress serverAddr);
         Task<IConnection> CreateNetworkClient(NodeAddress localAddrr, NodeAddress serverAddr);
     }
 
+    /// <summary>
+    /// Network objects factory.
+    /// </summary>
     public class NetworkFactory
     {
         private static INetworkCreator _creator = null;
@@ -126,9 +143,4 @@ namespace Paxos.Network
         }
     }
 
-    public interface INetworkServer
-    {
-        Task StartServer(NodeAddress serverAddr);
-        void SubscribeConnectionChangeNotification(IConnectionChangeNotification notifier);
-    }
 }

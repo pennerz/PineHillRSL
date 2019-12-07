@@ -11,211 +11,19 @@ using System.Linq;
 
 namespace Paxos.Tests
 {
-    /*
-    class TestNetworkTransport : INetworkTransport
-    {
-        private string _nodeName;
-        private string _targetNode;
-        private TestNetwork _network;
-        private List<RpcMessage> _receivedMessages = new List<RpcMessage>();
-        private SemaphoreSlim _receivedMessageSemaphore = new SemaphoreSlim(0);
-
-        public TestNetworkTransport(string nodeName, string targetNode, TestNetwork network)
-        {
-            _nodeName = nodeName;
-            _targetNode = targetNode;
-            _network = network;
-
-            if (_network == null || string.IsNullOrEmpty(_nodeName))
-            {
-                throw new ArgumentNullException("Invalid TestPaxosNodeTalkProxy arguments");
-            }
-        }
-
-        public Task SendMessage(RpcMessage msg)
-        {
-            _network.GetConnection(_targetNode, _nodeName).DeliverMessage(msg);
-
-            return Task.CompletedTask;
-        }
-
-        public async Task<RpcMessage> ReceiveMessage()
-        {
-            do
-            {
-                await _receivedMessageSemaphore.WaitAsync();
-                lock (_receivedMessages)
-                {
-                    if (_receivedMessages.Count > 0)
-                    {
-                        var message = _receivedMessages[0];
-                        _receivedMessages.RemoveAt(0);
-                        return message;
-                    }
-                }
-            } while (true);
-        }
-
-        public async Task WaitUntillAllReceivedMessageConsumed()
-        {
-            do
-            {
-                lock (_receivedMessages)
-                {
-                    if (_receivedMessages.Count == 0)
-                    {
-                        return;
-                    }
-                }
-
-                await Task.Delay(50);
-
-            } while (true);
-        }
-
-        public void DeliverMessage(RpcMessage message)
-        {
-            lock (_receivedMessages)
-            {
-                _receivedMessages.Add(message);
-                _receivedMessageSemaphore.Release();
-            }
-        }
-    }
-
-
-    class FakePaxosNodeTalker : INetworkTransport
-    {
-        private readonly string _nodeName;
-        private FakeTestNetwork _network;
-        private readonly List<RpcMessage> _messageList = new List<RpcMessage>();
-
-        public FakePaxosNodeTalker(string nodeName, FakeTestNetwork fakeNetwork)
-        {
-            _nodeName = nodeName;
-            _network = fakeNetwork;
-        }
-
-        public List<RpcMessage> GetNodeMessages()
-        {
-            return _messageList;
-        }
-
-        public void ClearMessage()
-        {
-            _messageList.Clear();
-        }
-
-        public Task SendMessage(RpcMessage msg)
-        {
-
-            _messageList.Add(msg);
-
-            return Task.CompletedTask;
-        }
-
-        public Task<RpcMessage> ReceiveMessage()
-        {
-            var completionSource = new TaskCompletionSource<RpcMessage>();
-            return completionSource.Task;
-        }
-    }
-    */
-    /*
-    public class TestRpcTransport : IRpcTransport
-    {
-        private readonly string _nodeName;
-        private FakeTestNetwork _network;
-        private readonly List<PaxosMessage> _messageList = new List<PaxosMessage>();
-
-        public TestRpcTransport(string nodeName, FakeTestNetwork network)
-        {
-            _nodeName = nodeName;
-            _network = network;
-        }
-
-        public Task<RpcMessage> SendRequest(RpcMessage rpcRequest)
-        {
-            var paxosRpcMsg = PaxosRpcMessageFactory.CreatePaxosRpcMessage(rpcRequest);
-            var paxosMsg = PaxosMessageFactory.CreatePaxosMessage(paxosRpcMsg);
-            _messageList.Add(paxosMsg);
-
-            var resp = new RpcMessage()
-            {
-                IsRequest = false,
-                RequestId = rpcRequest.RequestId
-            };
-
-            return Task.FromResult(resp);
-        }
-
-        public void RegisterRequestHandler(IRpcRequestHandler requestHandler)
-        {
-        }
-
-        public List<PaxosMessage> GetNodeMessages()
-        {
-            return _messageList;
-        }
-
-        public void ClearMessage()
-        {
-            _messageList.Clear();
-        }
-
-    }
-    */
-
-    /*
-    public class FakeTestNetwork
-    {
-        private Dictionary<string, TestRpcTransport> _transportMap = new Dictionary<string, TestRpcTransport>();
-
-        public FakeTestNetwork()
-        {
-
-        }
-
-        public void CreateNetworkMap(List<NodeInfo> nodeList)
-        {
-            foreach (var nodeInfo in nodeList)
-            {
-                var messageTransport = new TestRpcTransport(nodeInfo.Name, this);
-                _transportMap[nodeInfo.Name] = messageTransport;
-            }
-        }
-
-        public ConcurrentDictionary<string, IRpcTransport> GetRpcConnectionsFromSrc(string src)
-        {
-            var rpcConnections = new ConcurrentDictionary<string, IRpcTransport>();
-            foreach(var target in _transportMap)
-            {
-                if (target.Key.Equals(src))
-                {
-                    continue;
-                }
-
-                rpcConnections[target.Key] = _transportMap[target.Key];
-            }
-
-            return rpcConnections;
-        }
-
-        public TestRpcTransport GetConnection(string src)
-        {
-            return _transportMap[src];
-        }
-
-    }
-    */
-
+    /// <summary>
+    /// Test implementation of IConnection.
+    /// It will not really build connection, but create pair of connection object
+    /// in the TestNetworkInfr. When message is sent, it will find the pair
+    /// connection object and deliver the message to it direclty.
+    /// </summary>
     class TestConnection : IConnection
     {
         private readonly TestNetworkInfr _networkInfr;
         private readonly NodeAddress _localAddress;
         private readonly NodeAddress _remoteAddress;
 
-        private readonly List<RpcMessage> _receivedMessages = new List<RpcMessage>();
+        private readonly List<NetworkMessage> _receivedMessages = new List<NetworkMessage>();
         private SemaphoreSlim _receivedMessageSemaphore = new SemaphoreSlim(0);
 
         public TestConnection(NodeAddress localAddr, NodeAddress remoteAddr, TestNetworkInfr networkInfr)
@@ -225,7 +33,7 @@ namespace Paxos.Tests
             _networkInfr = networkInfr;
         }
 
-        public Task SendMessage(RpcMessage msg)
+        public Task SendMessage(NetworkMessage msg)
         {
             var connection = _networkInfr.GetConnection(_remoteAddress, _localAddress);
             connection.DeliverMessage(msg);
@@ -233,7 +41,7 @@ namespace Paxos.Tests
             return Task.CompletedTask;
         }
 
-        public async Task<RpcMessage> ReceiveMessage()
+        public async Task<NetworkMessage> ReceiveMessage()
         {
             do
             {
@@ -250,6 +58,10 @@ namespace Paxos.Tests
             } while (true);
         }
 
+        /// <summary>
+        /// Wait for all received message to be consumed.
+        /// </summary>
+        /// <returns></returns>
         public async Task WaitUntillAllReceivedMessageConsumed()
         {
             do
@@ -267,7 +79,11 @@ namespace Paxos.Tests
             } while (true);
         }
 
-        public void DeliverMessage(RpcMessage message)
+        /// <summary>
+        /// Deliver the message to received message queue.
+        /// </summary>
+        /// <param name="message"></param>
+        public void DeliverMessage(NetworkMessage message)
         {
             lock (_receivedMessages)
             {
@@ -276,15 +92,14 @@ namespace Paxos.Tests
             }
         }
 
-
-
         public NodeAddress LocalAddress => _localAddress;
 
         public NodeAddress RemoteAddress => _remoteAddress;
-
-        public List<RpcMessage> ReceivedMessages => _receivedMessages;
     }
 
+    /// <summary>
+    /// A container for one node's connections
+    /// </summary>
     class TestNodeConnections
     {
         private NodeAddress _localAddress;
@@ -296,15 +111,6 @@ namespace Paxos.Tests
         {
             _localAddress = localAddr;
             _networkInfr = networkInfr;
-        }
-        public TestConnection GetConnectionWithRemoteNode(NodeAddress remoteAddr)
-        {
-            TestConnection connection = null;
-            if (_connections.TryGetValue(remoteAddr, out connection))
-            {
-                return connection;
-            }
-            return null;
         }
 
         public TestConnection AddConnection(NodeAddress remoteAddress)
@@ -319,13 +125,15 @@ namespace Paxos.Tests
                     _connections.Add(remoteAddress, connection);
                     return connection;
                 }
-
                 return _connections[remoteAddress];
-
             }
         }
     }
 
+    /// <summary>
+    /// Network map which include all the nodes' connections. Test connection
+    /// rely on it to find the right connection to deliver the message.
+    /// </summary>
     class TestNetworkInfr
     {
         List<TestConnection> _connections = new List<TestConnection>();
@@ -363,63 +171,18 @@ namespace Paxos.Tests
                 server.ServerAddress.Equals(serverAddr)).First();
         }
 
-    }
-
-
-    class TestNetwork
-    {
-        TestNetworkInfr _netorkInfr;
-        public TestNetwork(TestNetworkInfr networkInfr)
-        {
-            _netorkInfr = networkInfr;
-        }
-
-        public void CreateNetworkMap(List<NodeInfo> nodeList)
-        {
-            /*
-            foreach (var nodeInfo in nodeList)
-            {
-                var server = new TestNetworkServer(_netorkInfr);
-                server.StartServer(new NodeAddress()
-                {
-                    Node = nodeInfo,
-                    Port = 0
-                });
-                _netorkInfr.NetworkServers.Add(server);
-            }
-
-            foreach(var nodeInfo in nodeList)
-            {
-                foreach (var targetNodeInfo in nodeList)
-                {
-                    if (nodeInfo.Equals(targetNodeInfo))
-                    {
-                        continue;
-                    }
-                    var localAddr = new NodeAddress()
-                    { Node = nodeInfo, Port = 0 };
-                    var remoteAddr = new NodeAddress()
-                    { Node = targetNodeInfo, Port = 0 };
-
-                    var clientConnection = new TestConnection(
-                        localAddr, remoteAddr, _netorkInfr);
-                    _netorkInfr.NetworkConnections.Add(clientConnection);
-                    var server = _netorkInfr.GetServer(remoteAddr);
-                    server.BuildNewConnection(localAddr);
-                }
-            }*/
-        }
-
         public async Task WaitUntillAllReceivedMessageConsumed()
         {
-            foreach (var connection in _netorkInfr.NetworkConnections)
+            foreach (var connection in _connections)
             {
                 await connection.WaitUntillAllReceivedMessageConsumed();
             }
-
         }
     }
 
+    /// <summary>
+    /// Test implementation of INetworkServer. 
+    /// </summary>
     class TestNetworkServer : INetworkServer
     {
         private IConnectionChangeNotification _connectionNotifier;
@@ -440,11 +203,29 @@ namespace Paxos.Tests
             return Task.CompletedTask;
         }
 
+        public Task StopServer()
+        {
+            return Task.CompletedTask;
+        }
+
         public void SubscribeConnectionChangeNotification(IConnectionChangeNotification notifier)
         {
             _connectionNotifier = notifier;
         }
 
+        /// <summary>
+        /// This simulate server accept a new connection, and build the connection
+        /// object for it.
+        /// In production enviroment, server will receive a connection event, and 
+        /// if it accept it, a new connection will be created.
+        /// In test, when client want to connect the server, it will find the server
+        /// via TestNetworkInfr, and call it's BuildConnection.
+        /// </summary>
+        /// <param name="clientAddress"></param>
+        /// <returns>
+        ///     true: new connection accepted.
+        ///     false: new connection denied.
+        /// </returns>
         public bool BuildNewConnection(NodeAddress clientAddress)
         {
             var connection = _clientConnections.AddConnection(clientAddress);
@@ -461,9 +242,9 @@ namespace Paxos.Tests
         public NodeAddress ServerAddress => _localAddr;
     }
 
-
-
-
+    /// <summary>
+    /// Test network object creator
+    /// </summary>
     class TestNetworkCreator : INetworkCreator
     {
         private TestNetworkInfr _networkInfr;
@@ -473,6 +254,11 @@ namespace Paxos.Tests
             _networkInfr = networkInfr;
         }
 
+        /// <summary>
+        /// Create network server, which will listen on the server address
+        /// </summary>
+        /// <param name="serverAddr"></param>
+        /// <returns></returns>
         public async Task<INetworkServer> CreateNetworkServer(NodeAddress serverAddr)
         {
             var server = new TestNetworkServer(_networkInfr);
@@ -482,6 +268,12 @@ namespace Paxos.Tests
             return server;
         }
 
+        /// <summary>
+        /// Create a client connection, which will connect to remote address.
+        /// </summary>
+        /// <param name="localAddrr"></param>
+        /// <param name="serverAddr"></param>
+        /// <returns></returns>
         public Task<IConnection> CreateNetworkClient(NodeAddress localAddrr, NodeAddress serverAddr)
         {
             lock(_networkInfr)
@@ -503,6 +295,9 @@ namespace Paxos.Tests
         }
     }
 
+    /// <summary>
+    /// Test rpc request handler, which have chance to get the rpc requests
+    /// </summary>
     public class TestRpcRequestHandler : IRpcRequestHandler
     {
         private List<RpcMessage> _messageList;

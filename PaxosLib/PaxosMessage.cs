@@ -14,6 +14,9 @@ namespace Paxos.Message
         STALEBALLOT
     }
 
+    /// <summary>
+    /// Paxos protocol message
+    /// </summary>
     [Serializable()]
     public class PaxosMessage
     {
