@@ -15,6 +15,11 @@ namespace Paxos.Notebook
     {
         private readonly ConcurrentDictionary<ulong, PaxosDecree> _committedDecrees = new ConcurrentDictionary<ulong, PaxosDecree>();
 
+        public Ledger(string ledgerFilePath)
+        {
+
+        }
+
         public ulong GetMaxCommittedDecreeNo()
         {
             return _committedDecrees.LastOrDefault().Key;
@@ -52,6 +57,11 @@ namespace Paxos.Notebook
 
         public Task CommitDecree(ulong decreeNo, PaxosDecree decree)
         {
+            // Paxos protocol already make sure the consistency.
+            // So the decree will be idempotent, just write it directly
+
+
+            // add it in cache
             lock (_committedDecrees)
             {
                 do
@@ -102,13 +112,13 @@ namespace Paxos.Notebook
     public class VoterNote
     {
         // persistent module
-        private readonly IPaxosNotePeisisent _persistenter = null;
+        private readonly IPaxosVotedBallotLog _logger;
         // voter role
         private readonly ConcurrentDictionary<ulong, DecreeBallotInfo> _ballotInfo = new ConcurrentDictionary<ulong, DecreeBallotInfo>();
 
-        public VoterNote(IPaxosNotePeisisent persistenter)
+        public VoterNote(IPaxosVotedBallotLog logger)
         {
-            _persistenter = persistenter;
+            _logger = logger;
         }
 
         public ulong GetNextBallotNo(ulong decreeNo)
@@ -135,7 +145,7 @@ namespace Paxos.Notebook
                 return result;
             }
             decreeBallotInfo.NextBallotNo = nextBallotNo;
-            await _persistenter.SaveVoterVoteInfo(decreeNo, decreeBallotInfo);
+            await _logger.AppendLog(decreeNo, decreeBallotInfo);
             decreeBallotInfo.ReleaseLock();
             return result;
         }
@@ -150,12 +160,7 @@ namespace Paxos.Notebook
         {
             DecreeBallotInfo decreeBallotInfo = AddDecreeBallotInfo(decreeNo);
             await decreeBallotInfo.AcquireLock();
-            decreeBallotInfo.VotedMessage = voteMsg;
-            await _persistenter.SaveVoterVoteInfo(decreeNo, decreeBallotInfo);
-            decreeBallotInfo.ReleaseLock();
-
             ulong oldNextBallotNo = 0;
-            await decreeBallotInfo.AcquireLock();
             oldNextBallotNo = decreeBallotInfo.NextBallotNo;
             if (nextBallotNo != oldNextBallotNo)
             {
@@ -164,7 +169,7 @@ namespace Paxos.Notebook
                 return oldNextBallotNo;
             }
             decreeBallotInfo.VotedMessage = voteMsg;
-            await _persistenter.SaveVoterVoteInfo(decreeNo, decreeBallotInfo);
+            await _logger.AppendLog(decreeNo, decreeBallotInfo);
             decreeBallotInfo.ReleaseLock();
             return oldNextBallotNo;
         }
@@ -363,7 +368,7 @@ namespace Paxos.Notebook
     {
         // proposer role
         private ConcurrentDictionary<ulong, Propose> _decreeState = new ConcurrentDictionary<ulong, Propose>();
-        private Ledger _ledger = new Ledger();
+        private Ledger _ledger = new Ledger(".\\logger.log");
 
         public ProposerNote(Ledger otherLedger)
         {

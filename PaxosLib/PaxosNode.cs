@@ -65,11 +65,10 @@ namespace Paxos.Node
             _rpcServer = new RpcServer(serverAddr);
 
             _decreeLockManager = new DecreeLockManager();
-            var persistenter = new MemoryPaxosNotePersistent();
-            var ledger = new Ledger();
+            var ledger = new Ledger(".\\loegger" + _nodeInfo.Name + ".log");
+            var votedLogger = new FilePaxosVotedBallotLog(".\\votedlogger_" + _nodeInfo.Name + ".log");
 
-
-            var voterNote = new VoterNote(persistenter);
+            var voterNote = new VoterNote(votedLogger);
             _voterRole = new VoterRole(_nodeInfo, _cluster, _rpcClient, _decreeLockManager, voterNote, ledger);
             var proposerNote = new ProposerNote(ledger);
             _proposerRole = new ProposerRole(_nodeInfo, _cluster, _rpcClient, _decreeLockManager, proposerNote, ledger);

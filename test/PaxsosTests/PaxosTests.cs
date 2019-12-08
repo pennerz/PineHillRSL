@@ -137,10 +137,11 @@ namespace Paxos.Tests
                 Port = 0
             };
 
-            var ledger = new Ledger();
+            var logPrefix = Guid.NewGuid().ToString();
+            var ledger = new Ledger(logPrefix + "logger_node1.log");
 
-            var persistenter = new MemoryPaxosNotePersistent();
-            var voterNote = new VoterNote(persistenter);
+            var votedLogger = new FilePaxosVotedBallotLog(logPrefix + "votedlogger_node1.log");
+            var voterNote = new VoterNote(votedLogger);
             var decreeLockManager = new DecreeLockManager();
 
             var msgList = new List<RpcMessage>();
@@ -408,7 +409,8 @@ namespace Paxos.Tests
             }
 
 
-            var ledger = new Ledger();
+            var logPrefix = Guid.NewGuid().ToString();
+            var ledger = new Ledger(logPrefix + "logger.log");
             var proposerNote = new ProposerNote(ledger);
             var decreeLockManager = new DecreeLockManager();
 

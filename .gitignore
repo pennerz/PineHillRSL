@@ -11,3 +11,5 @@
 /Paxos/.vs/
 /NetworkLib/obj
 /NetworkLib/bin/Debug/netcoreapp3.0
+/CommonLib/obj
+/CommonLib/bin/Debug/netcoreapp3.0
