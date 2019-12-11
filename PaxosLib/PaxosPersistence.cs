@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 
 namespace Paxos.Persistence
 {
-    enum IteratorType { Default, End};
+    public enum IteratorType { Default, End};
 
     public interface ICommittedDecreeIterator : IEquatable<ICommittedDecreeIterator>
     {
@@ -22,7 +22,7 @@ namespace Paxos.Persistence
     {
         Task<ICommittedDecreeIterator> Begin();
         Task<ICommittedDecreeIterator> End();
-        Task AppendLog(PaxosDecree decree);
+        Task AppendLog(ulong decreeNo, PaxosDecree decree);
     }
 
     public interface IVotedBallotIterator : IEquatable<IVotedBallotIterator>
@@ -45,8 +45,7 @@ namespace Paxos.Persistence
         byte[] Data { get; set; }
     }
 
-
-    class FileCommittedDecreeIterator : ICommittedDecreeIterator
+    public class FileCommittedDecreeIterator : ICommittedDecreeIterator
     {
         private FileStream _dataStream;
         private PaxosDecree _currentDecree;
@@ -86,7 +85,9 @@ namespace Paxos.Persistence
                 _dataStream.Close();
                 return new FileCommittedDecreeIterator(null, null, IteratorType.End);
             }
-            var data = Encoding.UTF8.GetString(databuf);
+
+            ulong decreeNo = BitConverter.ToUInt64(databuf, 0);
+            var data = Encoding.UTF8.GetString(databuf, (int)sizeof(ulong), (int)(dataSize - sizeof(ulong)));
             var decree = Serializer<PaxosDecree>.Deserialize(data);
 
             next = new FileCommittedDecreeIterator(_dataStream, decree, IteratorType.Default);
@@ -137,7 +138,7 @@ namespace Paxos.Persistence
         }
     }
 
-    class FilePaxosCommitedDecreeLog : IPaxosCommitedDecreeLog
+    public class FilePaxosCommitedDecreeLog : IPaxosCommitedDecreeLog
     {
         private string _dataFilePath;
         private FileStream _dataStream;
@@ -165,7 +166,7 @@ namespace Paxos.Persistence
             _dataStream = new FileStream(_dataFilePath, FileMode.OpenOrCreate, FileAccess.Write);
         }
 
-        public async Task AppendLog(PaxosDecree decree)
+        public async Task AppendLog(ulong decreeNo, PaxosDecree decree)
         {
             lock(_dataFilePath)
             {
@@ -174,11 +175,14 @@ namespace Paxos.Persistence
                     OpenForAppend();
                 }
             }
+
             var data = Encoding.UTF8.GetBytes(Serializer<PaxosDecree>.Serialize(decree));
-            var dataBuf = new byte[sizeof(uint) + data.Length];
-            data.CopyTo(dataBuf, sizeof(uint));
-            BitConverter.GetBytes((uint)data.Length).CopyTo(dataBuf, 0);
+            var dataBuf = new byte[sizeof(uint) + sizeof(ulong) + data.Length];
+            data.CopyTo(dataBuf, sizeof(uint) + sizeof(ulong));
+            BitConverter.GetBytes((uint)data.Length + sizeof(ulong)).CopyTo(dataBuf, 0);
+            BitConverter.GetBytes(decreeNo).CopyTo(dataBuf, sizeof(uint));
             await _dataStream.WriteAsync(dataBuf, 0, dataBuf.Length);
+
         }
     }
 

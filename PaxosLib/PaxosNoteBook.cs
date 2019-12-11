@@ -14,10 +14,15 @@ namespace Paxos.Notebook
     public class Ledger
     {
         private readonly ConcurrentDictionary<ulong, PaxosDecree> _committedDecrees = new ConcurrentDictionary<ulong, PaxosDecree>();
+        private readonly IPaxosCommitedDecreeLog _logger;
 
-        public Ledger(string ledgerFilePath)
+        public Ledger(IPaxosCommitedDecreeLog logger)
         {
-
+            _logger = logger;
+            if (_logger == null)
+            {
+                throw new ArgumentNullException("IPaxosCommitedDecreeLog");
+            }
         }
 
         public ulong GetMaxCommittedDecreeNo()
@@ -55,11 +60,12 @@ namespace Paxos.Notebook
             return committedDecrees.Count > 0 ? committedDecrees : null;
         }
 
-        public Task CommitDecree(ulong decreeNo, PaxosDecree decree)
+        public async Task CommitDecree(ulong decreeNo, PaxosDecree decree)
         {
             // Paxos protocol already make sure the consistency.
             // So the decree will be idempotent, just write it directly
 
+            await _logger.AppendLog(decreeNo, decree);
 
             // add it in cache
             lock (_committedDecrees)
@@ -68,12 +74,12 @@ namespace Paxos.Notebook
                 {
                     if (_committedDecrees.ContainsKey(decreeNo))
                     {
-                        return Task.CompletedTask;
+                        return ;
                         //throw new Exception("decree already committed");
                     }
                     if (_committedDecrees.TryAdd(decreeNo, decree))
                     {
-                        return Task.CompletedTask;
+                        return ;
                     }
                 } while (true);
             }
@@ -368,14 +374,15 @@ namespace Paxos.Notebook
     {
         // proposer role
         private ConcurrentDictionary<ulong, Propose> _decreeState = new ConcurrentDictionary<ulong, Propose>();
-        private Ledger _ledger = new Ledger(".\\logger.log");
+        private Ledger _ledger;
 
-        public ProposerNote(Ledger otherLedger)
+        public ProposerNote(Ledger ledger)
         {
-            if (otherLedger != null)
+            if (ledger == null)
             {
-                _ledger = otherLedger;
+                throw new ArgumentNullException("ledger");
             }
+            _ledger = ledger;
         }
 
         public ulong GetNewDecreeNo()
@@ -411,16 +418,6 @@ namespace Paxos.Notebook
         {
             // committed dcree can never be changed
             return Task.FromResult(_ledger.GetCommittedDecree(decreeNo));
-            /*
-            var propose = GetPropose(decreeNo);
-            if (propose == null)
-            {
-                return null;
-            }
-            await propose.AcquireLock();
-            committedDecree = _ledger.GetCommittedDecree(decreeNo);
-            propose.ReleaseLock();
-            return committedDecree;*/
         }
 
         public void SubscribeCompletionNotification(ulong decreeNo, TaskCompletionSource<ProposeResult> completionSource)

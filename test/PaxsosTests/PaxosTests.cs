@@ -138,7 +138,9 @@ namespace Paxos.Tests
             };
 
             var logPrefix = Guid.NewGuid().ToString();
-            var ledger = new Ledger(logPrefix + "logger_node1.log");
+
+            var ledgerLogger = new FilePaxosCommitedDecreeLog(logPrefix + "logger_node1.log");
+            var ledger = new Ledger(ledgerLogger);
 
             var votedLogger = new FilePaxosVotedBallotLog(logPrefix + "votedlogger_node1.log");
             var voterNote = new VoterNote(votedLogger);
@@ -410,7 +412,8 @@ namespace Paxos.Tests
 
 
             var logPrefix = Guid.NewGuid().ToString();
-            var ledger = new Ledger(logPrefix + "logger.log");
+            var ledgerLogger = new FilePaxosCommitedDecreeLog(logPrefix + "logger.log");
+            var ledger = new Ledger(ledgerLogger);
             var proposerNote = new ProposerNote(ledger);
             var decreeLockManager = new DecreeLockManager();
 
