@@ -140,9 +140,8 @@ namespace Paxos.Tests
             var logPrefix = Guid.NewGuid().ToString();
 
             var ledgerLogger = new FilePaxosCommitedDecreeLog(logPrefix + "logger_node1.log");
-            var ledger = new Ledger(ledgerLogger);
-
             var votedLogger = new FilePaxosVotedBallotLog(logPrefix + "votedlogger_node1.log");
+            var proposerNote = new ProposerNote(ledgerLogger);
             var voterNote = new VoterNote(votedLogger);
             var decreeLockManager = new DecreeLockManager();
 
@@ -155,7 +154,7 @@ namespace Paxos.Tests
                 await rpcServer.Start();
 
                 var rpcClient = new RpcClient(targetClientAddress);
-                var voter = new VoterRole(cluster.Members[1], cluster, rpcClient, decreeLockManager, voterNote, ledger);
+                var voter = new VoterRole(cluster.Members[1], cluster, rpcClient, decreeLockManager, voterNote, proposerNote);
                 var nextBallotMsg = new NextBallotMessage();
                 nextBallotMsg.DecreeNo = 1;
                 nextBallotMsg.BallotNo = 1;
@@ -239,7 +238,7 @@ namespace Paxos.Tests
                 msgList.Clear();
 
                 //1.5 decree has been committed in ledger
-                await ledger.CommitDecree(1, voteMsg.VoteDecree);
+                await proposerNote.CommitDecree(1, voteMsg.VoteDecree);
                 nextBallotMsg.BallotNo = 2; // do not care about the ballot no for committed decree
 
                 await voter.DeliverNextBallotMessage(nextBallotMsg);
@@ -254,7 +253,7 @@ namespace Paxos.Tests
                 msgList.Clear();
 
                 // cleanup
-                ledger.Clear();
+                proposerNote.Clear();
 
             }
 
@@ -271,7 +270,7 @@ namespace Paxos.Tests
 
                 // 2.2 has no NextBallotNo yet
                 var rpcClient = new RpcClient(targetClientAddress);
-                var voter = new VoterRole(cluster.Members[1], cluster, rpcClient, decreeLockManager, voterNote, ledger);
+                var voter = new VoterRole(cluster.Members[1], cluster, rpcClient, decreeLockManager, voterNote, proposerNote);
 
                 var propserConnection = networkInfr.GetConnection(srcServerAddress, targetClientAddress);
 
@@ -313,7 +312,7 @@ namespace Paxos.Tests
                 msgList.Clear();
 
                 // 2.3 Decree committed, no response
-                await ledger.CommitDecree(beginBallotMsg.DecreeNo, voteMsg.VoteDecree);
+                await proposerNote.CommitDecree(beginBallotMsg.DecreeNo, voteMsg.VoteDecree);
                 beginBallotMsg.BallotNo = 3;
                 await voter.DeliverBeginBallotMessage(beginBallotMsg);    // vote
                 Assert.AreEqual(msgList.Count, 0);
@@ -413,8 +412,7 @@ namespace Paxos.Tests
 
             var logPrefix = Guid.NewGuid().ToString();
             var ledgerLogger = new FilePaxosCommitedDecreeLog(logPrefix + "logger.log");
-            var ledger = new Ledger(ledgerLogger);
-            var proposerNote = new ProposerNote(ledger);
+            var proposerNote = new ProposerNote(ledgerLogger);
             var decreeLockManager = new DecreeLockManager();
 
             // 1. State: QueryLastVote
@@ -426,7 +424,7 @@ namespace Paxos.Tests
                 string decreeContent = "test1";
 
                 var rpcClient = new RpcClient(srcClientAddress);
-                var proposer = new ProposerRole(cluster.Members[0], cluster, rpcClient, decreeLockManager, proposerNote, ledger);
+                var proposer = new ProposerRole(cluster.Members[0], cluster, rpcClient, decreeLockManager, proposerNote);
                 propose.LastTriedBallot = 2;
                 propose.OngoingDecree = new PaxosDecree()
                 {
@@ -459,7 +457,7 @@ namespace Paxos.Tests
                 Assert.AreEqual(propose.OngoingDecree.Content, decreeContent);
                 Assert.AreEqual(propose.State, PropserState.QueryLastVote);
                 // ledger unchanged
-                Assert.IsTrue(ledger.GetCommittedDecreeCount() == 0);
+                Assert.IsTrue(proposerNote.GetCommittedDecreeCount() == 0);
 
                 // 1.2 second last vote message(with vote) will not change state
                 lastVote = new LastVoteMessage();
@@ -497,7 +495,7 @@ namespace Paxos.Tests
                 // query last vote state
                 Assert.AreEqual(propose.State, PropserState.QueryLastVote);
                 // ledger unchanged
-                Assert.IsTrue(ledger.GetCommittedDecreeCount() == 0);
+                Assert.IsTrue(proposerNote.GetCommittedDecreeCount() == 0);
 
                 // 1.3 one stale last vote message(ballot no mot match) is dropped, not change state
                 lastVote = new LastVoteMessage();
@@ -533,7 +531,7 @@ namespace Paxos.Tests
                 Assert.AreEqual(propose.State, PropserState.QueryLastVote);
 
                 // ledger unchanged
-                Assert.IsTrue(ledger.GetCommittedDecreeCount() == 0);
+                Assert.IsTrue(proposerNote.GetCommittedDecreeCount() == 0);
 
                 //1.4 third last vote message(with different vote) change the state to beginnewballot
                 lastVote = new LastVoteMessage();
@@ -588,7 +586,7 @@ namespace Paxos.Tests
                 Assert.AreEqual(propose.State, PropserState.BeginNewBallot);
 
                 // ledger unchanged
-                Assert.IsTrue(ledger.GetCommittedDecreeCount() == 0);
+                Assert.IsTrue(proposerNote.GetCommittedDecreeCount() == 0);
 
                 //1.5 fourth last vote, this message will be dropped since state already changed
                 lastVote = new LastVoteMessage();
@@ -637,7 +635,7 @@ namespace Paxos.Tests
                 Assert.AreEqual(propose.State, PropserState.BeginNewBallot);
 
                 // ledger unchanged
-                Assert.IsTrue(ledger.GetCommittedDecreeCount() == 0);
+                Assert.IsTrue(proposerNote.GetCommittedDecreeCount() == 0);
 
 
                 // 1.6 lastvote with a committed vote will change the state to commit
@@ -718,8 +716,9 @@ namespace Paxos.Tests
 
 
                 // ledger unchanged
-                Assert.IsTrue(ledger.GetCommittedDecreeCount() == 1);
-                Assert.IsTrue(ledger.GetCommittedDecree(1).Content.Equals(decreeContent));
+                Assert.IsTrue(proposerNote.GetCommittedDecreeCount() == 1);
+                var committedDecree = await proposerNote.GetCommittedDecree(1);
+                Assert.IsTrue(committedDecree.Content.Equals(decreeContent));
 
                 //1.7 proposer's ledger has committed decree, all the messages should be abandoned
                 // based on above test, new lastvote will be dropped, nothing changed
@@ -761,8 +760,9 @@ namespace Paxos.Tests
 
 
                 // ledger unchanged
-                Assert.IsTrue(ledger.GetCommittedDecreeCount() == 1);
-                Assert.IsTrue(ledger.GetCommittedDecree(1).Content.Equals(decreeContent));
+                Assert.IsTrue(proposerNote.GetCommittedDecreeCount() == 1);
+                committedDecree = await proposerNote.GetCommittedDecree(1);
+                Assert.IsTrue(committedDecree.Content.Equals(decreeContent));
 
                 proposerNote.ClearDecree(1);
                 await proposer.DeliverLastVoteMessage(lastVote);  // dropped
@@ -772,8 +772,9 @@ namespace Paxos.Tests
                 }
 
                 // ledger unchanged
-                Assert.IsTrue(ledger.GetCommittedDecreeCount() == 1);
-                Assert.IsTrue(ledger.GetCommittedDecree(1).Content.Equals(decreeContent));
+                Assert.IsTrue(proposerNote.GetCommittedDecreeCount() == 1);
+                committedDecree = await proposerNote.GetCommittedDecree(1);
+                Assert.IsTrue(committedDecree.Content.Equals(decreeContent));
             }
 
             foreach(var rpcserver in serverList)
@@ -801,14 +802,14 @@ namespace Paxos.Tests
             }
             // 2. State: BeginNewBallot
             {
-                ledger.Clear();
+                proposerNote.Clear();
                 proposerNote.Reset();
                 var propose = proposerNote.AddPropose(1);
                 propose.State = PropserState.BeginNewBallot;
                 string decreeContent1 = "test0";
                 string decreeContent = "test1";
                 var rpcClient = new RpcClient(srcClientAddress);
-                var proposer = new ProposerRole(cluster.Members[0], cluster, rpcClient, decreeLockManager, proposerNote, ledger);
+                var proposer = new ProposerRole(cluster.Members[0], cluster, rpcClient, decreeLockManager, proposerNote);
                 propose.LastTriedBallot = 3; // decreeNo, ballotNo
                 propose.OngoingDecree = new PaxosDecree()
                 {

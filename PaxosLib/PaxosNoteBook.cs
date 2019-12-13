@@ -11,86 +11,6 @@ using System.Threading.Tasks;
 
 namespace Paxos.Notebook
 {
-    public class Ledger
-    {
-        private readonly ConcurrentDictionary<ulong, PaxosDecree> _committedDecrees = new ConcurrentDictionary<ulong, PaxosDecree>();
-        private readonly IPaxosCommitedDecreeLog _logger;
-
-        public Ledger(IPaxosCommitedDecreeLog logger)
-        {
-            _logger = logger;
-            if (_logger == null)
-            {
-                throw new ArgumentNullException("IPaxosCommitedDecreeLog");
-            }
-        }
-
-        public ulong GetMaxCommittedDecreeNo()
-        {
-            return _committedDecrees.LastOrDefault().Key;
-        }
-
-        public ulong GetCommittedDecreeCount()
-        {
-            return (ulong)_committedDecrees.Count;
-        }
-
-        public PaxosDecree GetCommittedDecree(ulong decreeNo)
-        {
-            PaxosDecree committedDecree = null;
-            if (_committedDecrees.TryGetValue(decreeNo, out committedDecree))
-            {
-                return committedDecree;
-            }
-            return null;
-        }
-
-        public List<KeyValuePair<ulong, PaxosDecree>> GetFollowingCommittedDecress(ulong beginDecreeNo)
-        {
-            var committedDecrees = new List<KeyValuePair<ulong, PaxosDecree>>();
-            for (ulong decreeNo = beginDecreeNo; decreeNo <= GetMaxCommittedDecreeNo(); decreeNo++)
-            {
-                PaxosDecree committedDecree = null;
-                if (_committedDecrees.TryGetValue(decreeNo, out committedDecree))
-                {
-                    committedDecrees.Add(new KeyValuePair<ulong, PaxosDecree>(decreeNo, committedDecree));
-                }
-            }
-
-            return committedDecrees.Count > 0 ? committedDecrees : null;
-        }
-
-        public async Task CommitDecree(ulong decreeNo, PaxosDecree decree)
-        {
-            // Paxos protocol already make sure the consistency.
-            // So the decree will be idempotent, just write it directly
-
-            await _logger.AppendLog(decreeNo, decree);
-
-            // add it in cache
-            lock (_committedDecrees)
-            {
-                do
-                {
-                    if (_committedDecrees.ContainsKey(decreeNo))
-                    {
-                        return ;
-                        //throw new Exception("decree already committed");
-                    }
-                    if (_committedDecrees.TryAdd(decreeNo, decree))
-                    {
-                        return ;
-                    }
-                } while (true);
-            }
-        }
-
-        public void Clear()
-        {
-            _committedDecrees.Clear();
-        }
-    }
-
     public class DecreeBallotInfo
     {
         private SemaphoreSlim _lock = new SemaphoreSlim(1);
@@ -374,15 +294,17 @@ namespace Paxos.Notebook
     {
         // proposer role
         private ConcurrentDictionary<ulong, Propose> _decreeState = new ConcurrentDictionary<ulong, Propose>();
-        private Ledger _ledger;
+        //private Ledger _ledger;
+        private readonly ConcurrentDictionary<ulong, PaxosDecree> _committedDecrees = new ConcurrentDictionary<ulong, PaxosDecree>();
+        private IPaxosCommitedDecreeLog _logger;
 
-        public ProposerNote(Ledger ledger)
+        public ProposerNote(IPaxosCommitedDecreeLog logger)
         {
-            if (ledger == null)
+            if (logger == null)
             {
-                throw new ArgumentNullException("ledger");
+                throw new ArgumentNullException("IPaxosCommitedDecreeLogger");
             }
-            _ledger = ledger;
+            _logger = logger;
         }
 
         public ulong GetNewDecreeNo()
@@ -390,9 +312,9 @@ namespace Paxos.Notebook
             ulong nextDecreeNo = 0;
 
             // new decree no generation is syncrhonized
-            lock(_ledger)
+            lock(_logger)
             {
-                nextDecreeNo = _ledger.GetMaxCommittedDecreeNo() + 1;
+                nextDecreeNo = GetMaximumCommittedDecreeNoNeedLock() + 1;
                 var maxOngoingDecreeNo = GetMaxOngoingDecreeNo();
                 if (nextDecreeNo < maxOngoingDecreeNo + 1)
                 {
@@ -406,7 +328,12 @@ namespace Paxos.Notebook
 
         public ulong GetMaximumCommittedDecreeNo()
         {
-            return _ledger.GetMaxCommittedDecreeNo();
+            ulong maximumCommittedDecreeNo = 0;
+            lock(_logger)
+            {
+                maximumCommittedDecreeNo = GetMaximumCommittedDecreeNoNeedLock();
+            }
+            return maximumCommittedDecreeNo;
         }
 
         public void PrepareDecreeBallot(ulong decreeNo)
@@ -417,7 +344,12 @@ namespace Paxos.Notebook
         public Task<PaxosDecree> GetCommittedDecree(ulong decreeNo)
         {
             // committed dcree can never be changed
-            return Task.FromResult(_ledger.GetCommittedDecree(decreeNo));
+            PaxosDecree committedDecree = null;
+            if (!_committedDecrees.TryGetValue(decreeNo, out committedDecree))
+            {
+                committedDecree = null;
+            }
+            return Task.FromResult(committedDecree);
         }
 
         public void SubscribeCompletionNotification(ulong decreeNo, TaskCompletionSource<ProposeResult> completionSource)
@@ -500,7 +432,8 @@ namespace Paxos.Notebook
                 return null;
             }
 
-            await _ledger.CommitDecree(decreeNo, commitedDecree);
+            await CommitDecreeInternal(decreeNo, commitedDecree);
+
 
             propose.State = PropserState.Commited; // committed
 
@@ -511,6 +444,11 @@ namespace Paxos.Notebook
             propose.ReleaseLock();
 
             return propose;
+        }
+
+        public async Task CommitDecree(ulong decreeNo, PaxosDecree commitedDecree)
+        {
+            await CommitDecreeInternal(decreeNo, commitedDecree);
         }
 
 
@@ -552,6 +490,32 @@ namespace Paxos.Notebook
             _decreeState.AddOrUpdate(decreeNo, propose, (key, oldValue) => propose);
         }
 
+        public List<KeyValuePair<ulong, PaxosDecree>> GetFollowingCommittedDecress(ulong beginDecreeNo)
+        {
+            var committedDecrees = new List<KeyValuePair<ulong, PaxosDecree>>();
+            lock (_logger)
+            {
+                for (ulong decreeNo = beginDecreeNo; decreeNo <= GetMaximumCommittedDecreeNo(); decreeNo++)
+                {
+                    PaxosDecree committedDecree = null;
+                    if (_committedDecrees.TryGetValue(decreeNo, out committedDecree))
+                    {
+                        committedDecrees.Add(new KeyValuePair<ulong, PaxosDecree>(decreeNo, committedDecree));
+                    }
+                }
+            }
+            return committedDecrees.Count > 0 ? committedDecrees : null;
+        }
+        public ulong GetCommittedDecreeCount()
+        {
+            return (ulong)_committedDecrees.Count;
+        }
+
+        public void Clear()
+        {
+            _committedDecrees.Clear();
+        }
+
         public void Reset()
         {
             _decreeState.Clear();
@@ -562,6 +526,37 @@ namespace Paxos.Notebook
             Propose propose = null;
             _decreeState.Remove(decreeNo, out propose);
         }
+
+        private ulong GetMaximumCommittedDecreeNoNeedLock()
+        {
+            return _committedDecrees.LastOrDefault().Key;
+        }
+
+        private async Task CommitDecreeInternal(ulong decreeNo, PaxosDecree decree)
+        {
+            // Paxos protocol already make sure the consistency.
+            // So the decree will be idempotent, just write it directly
+
+            await _logger.AppendLog(decreeNo, decree);
+
+            // add it in cache
+            lock (_committedDecrees)
+            {
+                do
+                {
+                    if (_committedDecrees.ContainsKey(decreeNo))
+                    {
+                        return;
+                        //throw new Exception("decree already committed");
+                    }
+                    if (_committedDecrees.TryAdd(decreeNo, decree))
+                    {
+                        return;
+                    }
+                } while (true);
+            }
+        }
+
     }
 
 }

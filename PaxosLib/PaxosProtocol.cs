@@ -170,27 +170,27 @@ namespace Paxos.Protocol
         private readonly NodeInfo _nodeInfo;
         private readonly PaxosCluster _cluster;
         private readonly VoterNote _note;
-        private readonly Ledger _ledger;
+        private readonly ProposerNote _ledger;
 
         public VoterRole(
             NodeInfo nodeInfo,
             PaxosCluster cluster,
             RpcClient rpcClient,
             DecreeLockManager decreeLockManager,
-            VoterNote paxoserNote,
-            Ledger ledger)
+            VoterNote voterNote,
+            ProposerNote ledger)
         {
             if (cluster == null) throw new ArgumentNullException("cluster");
             if (nodeInfo == null) throw new ArgumentNullException("nodeInfo");
             if (rpcClient == null) throw new ArgumentNullException("rpcClient");
-            if (paxoserNote == null) throw new ArgumentNullException("no note book");
+            if (voterNote == null) throw new ArgumentNullException("no note book");
             if (ledger == null) throw new ArgumentNullException("ledger");
             if (decreeLockManager == null) throw new ArgumentNullException("decree lock manager");
 
             _nodeInfo = nodeInfo;
             _cluster = cluster;
             _rpcClient = rpcClient;
-            _note = paxoserNote;
+            _note = voterNote;
             _ledger = ledger;
             _decreeLockManager = decreeLockManager;
         }
@@ -206,7 +206,7 @@ namespace Paxos.Protocol
 
             try
             {
-                var commitedDecree = _ledger.GetCommittedDecree(msg.DecreeNo);
+                var commitedDecree = await _ledger.GetCommittedDecree(msg.DecreeNo);
                 if (commitedDecree != null)
                 {
                     lastVoteMsg = new LastVoteMessage()
@@ -275,7 +275,8 @@ namespace Paxos.Protocol
             await decreeLock.AcquireLock();
             try
             {
-                if (_ledger.GetCommittedDecree(msg.DecreeNo) != null)
+                var commitedDecree = await _ledger.GetCommittedDecree(msg.DecreeNo);
+                if (commitedDecree != null)
                 {
                     return;
                 }
@@ -378,28 +379,25 @@ namespace Paxos.Protocol
         private readonly PaxosCluster _cluster;
 
         private readonly ProposerNote _proposerNote;
-        private readonly Ledger _ledger;
+        //private readonly Ledger _ledger;
 
         public ProposerRole(
             NodeInfo nodeInfo,
             PaxosCluster cluster,
             RpcClient rpcClient,
             DecreeLockManager decreeLockManager,
-            ProposerNote proposerNote,
-            Ledger ledger)
+            ProposerNote proposerNote)
         {
             if (cluster == null) throw new ArgumentNullException("cluster");
             if (nodeInfo == null) throw new ArgumentNullException("nodeInfo");
             if (rpcClient == null) throw new ArgumentNullException("rpcClient");
             if (proposerNote == null) throw new ArgumentNullException("proposer note");
-            if (ledger == null) throw new ArgumentNullException("ledger");
             if (decreeLockManager == null) throw new ArgumentNullException("decreeLock manager");
 
             _nodeInfo = nodeInfo;
             _cluster = cluster;
             _rpcClient = rpcClient;
             _proposerNote = proposerNote;
-            _ledger = ledger;
             _decreeLockManager = decreeLockManager;
 
             Stop = false;
