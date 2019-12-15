@@ -311,11 +311,17 @@ namespace Paxos.Tests
 
                 msgList.Clear();
 
-                // 2.3 Decree committed, no response
+                // 2.3 Decree committed, return a lastvotemsg, indicate the decree committed
                 await proposerNote.CommitDecree(beginBallotMsg.DecreeNo, voteMsg.VoteDecree);
                 beginBallotMsg.BallotNo = 3;
                 await voter.DeliverBeginBallotMessage(beginBallotMsg);    // vote
-                Assert.AreEqual(msgList.Count, 0);
+                Assert.AreEqual(msgList.Count, 1);
+                var lastVoteMsg = CreatePaxosMessage(msgList[0]) as LastVoteMessage;
+                Assert.IsNotNull(lastVoteMsg);
+                Assert.AreEqual(lastVoteMsg.DecreeNo, (ulong)1);
+                Assert.AreEqual(lastVoteMsg.BallotNo, (ulong)3);
+                Assert.IsTrue(lastVoteMsg.Commited);
+
                 msgList.Clear();
             }
 

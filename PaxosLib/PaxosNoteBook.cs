@@ -307,6 +307,10 @@ namespace Paxos.Notebook
             _logger = logger;
         }
 
+        /// <summary>
+        /// When try to propose a new decree, get a decree no first
+        /// </summary>
+        /// <returns></returns>
         public ulong GetNewDecreeNo()
         {
             ulong nextDecreeNo = 0;
@@ -326,6 +330,10 @@ namespace Paxos.Notebook
             return nextDecreeNo;
         }
 
+        /// <summary>
+        /// Get the maximum committed decree no
+        /// </summary>
+        /// <returns></returns>
         public ulong GetMaximumCommittedDecreeNo()
         {
             ulong maximumCommittedDecreeNo = 0;
@@ -336,11 +344,17 @@ namespace Paxos.Notebook
             return maximumCommittedDecreeNo;
         }
 
+        /*
         public void PrepareDecreeBallot(ulong decreeNo)
         {
             AddPropose(decreeNo);
-        }
+        }*/
 
+            /// <summary>
+            /// Get the committed decree
+            /// </summary>
+            /// <param name="decreeNo"></param>
+            /// <returns></returns>
         public Task<PaxosDecree> GetCommittedDecree(ulong decreeNo)
         {
             // committed dcree can never be changed
@@ -352,7 +366,12 @@ namespace Paxos.Notebook
             return Task.FromResult(committedDecree);
         }
 
-        public void SubscribeCompletionNotification(ulong decreeNo, TaskCompletionSource<ProposeResult> completionSource)
+        /// <summary>
+        /// Subscript a completion notification for a propose
+        /// </summary>
+        /// <param name="decreeNo"></param>
+        /// <param name="completionSource"></param>
+        public void SubscribeProposeCompletionNotification(ulong decreeNo, TaskCompletionSource<ProposeResult> completionSource)
         {
             var propose = GetPropose(decreeNo);
             if (propose == null)
@@ -362,6 +381,12 @@ namespace Paxos.Notebook
             propose.SubscribeCompletionNotification(completionSource);
         }
 
+        /// <summary>
+        /// prepare new ballot for a decree
+        /// </summary>
+        /// <param name="decreeNo"></param>
+        /// <param name="decree"></param>
+        /// <returns></returns>
         public ulong PrepareNewBallot(ulong decreeNo, PaxosDecree decree)
         {
             var propose = GetPropose(decreeNo);
@@ -372,6 +397,15 @@ namespace Paxos.Notebook
             return propose.PrepareNewBallot(decree);
         }
 
+        /// <summary>
+        /// BeginCommit should make sure no other ballot startted.
+        /// </summary>
+        /// <param name="decreeNo"></param>
+        /// <param name="ballotNo"></param>
+        /// <param name="committingDecree"></param>
+        /// <returns>
+        ///     false - if new ballot startted, can not commit anymore
+        /// </returns>
         public bool BeginCommit(ulong decreeNo, ulong ballotNo, PaxosDecree committingDecree)
         {
             var propose = GetPropose(decreeNo);
