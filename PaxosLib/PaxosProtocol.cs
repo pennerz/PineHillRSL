@@ -412,7 +412,8 @@ namespace Paxos.Protocol
         {
             public enum ResultAction { None, DecreeCommitted, NewBallotReadyToBegin };
             public ResultAction Action { get; set; }
-            public PaxosDecree NewBallotDecree { get; set; }
+            //public PaxosDecree NewBallotDecree { get; set; }
+            public ulong NextBallotNo { get; set; }
             public Propose CommittedPropose { get; set; }
         }
 
@@ -421,6 +422,12 @@ namespace Paxos.Protocol
             public bool NeedToCollectLastVote { get; set; }
             public ulong NextBallotNo { get; set; }
         }
+
+        private class VoteMessageResult
+        {
+            public enum ResultAction { None, ReadyToCommit};
+            public ResultAction Action { get; set; }
+        };
 
 
         private readonly RpcClient _rpcClient;
@@ -522,7 +529,7 @@ namespace Paxos.Protocol
                     await NotifyCompletion(msg.DecreeNo, result.CommittedPropose);
                     break;
                 case LastVoteMessageResult.ResultAction.NewBallotReadyToBegin:
-                    await BroadcastBeginNewBallot(msg.DecreeNo, msg.BallotNo, result.NewBallotDecree);
+                    await BeginNewBallot(msg.DecreeNo, msg.BallotNo);
                     break;
             }
 
@@ -531,11 +538,14 @@ namespace Paxos.Protocol
 
         public async Task<bool> DeliverVoteMessage(VoteMessage msg)
         {
-            var committedPropose = await ProcessVoteMessageInternal(msg);
-            if (committedPropose != null)
+            var result = await ProcessVoteMessageInternal(msg);
+            switch(result.Action)
             {
-                await NotifyLearnersResult(msg.DecreeNo, msg.BallotNo, committedPropose.OngoingDecree);
-                await NotifyCompletion(msg.DecreeNo, committedPropose);
+                case VoteMessageResult.ResultAction.ReadyToCommit:
+                    var committedPropose = await CommitPropose(msg.DecreeNo, msg.BallotNo);
+                    await NotifyLearnersResult(msg.DecreeNo, msg.BallotNo, committedPropose.OngoingDecree);
+                    await NotifyCompletion(msg.DecreeNo, committedPropose);
+                    break;
             }
             return true;
         }
@@ -543,47 +553,46 @@ namespace Paxos.Protocol
         private async Task<ProposeResult> ProposeInternal(PaxosDecree decree, ulong decreeNo)
         {
             var completionSource = new TaskCompletionSource<ProposeResult>();
-            await BeginNewBallotRequest(decree, decreeNo, completionSource);
+            await CollectLastVote(decree, decreeNo, completionSource);
             var result = await completionSource.Task;
             return result;
         }
 
-        private async Task BeginNewBallotRequest(
+        private async Task CollectLastVote(
             PaxosDecree decree,
             ulong nextDecreeNo,
             TaskCompletionSource<ProposeResult> proposeCompletionNotification)
         {
-            var decreeLock = _decreeLockManager.GetDecreeLock(nextDecreeNo);
+            // 1. get decree no
+            if (nextDecreeNo == 0)
+            {
+                //
+                // several propose may happen concurrently. All of them will
+                // get a unique decree no.
+                //
+                nextDecreeNo = _proposerNote.GetNewDecreeNo();
+            }
+
             ulong ballotNo = 0;
 
+            var decreeLock = _decreeLockManager.GetDecreeLock(nextDecreeNo);
             using (var autoLock = await decreeLock.AcquireLock())
             {
-                if (nextDecreeNo == 0)
-                {
-                    //
-                    // several propose may happen concurrently. All of them will
-                    // get a unique decree no.
-                    //
-                    nextDecreeNo = _proposerNote.GetNewDecreeNo();
-                }
 
-                var committedDecree = await _proposerNote.GetCommittedDecree(nextDecreeNo);
-                if (committedDecree != null)
+                var proposeResult = await GetProposeResult(nextDecreeNo);
+                if (proposeResult != null)
                 {
                     // already committed, return directly
-                    var result = new ProposeResult()
-                    {
-                        DecreeNo = nextDecreeNo,
-                        Decree = committedDecree
-                    };
-
-                    proposeCompletionNotification?.SetResult(result);
+                    proposeCompletionNotification?.SetResult(proposeResult);
                     return;
                 }
 
-                _proposerNote.SubscribeProposeCompletionNotification(nextDecreeNo, proposeCompletionNotification);
+                var propose = _proposerNote.GetPropose(nextDecreeNo);
 
-                ballotNo = _proposerNote.PrepareNewBallot(nextDecreeNo, decree);
+                propose.CompletionEvents.Add(proposeCompletionNotification);
+
+                ballotNo = propose.PrepareNewBallot(decree);
+
                 if (ballotNo == 0)
                 {
                     // cant be, send alert
@@ -594,6 +603,56 @@ namespace Paxos.Protocol
             await BroadcastQueryLastVote(nextDecreeNo, ballotNo);
 
             return;
+        }
+
+        private async Task BeginNewBallot(ulong decreeNo, ulong ballotNo)
+        {
+            PaxosDecree newBallotDecree = null;
+            var decreeLock = _decreeLockManager.GetDecreeLock(decreeNo);
+            using (var autoLock = await decreeLock.AcquireLock())
+            {
+
+                var propose = _proposerNote.GetPropose(decreeNo);
+                if (propose == null)
+                {
+                    // send alert
+                    return;
+                }
+                newBallotDecree = propose.BeginNewBallot(ballotNo);
+                if (newBallotDecree == null)
+                {
+                    // sombody else is doing the job, this could not happend since the decree lock is locked
+                    return;
+                }
+            }
+
+            await BroadcastBeginNewBallot(decreeNo, ballotNo, newBallotDecree);
+        }
+
+        private async Task<Propose> CommitPropose(ulong decreeNo, ulong ballotNo)
+        {
+            var decreeLock = _decreeLockManager.GetDecreeLock(decreeNo);
+            using (var autoLock = await decreeLock.AcquireLock())
+            {
+
+                var propose = _proposerNote.GetPropose(decreeNo);
+                if (propose == null)
+                {
+                    // send alert
+                    return null;
+                }
+
+                if (!propose.BeginCommit(ballotNo, propose.OngoingDecree))
+                {
+                    // others may commit a new one with a different ballotNo
+                    return null;
+                }
+
+                await _proposerNote.Commit(decreeNo, propose.OngoingDecree);
+                propose.State = PropserState.Commited;
+
+                return propose; // committed propose
+            }
         }
 
         private async Task<StateBallotMessageResult> ProcessStaleBallotMessageInternal(StaleBallotMessage msg)
@@ -631,7 +690,7 @@ namespace Paxos.Protocol
                 // ballo no, and one will become stale
                 do
                 {
-                    nextBallotNo = _proposerNote.PrepareNewBallot(msg.DecreeNo, decree);
+                    nextBallotNo = propose.PrepareNewBallot(decree);
                 } while (nextBallotNo <= msg.NextBallotNo);
 
                 return new StateBallotMessageResult()
@@ -686,13 +745,15 @@ namespace Paxos.Protocol
                 if (msg.Commited)
                 {
                     // decree already committed
-                    if (!_proposerNote.BeginCommit(msg.DecreeNo, msg.BallotNo, msg.VoteDecree))
+                    if (!propose.BeginCommit(msg.BallotNo, msg.VoteDecree))
                     {
                         return new LastVoteMessageResult()
                         { Action = LastVoteMessageResult.ResultAction.None };
                     }
 
-                    await _proposerNote.Commit(msg.DecreeNo);
+                    await _proposerNote.Commit(msg.DecreeNo, propose.OngoingDecree);
+                    propose.State = PropserState.Commited;
+
                     return new LastVoteMessageResult()
                     {
                         Action = LastVoteMessageResult.ResultAction.DecreeCommitted,
@@ -701,21 +762,14 @@ namespace Paxos.Protocol
                 }
 
                 // TODO: check if message come from existing node
-                ulong lstVoteMsgCount = _proposerNote.AddLastVoteMessage(msg.DecreeNo, msg);
+                ulong lstVoteMsgCount = propose.AddLastVoteMessage(msg);
                 if (lstVoteMsgCount >= (ulong)_cluster.Members.Count / 2 + 1)
                 {
                     // enough feedback got
-                    var newBallotDecree = _proposerNote.BeginNewBallot(msg.DecreeNo, msg.BallotNo);
-                    if (newBallotDecree == null)
-                    {
-                        // sombody else is doing the job, this could not happend since the decree lock is locked
-                        return new LastVoteMessageResult()
-                        { Action = LastVoteMessageResult.ResultAction.None };
-                    }
                     return new LastVoteMessageResult()
                     {
                         Action = LastVoteMessageResult.ResultAction.NewBallotReadyToBegin,
-                        NewBallotDecree = newBallotDecree
+                        NextBallotNo = msg.BallotNo
                     };
                 }
             }
@@ -724,7 +778,7 @@ namespace Paxos.Protocol
             {Action = LastVoteMessageResult.ResultAction.None};
         }
 
-        private async Task<Propose> ProcessVoteMessageInternal(VoteMessage msg)
+        private async Task<VoteMessageResult> ProcessVoteMessageInternal(VoteMessage msg)
         {
             var decreeLock = _decreeLockManager.GetDecreeLock(msg.DecreeNo);
             using (var autoLock = await decreeLock.AcquireLock())
@@ -733,38 +787,51 @@ namespace Paxos.Protocol
                 if (propose == null)
                 {
                     // propose may already be committed
-                    return null;
+                    return new VoteMessageResult()
+                    { Action = VoteMessageResult.ResultAction.None };
                 }
                 if (propose.State != PropserState.BeginNewBallot)
                 {
-                    return null;
+                    return new VoteMessageResult()
+                    { Action = VoteMessageResult.ResultAction.None };
                 }
 
                 if (propose.LastTriedBallot != msg.BallotNo)
                 {
                     // not the vote ballot
-                    return null;
+                    return new VoteMessageResult()
+                    { Action = VoteMessageResult.ResultAction.None };
                 }
 
                 // TODO: check if message come from existing node
-                var votesMsgCount = _proposerNote.AddVoteMessage(msg.DecreeNo, msg);
+                var votesMsgCount = propose.AddVoteMessage(msg);
 
                 if (votesMsgCount >= (ulong)_cluster.Members.Count / 2 + 1)
                 {
                     // enough feedback got, begin to commit
-                    if (!_proposerNote.BeginCommit(msg.DecreeNo, msg.BallotNo, msg.VoteDecree))
-                    {
-                        // can not be
-                        return null;
-                    }
-
-                    await _proposerNote.Commit(msg.DecreeNo);
-                    return propose; // committed propose
+                    return new VoteMessageResult()
+                    { Action = VoteMessageResult.ResultAction.ReadyToCommit };
                 }
             }
-            return null;
+            return new VoteMessageResult()
+            { Action = VoteMessageResult.ResultAction.None };
         }
 
+        private async Task<ProposeResult> GetProposeResult(ulong decreeNo)
+        {
+            var committedDecree = await _proposerNote.GetCommittedDecree(decreeNo);
+            if (committedDecree != null)
+            {
+                // already committed, return directly
+                return new ProposeResult()
+                {
+                    DecreeNo = decreeNo,
+                    Decree = committedDecree
+                };
+            }
+
+            return null;
+        }
 
         private async Task BroadcastQueryLastVote(UInt64 decreeNo, ulong nextBallotNo)
         {

@@ -192,7 +192,7 @@ namespace Paxos.Notebook
             }
         }
 
-        public bool BeginCommit(ulong decreeNo, ulong ballotNo, PaxosDecree committingDecree)
+        public bool BeginCommit(ulong ballotNo, PaxosDecree committingDecree)
         {
             lock(_subscribedCompletionSource)
             {
@@ -344,17 +344,11 @@ namespace Paxos.Notebook
             return maximumCommittedDecreeNo;
         }
 
-        /*
-        public void PrepareDecreeBallot(ulong decreeNo)
-        {
-            AddPropose(decreeNo);
-        }*/
-
-            /// <summary>
-            /// Get the committed decree
-            /// </summary>
-            /// <param name="decreeNo"></param>
-            /// <returns></returns>
+        /// <summary>
+        /// Get the committed decree
+        /// </summary>
+        /// <param name="decreeNo"></param>
+        /// <returns></returns>
         public Task<PaxosDecree> GetCommittedDecree(ulong decreeNo)
         {
             // committed dcree can never be changed
@@ -366,116 +360,14 @@ namespace Paxos.Notebook
             return Task.FromResult(committedDecree);
         }
 
-        /// <summary>
-        /// Subscript a completion notification for a propose
-        /// </summary>
-        /// <param name="decreeNo"></param>
-        /// <param name="completionSource"></param>
-        public void SubscribeProposeCompletionNotification(ulong decreeNo, TaskCompletionSource<ProposeResult> completionSource)
+        public async Task<Propose> Commit(ulong decreeNo, PaxosDecree committedDecree)
         {
-            var propose = GetPropose(decreeNo);
-            if (propose == null)
-            {
-                return;
-            }
-            propose.SubscribeCompletionNotification(completionSource);
-        }
-
-        /// <summary>
-        /// prepare new ballot for a decree
-        /// </summary>
-        /// <param name="decreeNo"></param>
-        /// <param name="decree"></param>
-        /// <returns></returns>
-        public ulong PrepareNewBallot(ulong decreeNo, PaxosDecree decree)
-        {
-            var propose = GetPropose(decreeNo);
-            if (propose == null)
-            {
-                return 0;
-            }
-            return propose.PrepareNewBallot(decree);
-        }
-
-        /// <summary>
-        /// BeginCommit should make sure no other ballot startted.
-        /// </summary>
-        /// <param name="decreeNo"></param>
-        /// <param name="ballotNo"></param>
-        /// <param name="committingDecree"></param>
-        /// <returns>
-        ///     false - if new ballot startted, can not commit anymore
-        /// </returns>
-        public bool BeginCommit(ulong decreeNo, ulong ballotNo, PaxosDecree committingDecree)
-        {
-            var propose = GetPropose(decreeNo);
-            if (propose == null)
-            {
-                return false;
-            }
-            return propose.BeginCommit(decreeNo, ballotNo, committingDecree);
-        }
-
-        public ulong  AddLastVoteMessage(ulong decreeNo, LastVoteMessage lastVoteMsg)
-        {
-            var propose = GetPropose(decreeNo);
-            if (propose == null)
-            {
-                return 0;
-            }
-
-            return propose.AddLastVoteMessage(lastVoteMsg);
-        }
-
-        public PaxosDecree BeginNewBallot(ulong decreeNo, ulong ballotNo)
-        {
-            var propose = GetPropose(decreeNo);
-            if (propose == null)
-            {
-                return null;
-            }
-
-            return propose.BeginNewBallot(ballotNo);
-        }
-
-        public ulong AddVoteMessage(ulong decreeNo, VoteMessage voteMsg)
-        {
-            var propose = GetPropose(decreeNo);
-            if (propose == null)
-            {
-                return 0;
-            }
-
-            return propose.AddVoteMessage(voteMsg);
-        }
-
-        public async Task<Propose> Commit(ulong decreeNo)
-        {
-            var propose = GetPropose(decreeNo);
-            if (propose == null)
-            {
-                return null;
-            }
-
             // write the decree to ledge
-            await propose.AcquireLock();
-            var commitedDecree = propose.OngoingDecree;
-            if (commitedDecree == null)
-            {
-                propose.ReleaseLock();
-                return null;
-            }
-
-            await CommitDecreeInternal(decreeNo, commitedDecree);
-
-
-            propose.State = PropserState.Commited; // committed
+            await CommitDecreeInternal(decreeNo, committedDecree);
 
             // propose commited, remove it from ongoing proposes
-
+            Propose propose = null;
             while (!_decreeState.TryRemove(decreeNo, out propose)) ;
-
-            propose.ReleaseLock();
 
             return propose;
         }
