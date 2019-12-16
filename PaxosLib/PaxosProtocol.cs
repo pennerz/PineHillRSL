@@ -416,6 +416,12 @@ namespace Paxos.Protocol
             public Propose CommittedPropose { get; set; }
         }
 
+        private class StateBallotMessageResult
+        {
+            public bool NeedToCollectLastVote { get; set; }
+            public ulong NextBallotNo { get; set; }
+        }
+
 
         private readonly RpcClient _rpcClient;
         private readonly DecreeLockManager _decreeLockManager;
@@ -496,11 +502,11 @@ namespace Paxos.Protocol
         public async Task<bool> DeliverStaleBallotMessage(StaleBallotMessage msg)
         {
             var result = await ProcessStaleBallotMessageInternal(msg);
-            if (result.Item1 == false) //  no need to query last vote again
+            if (result.NeedToCollectLastVote == false) //  no need to query last vote again
             {
                 return false;
             }
-            await BroadcastQueryLastVote(msg.DecreeNo, result.Item2);
+            await BroadcastQueryLastVote(msg.DecreeNo, result.NextBallotNo);
             return true;
         }
 
@@ -590,7 +596,7 @@ namespace Paxos.Protocol
             return;
         }
 
-        private async Task<Tuple<bool, ulong>> ProcessStaleBallotMessageInternal(StaleBallotMessage msg)
+        private async Task<StateBallotMessageResult> ProcessStaleBallotMessageInternal(StaleBallotMessage msg)
         {
             // QueryLastVote || BeginNewBallot
             var decreeLock = _decreeLockManager.GetDecreeLock(msg.DecreeNo);
@@ -601,17 +607,20 @@ namespace Paxos.Protocol
                 var propose = _proposerNote.GetPropose(msg.DecreeNo);
                 if (propose == null)
                 {
-                    return new Tuple<bool, ulong>(false, 0);
+                    return new StateBallotMessageResult()
+                    { NeedToCollectLastVote = false };
                 }
                 if (propose.State != PropserState.QueryLastVote && propose.State != PropserState.BeginNewBallot)
                 {
-                    return new Tuple<bool, ulong>(false, 0);
+                    return new StateBallotMessageResult()
+                    { NeedToCollectLastVote = false };
                 }
 
                 // other stale message may already started new ballot, abandon this message
                 if (propose.LastTriedBallot != msg.BallotNo)
                 {
-                    return new Tuple<bool, ulong>(false, 0);
+                    return new StateBallotMessageResult()
+                    { NeedToCollectLastVote = false };
                 }
 
                 // query last vote again
@@ -625,7 +634,8 @@ namespace Paxos.Protocol
                     nextBallotNo = _proposerNote.PrepareNewBallot(msg.DecreeNo, decree);
                 } while (nextBallotNo <= msg.NextBallotNo);
 
-                return new Tuple<bool, ulong>(true, nextBallotNo);
+                return new StateBallotMessageResult()
+                { NeedToCollectLastVote = true, NextBallotNo = nextBallotNo };
             }
 
         }
