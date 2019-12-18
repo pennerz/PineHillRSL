@@ -142,6 +142,25 @@ namespace Paxos.Notebook
         Commited            // done
     }
 
+
+    public class LastVoteCollectResult
+    {
+        public ulong DecreeNo { get; set; }
+        public ulong NextBallotNo { get; set; }
+        public PaxosDecree CurrentDecree { get; set; }
+        public bool IsCommitted { get; set; }
+        public bool IsStale { get; set; }
+    }
+
+    public class BallotResult
+    {
+        public ulong DecreeNo { get; set; }
+        public ulong NextBallotNo { get; set; }
+        public bool IsCommitted { get; set; }
+        public bool IsReadyToCommit { get; set; }
+        public bool IsStale { get; set; }
+    }
+
     public class Propose
     {
         private SemaphoreSlim _lock = new SemaphoreSlim(1);
@@ -212,6 +231,13 @@ namespace Paxos.Notebook
             lock(_subscribedCompletionSource)
             {
                 LastVoteMessages.Add(lastVoteMsg);
+                var maxVoteMsg = GetMaximumVote();
+                if (maxVoteMsg != null)
+                {
+                    OngoingDecree = maxVoteMsg.VoteDecree;
+                }
+
+
 
                 return (ulong)LastVoteMessages.Count;
             }
@@ -287,6 +313,9 @@ namespace Paxos.Notebook
                 return _subscribedCompletionSource;
             }
         }
+
+        public TaskCompletionSource<LastVoteCollectResult> LastVoteResult { get; set; }
+        public TaskCompletionSource<BallotResult> NewBallotResult { get; set; }
 
     }
 

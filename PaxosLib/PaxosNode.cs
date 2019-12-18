@@ -94,7 +94,7 @@ namespace Paxos.Node
             // 3. commit decree
             //
 
-            return _proposerRole.Propose(decree, decreeNo);
+            return _proposerRole.Propose2(decree, decreeNo);
         }
 
         public async Task<DecreeReadResult> ReadDecree(ulong decreeNo)
