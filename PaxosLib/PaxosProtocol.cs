@@ -421,6 +421,7 @@ namespace Paxos.Protocol
         {
             public bool NeedToCollectLastVote { get; set; }
             public ulong NextBallotNo { get; set; }
+            public Propose OngoingPropose { get; set; }
         }
 
         private class VoteMessageResult
@@ -563,7 +564,20 @@ namespace Paxos.Protocol
             {
                 return false;
             }
-            await BroadcastQueryLastVote(msg.DecreeNo, result.NextBallotNo);
+            if (result.OngoingPropose.State == PropserState.QueryLastVote)
+            {
+                var lastVoteResult = new LastVoteCollectResult()
+                { IsStale = true, DecreeNo = msg.DecreeNo, NextBallotNo = result.NextBallotNo };
+                result.OngoingPropose?.LastVoteResult?.SetResult(lastVoteResult);
+            }
+            else if(result.OngoingPropose.State == PropserState.BeginNewBallot)
+            {
+                var ballotResult = new BallotResult()
+                { IsStale = true, DecreeNo = msg.DecreeNo, NextBallotNo = result.NextBallotNo };
+                result.OngoingPropose?.NewBallotResult?.SetResult(ballotResult);
+
+            }
+            //await BroadcastQueryLastVote(msg.DecreeNo, result.NextBallotNo);
             return true;
         }
 
@@ -583,7 +597,7 @@ namespace Paxos.Protocol
                             DecreeNo = msg.DecreeNo,
                             NextBallotNo = 0
                         };
-                        if (!result.CommittedPropose.LastVoteResult.Task.IsCompleted)
+                        if (result.CommittedPropose.LastVoteResult != null && !result.CommittedPropose.LastVoteResult.Task.IsCompleted)
                             result.CommittedPropose.LastVoteResult.SetResult(lastVoteResult);
 
                     }
@@ -599,7 +613,7 @@ namespace Paxos.Protocol
                             NextBallotNo = result.NextBallotNo
                         };
 
-                        if (!result.CommittedPropose.LastVoteResult.Task.IsCompleted)
+                        if (result.CommittedPropose.LastVoteResult != null && !result.CommittedPropose.LastVoteResult.Task.IsCompleted)
                         {
                             result.CommittedPropose.LastVoteResult.SetResult(lastVoteResult);
                         }
@@ -632,7 +646,7 @@ namespace Paxos.Protocol
                             IsReadyToCommit = true,
                             IsStale = false
                         };
-                        if (!propose.NewBallotResult.Task.IsCompleted)
+                        if (propose.NewBallotResult != null && !propose.NewBallotResult.Task.IsCompleted)
                             propose.NewBallotResult.SetResult(newBallotResult);
 
                     }
@@ -874,13 +888,15 @@ namespace Paxos.Protocol
                 // can be optimized to get the right ballot no once
                 // if concurrently stale message reach here, will git a diffent
                 // ballo no, and one will become stale
+                var oldState = propose.State;
                 do
                 {
                     nextBallotNo = propose.PrepareNewBallot(decree);
                 } while (nextBallotNo <= msg.NextBallotNo);
-
+                propose.State = oldState;
+                propose.LastVoteMessages.Clear();
                 return new StateBallotMessageResult()
-                { NeedToCollectLastVote = true, NextBallotNo = nextBallotNo };
+                { NeedToCollectLastVote = true, NextBallotNo = nextBallotNo, OngoingPropose = propose };
             }
 
         }
