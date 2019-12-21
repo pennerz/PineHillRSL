@@ -512,7 +512,7 @@ namespace Paxos.Protocol
             do
             {
                 var lastVoteResult = await CollectLastVote2(decree, decreeNo);
-                if (lastVoteResult.IsCommitted)
+                if (lastVoteResult.LastVoteQueryStatus == LastVoteCollectResult.Status.Committed)
                 {
                     return new ProposeResult()
                     {
@@ -522,9 +522,20 @@ namespace Paxos.Protocol
                 }
 
                 // check if stale message received
-                if (lastVoteResult.IsStale)
+                if (lastVoteResult.LastVoteQueryStatus == LastVoteCollectResult.Status.State)
                 {
                     continue;
+                }
+                else if (lastVoteResult.LastVoteQueryStatus == LastVoteCollectResult.Status.Committed)
+                {
+                    var committedPropose = await CommitPropose(lastVoteResult.DecreeNo, lastVoteResult.NextBallotNo);
+                    await NotifyLearnersResult(lastVoteResult.DecreeNo, lastVoteResult.NextBallotNo, committedPropose.OngoingDecree);
+
+                    return new ProposeResult()
+                    {
+                        Decree = committedPropose.OngoingDecree,
+                        DecreeNo = lastVoteResult.DecreeNo
+                    };
                 }
 
                 // begin new ballot
@@ -567,7 +578,7 @@ namespace Paxos.Protocol
             if (result.OngoingPropose.State == PropserState.QueryLastVote)
             {
                 var lastVoteResult = new LastVoteCollectResult()
-                { IsStale = true, DecreeNo = msg.DecreeNo, NextBallotNo = result.NextBallotNo };
+                { LastVoteQueryStatus = LastVoteCollectResult.Status.State, DecreeNo = msg.DecreeNo, NextBallotNo = result.NextBallotNo };
                 result.OngoingPropose?.LastVoteResult?.SetResult(lastVoteResult);
             }
             else if(result.OngoingPropose.State == PropserState.BeginNewBallot)
@@ -592,7 +603,7 @@ namespace Paxos.Protocol
                     {
                         var lastVoteResult = new LastVoteCollectResult()
                         {
-                            IsCommitted = true,
+                            LastVoteQueryStatus = LastVoteCollectResult.Status.Committed,
                             CurrentDecree = result.CommittedPropose.OngoingDecree,
                             DecreeNo = msg.DecreeNo,
                             NextBallotNo = 0
@@ -608,7 +619,7 @@ namespace Paxos.Protocol
                     {
                         var lastVoteResult = new LastVoteCollectResult()
                         {
-                            IsCommitted = false,
+                            LastVoteQueryStatus = LastVoteCollectResult.Status.ReadyToNewBallot,
                             DecreeNo = msg.DecreeNo,
                             NextBallotNo = result.NextBallotNo
                         };
@@ -742,7 +753,7 @@ namespace Paxos.Protocol
                     return new LastVoteCollectResult()
                     {
                         DecreeNo = nextDecreeNo,
-                        IsCommitted = true,
+                        LastVoteQueryStatus = LastVoteCollectResult.Status.Committed,
                         CurrentDecree = proposeResult.Decree
                     };
                 }
@@ -947,18 +958,11 @@ namespace Paxos.Protocol
                 if (msg.Commited)
                 {
                     // decree already committed
-                    if (!propose.BeginCommit(msg.BallotNo, msg.VoteDecree))
-                    {
-                        return new LastVoteMessageResult()
-                        { Action = LastVoteMessageResult.ResultAction.None };
-                    }
-
-                    await _proposerNote.Commit(msg.DecreeNo, propose.OngoingDecree);
-                    propose.State = PropserState.Commited;
-
+                    propose.OngoingDecree = msg.VoteDecree;
                     return new LastVoteMessageResult()
                     {
                         Action = LastVoteMessageResult.ResultAction.DecreeCommitted,
+                        NextBallotNo = msg.BallotNo,
                         CommittedPropose = propose
                     };
                 }

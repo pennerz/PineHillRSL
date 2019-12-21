@@ -145,11 +145,11 @@ namespace Paxos.Notebook
 
     public class LastVoteCollectResult
     {
+        public enum Status { Committed, ReadyToNewBallot, State};
+        public Status LastVoteQueryStatus { get; set; }
         public ulong DecreeNo { get; set; }
-        public ulong NextBallotNo { get; set; }
-        public PaxosDecree CurrentDecree { get; set; }
-        public bool IsCommitted { get; set; }
-        public bool IsStale { get; set; }
+        public ulong NextBallotNo { get; set; }         // for state message
+        public PaxosDecree CurrentDecree { get; set; }  // for committed decree
     }
 
     public class BallotResult
