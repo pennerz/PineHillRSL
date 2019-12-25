@@ -72,9 +72,11 @@ namespace Paxos.Node
             var votedLogger = new FilePaxosVotedBallotLog(".\\votedlogger_" + _nodeInfo.Name + ".log");
             var voterNote = new VoterNote(votedLogger);
             var proposerNote = new ProposerNote(ledgerLogger);
+            var proposeManager = new ProposeManager(proposerNote.GetMaximumCommittedDecreeNo());
 
             _voterRole = new VoterRole(_nodeInfo, _cluster, _rpcClient, _decreeLockManager, voterNote, proposerNote);
-            _proposerRole = new ProposerRole(_nodeInfo, _cluster, _rpcClient, _decreeLockManager, proposerNote);
+            _proposerRole = new ProposerRole(
+                _nodeInfo, _cluster, _rpcClient, _decreeLockManager, proposerNote, proposeManager);
 
             _messager = new PaxosNodeMessageDeliver(_proposerRole, _voterRole);
             var rpcRequestHandler = new PaxosMessageHandler(_messager, null);
@@ -94,7 +96,7 @@ namespace Paxos.Node
             // 3. commit decree
             //
 
-            return _proposerRole.Propose2(decree, decreeNo);
+            return _proposerRole.Propose(decree, decreeNo);
         }
 
         public async Task<DecreeReadResult> ReadDecree(ulong decreeNo)

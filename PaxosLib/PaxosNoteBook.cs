@@ -145,20 +145,28 @@ namespace Paxos.Notebook
 
     public class LastVoteCollectResult
     {
-        public enum Status { Committed, ReadyToNewBallot, State};
-        public Status LastVoteQueryStatus { get; set; }
+        //public enum Status { Committed, ReadyToNewBallot, State};
+        //public Status LastVoteQueryStatus { get; set; }
+        //public ulong DecreeNo { get; set; }
+        //public ulong NextBallotNo { get; set; }         // for state message
+        //public PaxosDecree CurrentDecree { get; set; }  // for committed decree
         public ulong DecreeNo { get; set; }
-        public ulong NextBallotNo { get; set; }         // for state message
-        public PaxosDecree CurrentDecree { get; set; }  // for committed decree
+        public Propose OngoingPropose { get; set; }
+        public bool IsCommitted { get; set; }
+        public PaxosDecree CommittedDecree { get; set; }
     }
 
     public class BallotResult
     {
+        //public ulong DecreeNo { get; set; }
+        //public ulong NextBallotNo { get; set; }
+        //public bool IsCommitted { get; set; }
+        //public bool IsReadyToCommit { get; set; }
+        //public bool IsStale { get; set; }
         public ulong DecreeNo { get; set; }
-        public ulong NextBallotNo { get; set; }
+        public Propose OngoingPropose { get; set; }
         public bool IsCommitted { get; set; }
-        public bool IsReadyToCommit { get; set; }
-        public bool IsStale { get; set; }
+        public PaxosDecree CommittedDecree { get; set; }
     }
 
     public class Propose
@@ -167,9 +175,11 @@ namespace Paxos.Notebook
         private readonly List<TaskCompletionSource<ProposeResult>> _subscribedCompletionSource = new List<TaskCompletionSource<ProposeResult>>();
         private readonly List<LastVoteMessage> _lastVoteMessages = new List<LastVoteMessage>();
         private readonly List<VoteMessage> _voteMessages = new List<VoteMessage>();
-
-        public Propose()
+        private readonly List<StaleBallotMessage> _staleMessage = new List<StaleBallotMessage>();
+        private ulong _clusterSize;
+        public Propose(ulong clusterSize)
         {
+            _clusterSize = clusterSize;
             State = PropserState.Init;
             LastTriedBallot = 0;
             OngoingDecree = null;
@@ -273,6 +283,16 @@ namespace Paxos.Notebook
             }
         }
 
+        public ulong AddStaleBallotMessage(StaleBallotMessage staleMessage)
+        {
+            lock (_subscribedCompletionSource)
+            {
+                _staleMessage.Add(staleMessage);
+
+                return (ulong)_staleMessage.Count;
+            }
+        }
+
 
         private LastVoteMessage GetMaximumVote()
         {
@@ -317,12 +337,170 @@ namespace Paxos.Notebook
         public TaskCompletionSource<LastVoteCollectResult> LastVoteResult { get; set; }
         public TaskCompletionSource<BallotResult> NewBallotResult { get; set; }
 
+
+        public enum NextAction { None, CollectLastVote, BeginBallot, Commit};
+
+        public async Task<NextAction> GetNextAction()
+        {
+            await AcquireLock();
+            try
+            {
+                switch (State)
+                {
+                    case PropserState.QueryLastVote:
+                        foreach (var lastVote in LastVoteMessages)
+                        {
+                            if (lastVote.Commited)
+                            {
+                                return NextAction.Commit;
+                            }
+                        }
+
+                        if (_staleMessage.Count > 0)
+                        {
+                            return NextAction.CollectLastVote;
+                        }
+
+                        if (LastVoteMessages.Count > (int)_clusterSize / 2 + 1)
+                        {
+                            return NextAction.BeginBallot;
+                        }
+                        else
+                        {
+                            return NextAction.CollectLastVote;
+                        }
+                    case PropserState.BeginNewBallot:
+                        foreach (var lastVote in LastVoteMessages)
+                        {
+                            if (lastVote.Commited)
+                            {
+                                return NextAction.Commit;
+                            }
+                        }
+                        if (_staleMessage.Count > 0)
+                        {
+                            return NextAction.CollectLastVote;
+                        }
+
+                        if (VotedMessages.Count > (int)_clusterSize / 2 + 1)
+                        {
+                            return NextAction.Commit;
+                        }
+                        else
+                        {
+                            return NextAction.BeginBallot;
+                        }
+                }
+            }
+            finally
+            {
+                ReleaseLock();
+            }
+
+            return NextAction.None;
+        }
+
+        public ulong GetNextBallot()
+        {
+            lock(_subscribedCompletionSource)
+            {
+                ulong maximumBallotNo = 0;
+                foreach(var staleMsg in _staleMessage)
+                {
+                    if (staleMsg.NextBallotNo > maximumBallotNo)
+                    {
+                        maximumBallotNo = staleMsg.NextBallotNo;
+                    }
+                }
+
+                if (LastTriedBallot > maximumBallotNo)
+                {
+                    maximumBallotNo = LastTriedBallot;
+                }
+
+                return maximumBallotNo;
+            }
+        }
+
+        public PaxosDecree GetCommittedDecree()
+        {
+            lock (_subscribedCompletionSource)
+            {
+                foreach(var lastVote in _lastVoteMessages)
+                {
+                    if (lastVote.Commited)
+                    {
+                        return lastVote.VoteDecree;
+                    }
+                }
+
+                if (_voteMessages.Count > (int)_clusterSize/2+1)
+                {
+                    return OngoingDecree;
+                }
+            }
+
+            return null;
+        }
+
+    }
+
+    public class ProposeManager
+    {
+        private int _nextDecreeNo = 0;
+        private ConcurrentDictionary<ulong, Propose> _ongoingProposes = new ConcurrentDictionary<ulong, Propose>();
+
+        public ProposeManager(ulong baseDecreeNo)
+        {
+            _nextDecreeNo = (int)baseDecreeNo;
+        }
+
+        public ulong GetNextDecreeNo()
+        {
+            return (ulong)Interlocked.Increment(ref _nextDecreeNo);
+        }
+
+        public Propose GetOngoingPropose(ulong decreeNo)
+        {
+            Propose propose = null;
+            if (!_ongoingProposes.TryGetValue(decreeNo, out propose))
+            {
+                return null;
+            }
+
+            return propose;
+        }
+
+        public Propose AddPropose(ulong decreeNo, ulong clusterSize)
+        {
+            do
+            {
+                var propose = GetOngoingPropose(decreeNo);
+                if (propose != null)
+                {
+                    return propose;
+                }
+                propose = new Propose(clusterSize);
+                _ongoingProposes.TryAdd(decreeNo, propose);
+            }while(true);
+        }
+
+        public void RemovePropose(ulong decreeNo)
+        {
+            Propose propose = null;
+            _ongoingProposes.TryRemove(decreeNo, out propose);
+        }
+
+        public void Reset()
+        {
+            _ongoingProposes.Clear();
+        }
     }
 
     public class ProposerNote
     {
         // proposer role
-        private ConcurrentDictionary<ulong, Propose> _decreeState = new ConcurrentDictionary<ulong, Propose>();
+        //private ConcurrentDictionary<ulong, Propose> _decreeState = new ConcurrentDictionary<ulong, Propose>();
         //private Ledger _ledger;
         private readonly ConcurrentDictionary<ulong, PaxosDecree> _committedDecrees = new ConcurrentDictionary<ulong, PaxosDecree>();
         private IPaxosCommitedDecreeLog _logger;
@@ -336,11 +514,12 @@ namespace Paxos.Notebook
             _logger = logger;
         }
 
+        /*
         /// <summary>
         /// When try to propose a new decree, get a decree no first
         /// </summary>
         /// <returns></returns>
-        public ulong GetNewDecreeNo()
+        public ulong GetNewDecreeNo(ulong clusterSize)
         {
             ulong nextDecreeNo = 0;
 
@@ -353,12 +532,12 @@ namespace Paxos.Notebook
                 {
                     nextDecreeNo = maxOngoingDecreeNo + 1;
                 }
-                var propose = AddPropose(nextDecreeNo);
+                var propose = AddPropose(nextDecreeNo, clusterSize);
             }
 
             return nextDecreeNo;
         }
-
+        */
         /// <summary>
         /// Get the maximum committed decree no
         /// </summary>
@@ -372,6 +551,7 @@ namespace Paxos.Notebook
             }
             return maximumCommittedDecreeNo;
         }
+        
 
         /// <summary>
         /// Get the committed decree
@@ -389,6 +569,7 @@ namespace Paxos.Notebook
             return Task.FromResult(committedDecree);
         }
 
+        /*
         public async Task<Propose> Commit(ulong decreeNo, PaxosDecree committedDecree)
         {
             // write the decree to ledge
@@ -399,7 +580,7 @@ namespace Paxos.Notebook
             while (!_decreeState.TryRemove(decreeNo, out propose)) ;
 
             return propose;
-        }
+        }*/
 
         public async Task CommitDecree(ulong decreeNo, PaxosDecree commitedDecree)
         {
@@ -407,6 +588,7 @@ namespace Paxos.Notebook
         }
 
 
+        /*
         public ulong GetMaxOngoingDecreeNo()
         {
             if (_decreeState.Count == 0)
@@ -427,11 +609,11 @@ namespace Paxos.Notebook
             return null;
         }
 
-        public Propose AddPropose(ulong decreeNo)
+        public Propose AddPropose(ulong decreeNo, ulong clusterSize)
         {
             do
             {
-                _decreeState.TryAdd(decreeNo, new Propose());
+                _decreeState.TryAdd(decreeNo, new Propose(clusterSize));
                 var propose = GetPropose(decreeNo);
                 if (propose != null)
                 {
@@ -444,7 +626,7 @@ namespace Paxos.Notebook
         {
             _decreeState.AddOrUpdate(decreeNo, propose, (key, oldValue) => propose);
         }
-
+        */
         public List<KeyValuePair<ulong, PaxosDecree>> GetFollowingCommittedDecress(ulong beginDecreeNo)
         {
             var committedDecrees = new List<KeyValuePair<ulong, PaxosDecree>>();
@@ -471,6 +653,7 @@ namespace Paxos.Notebook
             _committedDecrees.Clear();
         }
 
+        /*
         public void Reset()
         {
             _decreeState.Clear();
@@ -480,12 +663,12 @@ namespace Paxos.Notebook
         {
             Propose propose = null;
             _decreeState.Remove(decreeNo, out propose);
-        }
-
+        }*/
         private ulong GetMaximumCommittedDecreeNoNeedLock()
         {
             return _committedDecrees.LastOrDefault().Key;
         }
+        
 
         private async Task CommitDecreeInternal(ulong decreeNo, PaxosDecree decree)
         {
