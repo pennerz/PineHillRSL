@@ -143,7 +143,6 @@ namespace Paxos.Tests
             var votedLogger = new FilePaxosVotedBallotLog(logPrefix + "votedlogger_node1.log");
             var proposerNote = new ProposerNote(ledgerLogger);
             var voterNote = new VoterNote(votedLogger);
-            var decreeLockManager = new DecreeLockManager();
 
             var msgList = new List<RpcMessage>();
             // 1. NextBallotMessage
@@ -154,7 +153,7 @@ namespace Paxos.Tests
                 await rpcServer.Start();
 
                 var rpcClient = new RpcClient(targetClientAddress);
-                var voter = new VoterRole(cluster.Members[1], cluster, rpcClient, decreeLockManager, voterNote, proposerNote);
+                var voter = new VoterRole(cluster.Members[1], cluster, rpcClient, voterNote, proposerNote);
                 var nextBallotMsg = new NextBallotMessage();
                 nextBallotMsg.DecreeNo = 1;
                 nextBallotMsg.BallotNo = 1;
@@ -270,7 +269,7 @@ namespace Paxos.Tests
 
                 // 2.2 has no NextBallotNo yet
                 var rpcClient = new RpcClient(targetClientAddress);
-                var voter = new VoterRole(cluster.Members[1], cluster, rpcClient, decreeLockManager, voterNote, proposerNote);
+                var voter = new VoterRole(cluster.Members[1], cluster, rpcClient, voterNote, proposerNote);
 
                 var propserConnection = networkInfr.GetConnection(srcServerAddress, targetClientAddress);
 
@@ -420,7 +419,6 @@ namespace Paxos.Tests
             var ledgerLogger = new FilePaxosCommitedDecreeLog(logPrefix + "logger.log");
             var proposerNote = new ProposerNote(ledgerLogger);
             var proposeManager = new ProposeManager(proposerNote.GetMaximumCommittedDecreeNo() + 1);
-            var decreeLockManager = new DecreeLockManager();
 
             var rpcClient = new RpcClient(srcClientAddress);
             // collectlastvote2,
@@ -433,7 +431,6 @@ namespace Paxos.Tests
                 var proposer = new ProposerRole(
                     cluster.Members[0],
                     cluster, rpcClient,
-                    decreeLockManager,
                     proposerNote,
                     proposeManager);
                 propose.LastTriedBallot = 1;    // collectlastvote2 will begin a new ballot no
@@ -489,7 +486,7 @@ namespace Paxos.Tests
                 string decreeContent1 = "test0";
 
                 var proposer = new ProposerRole(
-                    cluster.Members[0], cluster, rpcClient, decreeLockManager,
+                    cluster.Members[0], cluster, rpcClient,
                     proposerNote,
                     proposeManager);
                 propose.LastTriedBallot = 3;    // collectlastvote2 will begin a new ballot no
@@ -584,7 +581,7 @@ namespace Paxos.Tests
                 string decreeContent1 = "test0";
 
                 var proposer = new ProposerRole(
-                    cluster.Members[0], cluster, rpcClient, decreeLockManager,
+                    cluster.Members[0], cluster, rpcClient,
                     proposerNote,
                     proposeManager);
                 propose.LastTriedBallot = 3;    // collectlastvote2 will begin a new ballot no
@@ -664,7 +661,7 @@ namespace Paxos.Tests
                 string decreeContent1 = "test0";
 
                 var proposer = new ProposerRole(
-                    cluster.Members[0], cluster, rpcClient, decreeLockManager,
+                    cluster.Members[0], cluster, rpcClient,
                     proposerNote,
                     proposeManager);
                 propose.LastTriedBallot = 3;    // collectlastvote2 will begin a new ballot no
@@ -733,7 +730,7 @@ namespace Paxos.Tests
                 string decreeContent = "test1";
 
                 var proposer = new ProposerRole(
-                    cluster.Members[0], cluster, rpcClient, decreeLockManager,
+                    cluster.Members[0], cluster, rpcClient,
                     proposerNote,
                     proposeManager);
                 propose.LastTriedBallot = 3;    // collectlastvote2 will begin a new ballot no
@@ -810,7 +807,7 @@ namespace Paxos.Tests
                 string decreeContent1 = "test0";
                 string decreeContent = "test1";
                 var proposer = new ProposerRole(
-                    cluster.Members[0], cluster, rpcClient, decreeLockManager,
+                    cluster.Members[0], cluster, rpcClient,
                     proposerNote,
                     proposeManager);
                 propose.LastTriedBallot = 3; // decreeNo, ballotNo
@@ -874,7 +871,7 @@ namespace Paxos.Tests
                 string decreeContent1 = "test0";
                 string decreeContent = "test1";
                 var proposer = new ProposerRole(
-                    cluster.Members[0], cluster, rpcClient, decreeLockManager,
+                    cluster.Members[0], cluster, rpcClient,
                     proposerNote,
                     proposeManager);
                 propose.LastTriedBallot = 3; // decreeNo, ballotNo
@@ -946,7 +943,7 @@ namespace Paxos.Tests
                 string decreeContent1 = "test0";
                 string decreeContent = "test1";
                 var proposer = new ProposerRole(
-                    cluster.Members[0], cluster, rpcClient, decreeLockManager,
+                    cluster.Members[0], cluster, rpcClient,
                     proposerNote,
                     proposeManager);
                 propose.LastTriedBallot = 3; // decreeNo, ballotNo

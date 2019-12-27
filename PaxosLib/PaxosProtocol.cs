@@ -36,156 +36,6 @@ namespace Paxos.Protocol
         }
     }
 
-    public class DecreeLock
-    {
-        private SemaphoreSlim _lock = new SemaphoreSlim(1);
-        private DateTime _lastTouched = DateTime.Now;
-
-        public DecreeLock()
-        {
-            ReferenceCount = 0;
-        }
-
-        public Task AcquireLock()
-        {
-            return _lock.WaitAsync();
-        }
-
-        public void ReleaseLock()
-        {
-            _lastTouched = DateTime.Now;
-            _lock.Release();
-        }
-
-        public ulong ReferenceCount { get; set; }
-
-        public DateTime LastTouchedTime { get { return _lastTouched; } }
-    }
-
-    public class DecreeLockWrapper : IDisposable
-    {
-        private DecreeLock _decreeLock;
-
-        public DecreeLockWrapper(DecreeLock decreeLock)
-        {
-            if (decreeLock == null)
-            {
-                throw new ArgumentNullException("Decree Lock");
-            }
-            _decreeLock = decreeLock;
-            _decreeLock.ReferenceCount++;
-        }
-
-        public async Task<AutoDecreeLock> AcquireLock()
-        {
-            await _decreeLock.AcquireLock();
-            AutoDecreeLock autoLock = null;
-            try
-            {
-                autoLock = new AutoDecreeLock(this);
-            }
-            finally
-            {
-                if (autoLock == null)
-                {
-                    _decreeLock.ReleaseLock();
-                }
-            }
-            return autoLock;
-        }
-
-        public void ReleaseLock()
-        {
-            _decreeLock.ReleaseLock();
-        }
-
-        public void Dispose()
-        {
-            _decreeLock.ReferenceCount--;
-        }
-    }
-
-    public class AutoDecreeLock : IDisposable
-    {
-        private DecreeLockWrapper _lock;
-        public AutoDecreeLock(DecreeLockWrapper decreeLock)
-        {
-            _lock = decreeLock;
-        }
-
-        public void Dispose()
-        {
-            if (_lock != null)
-            {
-                _lock.ReleaseLock();
-                _lock.Dispose();
-            }
-        }
-    }
-
-
-    public class DecreeLockManager
-    {
-        private Dictionary<ulong, DecreeLock> _decreeLocks = new Dictionary<ulong, DecreeLock>();
-        private Task _gcTask;
-
-        public DecreeLockManager()
-        {
-            GCThresholdInSeconds = 30;
-            Stop = false;
-            _gcTask = Task.Run(async () =>
-            {
-                while (!Stop)
-                {
-                    await Task.Delay(10000);
-                    var now = DateTime.Now;
-
-                    lock(_decreeLocks)
-                    {
-                        foreach (var decreeLock in _decreeLocks)
-                        {
-                            if (decreeLock.Value.ReferenceCount > 0)
-                            {
-                                continue;
-                            }
-                            var lastTouchedTime = decreeLock.Value.LastTouchedTime;
-                            var diff = lastTouchedTime - now;
-                            if (diff.TotalSeconds < GCThresholdInSeconds)
-                            {
-                                continue;
-                            }
-                            DecreeLock decreeTransaction = null;
-                            _decreeLocks.Remove(decreeLock.Key, out decreeTransaction);
-                        }
-
-                    }
-                }
-            });
-        }
-
-        public DecreeLockWrapper GetDecreeLock(ulong decreeNo)
-        {
-            lock(_decreeLocks)
-            {
-                do
-                {
-                    DecreeLock decreeLock = null;
-                    if (_decreeLocks.TryGetValue(decreeNo, out decreeLock))
-                    {
-                        return new DecreeLockWrapper(decreeLock);
-                    }
-                    _decreeLocks.TryAdd(decreeNo, new DecreeLock());
-                } while (true);
-
-            }
-        }
-
-
-        public ulong GCThresholdInSeconds { get; set; }
-
-        public bool Stop { get; set; }
-    }
-
     /// <summary>
     /// Event Received          Action
     /// LastVote                Return last vote if the new ballot no bigger than NextBallotNo recorded
@@ -197,7 +47,6 @@ namespace Paxos.Protocol
     public class VoterRole
     {
         private readonly RpcClient _rpcClient;
-        private readonly DecreeLockManager _decreeLockManager;
 
         private readonly NodeInfo _nodeInfo;
         private readonly PaxosCluster _cluster;
@@ -208,7 +57,6 @@ namespace Paxos.Protocol
             NodeInfo nodeInfo,
             PaxosCluster cluster,
             RpcClient rpcClient,
-            DecreeLockManager decreeLockManager,
             VoterNote voterNote,
             ProposerNote ledger)
         {
@@ -217,14 +65,12 @@ namespace Paxos.Protocol
             if (rpcClient == null) throw new ArgumentNullException("rpcClient");
             if (voterNote == null) throw new ArgumentNullException("no note book");
             if (ledger == null) throw new ArgumentNullException("ledger");
-            if (decreeLockManager == null) throw new ArgumentNullException("decree lock manager");
 
             _nodeInfo = nodeInfo;
             _cluster = cluster;
             _rpcClient = rpcClient;
             _note = voterNote;
             _ledger = ledger;
-            _decreeLockManager = decreeLockManager;
         }
 
         public async Task DeliverNextBallotMessage(NextBallotMessage msg)
@@ -247,18 +93,12 @@ namespace Paxos.Protocol
 
         public async Task DeliverSuccessMessage(SuccessMessage msg)
         {
-            var decreeLock = _decreeLockManager.GetDecreeLock(msg.DecreeNo);
-            using (var autolock = await decreeLock.AcquireLock())
-            {
-                // commit in logs
-                await _ledger.CommitDecree(msg.DecreeNo, msg.Decree);
-            }
+            // commit in logs
+            await _ledger.CommitDecree(msg.DecreeNo, msg.Decree);
         }
 
         private async Task<PaxosMessage> ProcessNextBallotMessageInternal(NextBallotMessage msg)
         {
-            var decreeLock = _decreeLockManager.GetDecreeLock(msg.DecreeNo);
-            using (var autolock = await decreeLock.AcquireLock())
             {
                 // check if committed
                 var commitedDecree = await _ledger.GetCommittedDecree(msg.DecreeNo);
@@ -314,9 +154,6 @@ namespace Paxos.Protocol
 
         private async Task<PaxosMessage> ProcessNewBallotMessageInternal(BeginBallotMessage msg)
         {
-            var decreeLock = _decreeLockManager.GetDecreeLock(msg.DecreeNo);
-
-            using (var autolock = await decreeLock.AcquireLock())
             {
                 // check if committed
                 var commitedDecree = await _ledger.GetCommittedDecree(msg.DecreeNo);
@@ -432,7 +269,6 @@ namespace Paxos.Protocol
 
 
         private readonly RpcClient _rpcClient;
-        private readonly DecreeLockManager _decreeLockManager;
         private readonly NodeInfo _nodeInfo;
         private readonly PaxosCluster _cluster;
 
@@ -443,7 +279,6 @@ namespace Paxos.Protocol
             NodeInfo nodeInfo,
             PaxosCluster cluster,
             RpcClient rpcClient,
-            DecreeLockManager decreeLockManager,
             ProposerNote proposerNote,
             ProposeManager proposerManager)
         {
@@ -451,13 +286,11 @@ namespace Paxos.Protocol
             if (nodeInfo == null) throw new ArgumentNullException("nodeInfo");
             if (rpcClient == null) throw new ArgumentNullException("rpcClient");
             if (proposerNote == null) throw new ArgumentNullException("proposer note");
-            if (decreeLockManager == null) throw new ArgumentNullException("decreeLock manager");
 
             _nodeInfo = nodeInfo;
             _cluster = cluster;
             _rpcClient = rpcClient;
             _proposerNote = proposerNote;
-            _decreeLockManager = decreeLockManager;
             _proposeManager = proposerManager;
             Stop = false;
         }
@@ -681,12 +514,16 @@ namespace Paxos.Protocol
                 nextDecreeNo = _proposeManager.GetNextDecreeNo();
                 _proposeManager.AddPropose(nextDecreeNo, (ulong)_cluster.Members.Count);
             }
+            var propose = _proposeManager.GetOngoingPropose(nextDecreeNo);
+            if (propose == null)
+            {
+                propose = _proposeManager.AddPropose(nextDecreeNo, (ulong)_cluster.Members.Count);
+            }
 
             ulong ballotNo = 0;
             var completionSource = new TaskCompletionSource<LastVoteCollectResult>();
 
-            var decreeLock = _decreeLockManager.GetDecreeLock(nextDecreeNo);
-            using (var autoLock = await decreeLock.AcquireLock())
+            using (var autoLock = await propose.AcquireLock())
             {
 
                 var proposeResult = await GetProposeResult(nextDecreeNo);
@@ -700,12 +537,6 @@ namespace Paxos.Protocol
                         IsCommitted = true,
                         CommittedDecree = proposeResult.Decree
                     };
-                }
-
-                var propose = _proposeManager.GetOngoingPropose(nextDecreeNo);
-                if (propose == null)
-                {
-                    propose = _proposeManager.AddPropose(nextDecreeNo, (ulong)_cluster.Members.Count);
                 }
 
                 ballotNo = propose.PrepareNewBallot(decree);
@@ -726,23 +557,23 @@ namespace Paxos.Protocol
         public async Task<BallotResult> BeginNewBallot(ulong decreeNo, ulong ballotNo)
         {
             PaxosDecree newBallotDecree = null;
+            var propose = _proposeManager.GetOngoingPropose(decreeNo);
+            if (propose == null)
+            {
+                // send alert
+                return new BallotResult()
+                {
+                    DecreeNo = decreeNo,
+                    OngoingPropose = null,
+                    IsCommitted = false,
+                    CommittedDecree = null
+                };
+            }
+
             var completionSource = new TaskCompletionSource<BallotResult>();
-            var decreeLock = _decreeLockManager.GetDecreeLock(decreeNo);
-            using (var autoLock = await decreeLock.AcquireLock())
+            using (var autoLock = await propose.AcquireLock())
             {
 
-                var propose = _proposeManager.GetOngoingPropose(decreeNo);
-                if (propose == null)
-                {
-                    // send alert
-                    return new BallotResult()
-                    {
-                       DecreeNo = decreeNo,
-                       OngoingPropose = null,
-                       IsCommitted = false,
-                       CommittedDecree = null
-                    };
-                }
                 newBallotDecree = propose.BeginNewBallot(ballotNo);
                 if (newBallotDecree == null)
                 {
@@ -767,17 +598,15 @@ namespace Paxos.Protocol
 
         public async Task<Propose> CommitPropose(ulong decreeNo, ulong ballotNo)
         {
-            var decreeLock = _decreeLockManager.GetDecreeLock(decreeNo);
-            using (var autoLock = await decreeLock.AcquireLock())
+            var propose = _proposeManager.GetOngoingPropose(decreeNo);
+            if (propose == null)
             {
+                // send alert
+                return null;
+            }
 
-                var propose = _proposeManager.GetOngoingPropose(decreeNo);
-                if (propose == null)
-                {
-                    // send alert
-                    return null;
-                }
-
+            using (var autoLock = await propose.AcquireLock())
+            {
                 if (!propose.BeginCommit(ballotNo, propose.OngoingDecree))
                 {
                     // others may commit a new one with a different ballotNo
@@ -794,18 +623,18 @@ namespace Paxos.Protocol
 
         private async Task<StateBallotMessageResult> ProcessStaleBallotMessageInternal(StaleBallotMessage msg)
         {
-            // QueryLastVote || BeginNewBallot
-            var decreeLock = _decreeLockManager.GetDecreeLock(msg.DecreeNo);
-            ulong nextBallotNo = 0;
-            using (var autoLock = await decreeLock.AcquireLock())
+            // in case committed, ongoing propose could be cleaned
+            var propose = _proposeManager.GetOngoingPropose(msg.DecreeNo);
+            if (propose == null)
             {
-                // in case committed, ongoing propose could be cleaned
-                var propose = _proposeManager.GetOngoingPropose(msg.DecreeNo);
-                if (propose == null)
-                {
-                    return new StateBallotMessageResult()
-                    { NeedToCollectLastVote = false };
-                }
+                return new StateBallotMessageResult()
+                { NeedToCollectLastVote = false };
+            }
+
+            // QueryLastVote || BeginNewBallot
+            ulong nextBallotNo = 0;
+            using (var autoLock = await propose.AcquireLock())
+            {
                 if (propose.State != PropserState.QueryLastVote && propose.State != PropserState.BeginNewBallot)
                 {
                     return new StateBallotMessageResult()
@@ -842,17 +671,16 @@ namespace Paxos.Protocol
 
         private async Task<LastVoteMessageResult> ProcessLastVoteMessageInternal(LastVoteMessage msg)
         {
-            var decreeLock = _decreeLockManager.GetDecreeLock(msg.DecreeNo);
-
-            using (var autoLock = await decreeLock.AcquireLock())
+            // in case committed, ongoing propose could be cleaned
+            var propose = _proposeManager.GetOngoingPropose(msg.DecreeNo);
+            if (propose == null)
             {
-                // in case committed, ongoing propose could be cleaned
-                var propose = _proposeManager.GetOngoingPropose(msg.DecreeNo);
-                if (propose == null)
-                {
-                    return new LastVoteMessageResult()
-                    { Action = LastVoteMessageResult.ResultAction.None};
-                }
+                return new LastVoteMessageResult()
+                { Action = LastVoteMessageResult.ResultAction.None };
+            }
+
+            using (var autoLock = await propose.AcquireLock())
+            {
 
                 //
                 // 1. decree passed, and begin to vote the ballot
@@ -915,16 +743,15 @@ namespace Paxos.Protocol
 
         private async Task<VoteMessageResult> ProcessVoteMessageInternal(VoteMessage msg)
         {
-            var decreeLock = _decreeLockManager.GetDecreeLock(msg.DecreeNo);
-            using (var autoLock = await decreeLock.AcquireLock())
+            var propose = _proposeManager.GetOngoingPropose(msg.DecreeNo);
+            if (propose == null)
             {
-                var propose = _proposeManager.GetOngoingPropose(msg.DecreeNo);
-                if (propose == null)
-                {
-                    // propose may already be committed
-                    return new VoteMessageResult()
-                    { Action = VoteMessageResult.ResultAction.None };
-                }
+                // propose may already be committed
+                return new VoteMessageResult()
+                { Action = VoteMessageResult.ResultAction.None };
+            }
+            using (var autoLock = await propose.AcquireLock())
+            {
                 if (propose.State != PropserState.BeginNewBallot)
                 {
                     return new VoteMessageResult()

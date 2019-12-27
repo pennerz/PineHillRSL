@@ -169,6 +169,23 @@ namespace Paxos.Notebook
         public PaxosDecree CommittedDecree { get; set; }
     }
 
+    public class AutoLock : IDisposable
+    {
+        private SemaphoreSlim _lock;
+        public AutoLock(SemaphoreSlim ayncLock)
+        {
+            _lock = ayncLock;
+        }
+
+        public void Dispose()
+        {
+            if (_lock != null)
+            {
+                _lock.Release();
+            }
+        }
+    }
+
     public class Propose
     {
         private SemaphoreSlim _lock = new SemaphoreSlim(1);
@@ -185,15 +202,18 @@ namespace Paxos.Notebook
             OngoingDecree = null;
         }
 
-        public Task AcquireLock()
+        public async Task<AutoLock> AcquireLock()
         {
-            return _lock.WaitAsync();
+            await _lock.WaitAsync();
+            var autoLock = new AutoLock(_lock);
+            return autoLock;
         }
 
+        /*
         public void ReleaseLock()
         {
             _lock.Release();
-        }
+        }*/
 
         public void SubscribeCompletionNotification(TaskCompletionSource<ProposeResult> completionSource)
         {
@@ -342,8 +362,7 @@ namespace Paxos.Notebook
 
         public async Task<NextAction> GetNextAction()
         {
-            await AcquireLock();
-            try
+            using (var autoLock = await AcquireLock())
             {
                 switch (State)
                 {
@@ -391,10 +410,6 @@ namespace Paxos.Notebook
                             return NextAction.BeginBallot;
                         }
                 }
-            }
-            finally
-            {
-                ReleaseLock();
             }
 
             return NextAction.None;

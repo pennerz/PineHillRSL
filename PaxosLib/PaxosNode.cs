@@ -12,7 +12,6 @@ namespace Paxos.Node
 {
     public class PaxosNode
     {
-        private readonly DecreeLockManager _decreeLockManager;
         private readonly VoterRole _voterRole;
         private readonly ProposerRole _proposerRole;
 
@@ -64,7 +63,6 @@ namespace Paxos.Node
             };
             _rpcServer = new RpcServer(serverAddr);
 
-            _decreeLockManager = new DecreeLockManager();
 
             var ledgerLogger = new FilePaxosCommitedDecreeLog(".\\loegger" + _nodeInfo.Name + ".log");
             //var ledger = new Ledger(ledgerLogger);
@@ -74,9 +72,9 @@ namespace Paxos.Node
             var proposerNote = new ProposerNote(ledgerLogger);
             var proposeManager = new ProposeManager(proposerNote.GetMaximumCommittedDecreeNo());
 
-            _voterRole = new VoterRole(_nodeInfo, _cluster, _rpcClient, _decreeLockManager, voterNote, proposerNote);
+            _voterRole = new VoterRole(_nodeInfo, _cluster, _rpcClient, voterNote, proposerNote);
             _proposerRole = new ProposerRole(
-                _nodeInfo, _cluster, _rpcClient, _decreeLockManager, proposerNote, proposeManager);
+                _nodeInfo, _cluster, _rpcClient, proposerNote, proposeManager);
 
             _messager = new PaxosNodeMessageDeliver(_proposerRole, _voterRole);
             var rpcRequestHandler = new PaxosMessageHandler(_messager, null);
