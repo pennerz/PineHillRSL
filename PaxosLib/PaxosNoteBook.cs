@@ -142,27 +142,8 @@ namespace Paxos.Notebook
         Commited            // done
     }
 
-
-    public class LastVoteCollectResult
+    public class ProposePhaseResult
     {
-        //public enum Status { Committed, ReadyToNewBallot, State};
-        //public Status LastVoteQueryStatus { get; set; }
-        //public ulong DecreeNo { get; set; }
-        //public ulong NextBallotNo { get; set; }         // for state message
-        //public PaxosDecree CurrentDecree { get; set; }  // for committed decree
-        public ulong DecreeNo { get; set; }
-        public Propose OngoingPropose { get; set; }
-        public bool IsCommitted { get; set; }
-        public PaxosDecree CommittedDecree { get; set; }
-    }
-
-    public class BallotResult
-    {
-        //public ulong DecreeNo { get; set; }
-        //public ulong NextBallotNo { get; set; }
-        //public bool IsCommitted { get; set; }
-        //public bool IsReadyToCommit { get; set; }
-        //public bool IsStale { get; set; }
         public ulong DecreeNo { get; set; }
         public Propose OngoingPropose { get; set; }
         public bool IsCommitted { get; set; }
@@ -193,13 +174,14 @@ namespace Paxos.Notebook
         private readonly List<LastVoteMessage> _lastVoteMessages = new List<LastVoteMessage>();
         private readonly List<VoteMessage> _voteMessages = new List<VoteMessage>();
         private readonly List<StaleBallotMessage> _staleMessage = new List<StaleBallotMessage>();
-        private ulong _clusterSize;
+        private ulong _clusterSize = 0;
+        private ulong _lastTriedBallotNo = 0;
+        private PaxosDecree _ongogingDecree = null;
+
         public Propose(ulong clusterSize)
         {
             _clusterSize = clusterSize;
             State = PropserState.Init;
-            LastTriedBallot = 0;
-            OngoingDecree = null;
         }
 
         public async Task<AutoLock> AcquireLock()
@@ -209,97 +191,104 @@ namespace Paxos.Notebook
             return autoLock;
         }
 
-        /*
-        public void ReleaseLock()
-        {
-            _lock.Release();
-        }*/
 
-        public void SubscribeCompletionNotification(TaskCompletionSource<ProposeResult> completionSource)
-        {
-            lock(_subscribedCompletionSource)
-            {
-                if (completionSource != null)
-                {
-                    _subscribedCompletionSource.Add(completionSource);
-                }
-            }
-        }
-
+        /// <summary>
+        /// Prepare new ballot for the propose
+        /// </summary>
+        /// <param name="decree"></param>
+        /// <returns></returns>
         public ulong PrepareNewBallot(PaxosDecree decree)
         {
             // lastvote message, vote message can touch the propose's state
             // lock it
             lock(_subscribedCompletionSource)
             {
-                LastTriedBallot++;
-                OngoingDecree = decree;
+                _lastTriedBallotNo = GetNextBallot() + 1;
+                _ongogingDecree = decree;
                 _lastVoteMessages.Clear();
                 _voteMessages.Clear();
+                _staleMessage.Clear();
                 State = PropserState.QueryLastVote;
-                return LastTriedBallot;
+                return _lastTriedBallotNo;
+            }
+        }
+
+        /// <summary>
+        /// Collect last vote received
+        /// </summary>
+        /// <param name="lastVoteMsg"></param>
+        /// <returns></returns>
+        public ulong AddLastVoteMessage(LastVoteMessage lastVoteMsg)
+        {
+            lock(_subscribedCompletionSource)
+            {
+                _lastVoteMessages.Add(lastVoteMsg);
+
+                var maxVoteMsg = GetMaximumVote();
+                if (maxVoteMsg != null)
+                {
+                    _ongogingDecree = maxVoteMsg.VoteDecree;
+                }
+
+                return (ulong)_lastVoteMessages.Count;
+            }
+        }
+
+        /// <summary>
+        /// Begin the new ballot
+        /// </summary>
+        /// <param name="ballotNo"></param>
+        /// <returns></returns>
+        public PaxosDecree BeginNewBallot(ulong ballotNo)
+        {
+            lock(_subscribedCompletionSource)
+            {
+                if (_lastTriedBallotNo != ballotNo)
+                {
+                    // last tried ballot no not match
+                    return null;
+                }
+
+                var maxVoteMsg = GetMaximumVote();
+                if (maxVoteMsg != null)
+                {
+                    _ongogingDecree = maxVoteMsg.VoteDecree;
+                }
+                State = PropserState.BeginNewBallot;
+
+                _lastVoteMessages.Clear();
+
+                return _ongogingDecree;
+            }
+        }
+
+        /// <summary>
+        /// Collect received vote message
+        /// </summary>
+        /// <param name="voteMsg"></param>
+        /// <returns></returns>
+        public ulong AddVoteMessage(VoteMessage voteMsg)
+        {
+            lock (_subscribedCompletionSource)
+            {
+                _voteMessages.Add(voteMsg);
+
+                return (ulong)_voteMessages.Count;
             }
         }
 
         public bool BeginCommit(ulong ballotNo, PaxosDecree committingDecree)
         {
-            lock(_subscribedCompletionSource)
+            lock (_subscribedCompletionSource)
             {
-                if (ballotNo != LastTriedBallot)
+                if (ballotNo != _lastTriedBallotNo)
                 {
                     // stale commit
                     return false;
                 }
-                OngoingDecree = committingDecree;
+                _ongogingDecree = committingDecree;
                 State = PropserState.BeginCommit;
                 return true;
-            }
-        }
-
-        public ulong AddLastVoteMessage(LastVoteMessage lastVoteMsg)
-        {
-            lock(_subscribedCompletionSource)
-            {
-                LastVoteMessages.Add(lastVoteMsg);
-                var maxVoteMsg = GetMaximumVote();
-                if (maxVoteMsg != null)
-                {
-                    OngoingDecree = maxVoteMsg.VoteDecree;
-                }
-
-
-
-                return (ulong)LastVoteMessages.Count;
-            }
-        }
-
-        public PaxosDecree BeginNewBallot(ulong ballotNo)
-        {
-            lock(_subscribedCompletionSource)
-            {
-                if (LastTriedBallot != ballotNo)
-                {
-                    // last tried ballot no not match
-                    return null;
-                }
-                var maxVoteMsg = GetMaximumVote();
-                if (maxVoteMsg != null)
-                {
-                    OngoingDecree = maxVoteMsg.VoteDecree;
-                }
-                State = PropserState.BeginNewBallot;
-
-                return OngoingDecree;
-            }
-        }
-
-        public ulong AddVoteMessage(VoteMessage voteMsg)
-        {
-            lock (_subscribedCompletionSource)
-            {
-                VotedMessages.Add(voteMsg);
-
-                return (ulong)VotedMessages.Count;
             }
         }
 
@@ -313,15 +302,21 @@ namespace Paxos.Notebook
             }
         }
 
-
+        /// <summary>
+        /// get the maximum vote in the ammon the lastvote messages
+        /// </summary>
+        /// <returns></returns>
         private LastVoteMessage GetMaximumVote()
         {
             LastVoteMessage maxVoteMsg = null;
-            foreach (var voteMsg in LastVoteMessages)
+            lock (_subscribedCompletionSource)
             {
-                if (maxVoteMsg == null || voteMsg.VoteBallotNo > maxVoteMsg.VoteBallotNo)
+                foreach (var voteMsg in _lastVoteMessages)
                 {
-                    maxVoteMsg = voteMsg;
+                    if (maxVoteMsg == null || voteMsg.VoteBallotNo > maxVoteMsg.VoteBallotNo)
+                    {
+                        maxVoteMsg = voteMsg;
+                    }
                 }
             }
 
@@ -336,27 +331,11 @@ namespace Paxos.Notebook
             }
             return null;
         }
+
         public PropserState State { get; set; }
+        public ulong LastTriedBallot { set { _lastTriedBallotNo = value; } get { return _lastTriedBallotNo; } }
 
-        public ulong LastTriedBallot { get; set; }
-
-        public PaxosDecree OngoingDecree { get; set; }
-
-        public List<VoteMessage> VotedMessages { get { return _voteMessages; } }
-
-        public List<LastVoteMessage> LastVoteMessages { get { return _lastVoteMessages; } }
-
-        public List<TaskCompletionSource<ProposeResult>> CompletionEvents
-        {
-            get
-            {
-                return _subscribedCompletionSource;
-            }
-        }
-
-        public TaskCompletionSource<LastVoteCollectResult> LastVoteResult { get; set; }
-        public TaskCompletionSource<BallotResult> NewBallotResult { get; set; }
-
+        public TaskCompletionSource<ProposePhaseResult> Result { get; set; }
 
         public enum NextAction { None, CollectLastVote, BeginBallot, Commit};
 
@@ -367,7 +346,7 @@ namespace Paxos.Notebook
                 switch (State)
                 {
                     case PropserState.QueryLastVote:
-                        foreach (var lastVote in LastVoteMessages)
+                        foreach (var lastVote in _lastVoteMessages)
                         {
                             if (lastVote.Commited)
                             {
@@ -380,7 +359,7 @@ namespace Paxos.Notebook
                             return NextAction.CollectLastVote;
                         }
 
-                        if (LastVoteMessages.Count > (int)_clusterSize / 2 + 1)
+                        if (_lastVoteMessages.Count > (int)_clusterSize / 2 + 1)
                         {
                             return NextAction.BeginBallot;
                         }
@@ -389,7 +368,7 @@ namespace Paxos.Notebook
                             return NextAction.CollectLastVote;
                         }
                     case PropserState.BeginNewBallot:
-                        foreach (var lastVote in LastVoteMessages)
+                        foreach (var lastVote in _lastVoteMessages)
                         {
                             if (lastVote.Commited)
                             {
@@ -401,7 +380,7 @@ namespace Paxos.Notebook
                             return NextAction.CollectLastVote;
                         }
 
-                        if (VotedMessages.Count > (int)_clusterSize / 2 + 1)
+                        if (_voteMessages.Count > (int)_clusterSize / 2 + 1)
                         {
                             return NextAction.Commit;
                         }
@@ -428,9 +407,9 @@ namespace Paxos.Notebook
                     }
                 }
 
-                if (LastTriedBallot > maximumBallotNo)
+                if (_lastTriedBallotNo > maximumBallotNo)
                 {
-                    maximumBallotNo = LastTriedBallot;
+                    maximumBallotNo = _lastTriedBallotNo;
                 }
 
                 return maximumBallotNo;
@@ -451,14 +430,21 @@ namespace Paxos.Notebook
 
                 if (_voteMessages.Count > (int)_clusterSize/2+1)
                 {
-                    return OngoingDecree;
+                    return _ongogingDecree;
                 }
             }
 
             return null;
         }
 
-    }
+        // for test
+        public PaxosDecree OngoingDecree => _ongogingDecree;
+
+        public List<LastVoteMessage> LastVoteMessages => _lastVoteMessages;
+
+        public List<VoteMessage> VotedMessages => _voteMessages;
+
+    };
 
     public class ProposeManager
     {

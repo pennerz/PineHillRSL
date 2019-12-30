@@ -621,14 +621,16 @@ namespace Paxos.Tests
                     if (i >= 2)
                     {
                         Assert.IsTrue(collectLastVoteTask.IsCompleted);
-                        Assert.AreEqual(propose.LastVoteMessages.Count, i);
-                        if (i > 2)
-                        {
-                            var returnedLastVote = propose.LastVoteMessages[i - 1];
-                            VerifyLastVoteMessage(returnedLastVote, 1/*decreeNo*/, 4/*ballotNo*/, 0/*votedBallotNo*/, null/*votedContent*/);
-                        }
+                        Assert.AreEqual(propose.LastVoteMessages.Count, 2);
+                        //if (i > 2)
+                        //{
+                         //   var returnedLastVote = propose.LastVoteMessages[i - 1];
+                         //   VerifyLastVoteMessage(returnedLastVote, 1/*decreeNo*/, 4/*ballotNo*/, 0/*votedBallotNo*/, null/*votedContent*/);
+                       // }
 
-                        VerifyPropose(propose, 4/*lastTriedBallot*/, PropserState.QueryLastVote, decreeContent1);
+                        VerifyPropose(propose, 4/*lastTriedBallot*/, PropserState.Commited, decreeContent1);
+
+                        Assert.IsTrue(proposerNote.GetCommittedDecreeCount() == 1);
                     }
                     else
                     {
@@ -641,12 +643,13 @@ namespace Paxos.Tests
 
                         VerifyPropose(propose, 4/*lastTriedBallot*/, PropserState.QueryLastVote, decreeContent);
 
+                        Assert.IsTrue(proposerNote.GetCommittedDecreeCount() == 0);
                     }
-                    Assert.IsTrue(proposerNote.GetCommittedDecreeCount() == 0);
                 }
                 var collectLastVoteResult = await collectLastVoteTask;
                 var nextAction = await collectLastVoteResult.OngoingPropose.GetNextAction();
-                Assert.AreEqual(nextAction, Propose.NextAction.Commit);
+                Assert.AreEqual(nextAction, Propose.NextAction.None);
+                Assert.IsTrue(collectLastVoteResult.IsCommitted);
                 Assert.AreEqual(collectLastVoteResult.OngoingPropose.OngoingDecree.Content, decreeContent1);
 
                 proposeManager.Reset();
@@ -656,6 +659,7 @@ namespace Paxos.Tests
             //  state message will udpate the nextballotno, and need to collectlastvote2 again
             // TODO: calculate the result dynamically calculating the messages collected in propose
             {
+                proposerNote.Clear();
                 var propose = proposeManager.AddPropose(1, (ulong)cluster.Members.Count);
                 string decreeContent = "test1";
                 string decreeContent1 = "test0";
@@ -685,7 +689,7 @@ namespace Paxos.Tests
                         var stateMsg = CreateStaleMessage(
                             cluster.Members[i].Name, cluster.Members[0].Name,
                             1/*decreeNo*/, 4/*ballotNo*/,
-                            4/*nextBallotNo*/);
+                            5/*nextBallotNo*/);
                         await proposer.DeliverStaleBallotMessage(stateMsg);
                     }
                     else
@@ -802,19 +806,19 @@ namespace Paxos.Tests
             {
                 proposerNote.Clear();
                 proposeManager.Reset();
-                var propose = proposeManager.AddPropose(1, (ulong)cluster.Members.Count);
-                propose.State = PropserState.QueryLastVote;
                 string decreeContent1 = "test0";
                 string decreeContent = "test1";
+
+                var propose = proposeManager.AddPropose(1, (ulong)cluster.Members.Count);
+                propose.PrepareNewBallot(new PaxosDecree()
+                {
+                    Content = decreeContent
+                });
                 var proposer = new ProposerRole(
                     cluster.Members[0], cluster, rpcClient,
                     proposerNote,
                     proposeManager);
                 propose.LastTriedBallot = 3; // decreeNo, ballotNo
-                propose.OngoingDecree = new PaxosDecree()
-                {
-                    Content = decreeContent
-                };
 
                 LastVoteMessage lastVoteMessage = null;
                 // build last vote messages
@@ -866,19 +870,18 @@ namespace Paxos.Tests
             {
                 proposerNote.Clear();
                 proposeManager.Reset();
-                var propose = proposeManager.AddPropose(1, (ulong)cluster.Members.Count);
-                propose.State = PropserState.QueryLastVote;
                 string decreeContent1 = "test0";
                 string decreeContent = "test1";
+                var propose = proposeManager.AddPropose(1, (ulong)cluster.Members.Count);
+                propose.PrepareNewBallot(new PaxosDecree()
+                {
+                    Content = decreeContent
+                });
                 var proposer = new ProposerRole(
                     cluster.Members[0], cluster, rpcClient,
                     proposerNote,
                     proposeManager);
                 propose.LastTriedBallot = 3; // decreeNo, ballotNo
-                propose.OngoingDecree = new PaxosDecree()
-                {
-                    Content = decreeContent
-                };
 
                 LastVoteMessage lastVoteMessage = null;
                 // build last vote messages
@@ -927,10 +930,12 @@ namespace Paxos.Tests
                 var beginBallotResult = await beginBallotTask;
                 var nextAction = await beginBallotResult.OngoingPropose.GetNextAction();
                 Assert.AreEqual(nextAction, Propose.NextAction.CollectLastVote);
-                VerifyPropose(propose, 5, PropserState.BeginNewBallot, decreeContent1);
+                VerifyPropose(propose, 3, PropserState.BeginNewBallot, decreeContent1);
                 Assert.AreEqual(propose.LastVoteMessages.Count, 0);
-                Assert.AreEqual(propose.VotedMessages.Count, 0);
+                Assert.AreEqual(propose.VotedMessages.Count, 1);
 
+                propose.PrepareNewBallot(propose.OngoingDecree);
+                VerifyPropose(propose, 5, PropserState.QueryLastVote, decreeContent1);
 
             }
 
@@ -939,18 +944,17 @@ namespace Paxos.Tests
                 proposerNote.Clear();
                 proposeManager.Reset();
                 var propose = proposeManager.AddPropose(1, (ulong)cluster.Members.Count);
-                propose.State = PropserState.QueryLastVote;
                 string decreeContent1 = "test0";
                 string decreeContent = "test1";
+                propose.PrepareNewBallot(new PaxosDecree()
+                {
+                    Content = decreeContent
+                });
                 var proposer = new ProposerRole(
                     cluster.Members[0], cluster, rpcClient,
                     proposerNote,
                     proposeManager);
                 propose.LastTriedBallot = 3; // decreeNo, ballotNo
-                propose.OngoingDecree = new PaxosDecree()
-                {
-                    Content = decreeContent
-                };
 
                 LastVoteMessage lastVoteMessage = null;
                 // build last vote messages
@@ -979,7 +983,7 @@ namespace Paxos.Tests
                     0/*votedBallotNo*/,
                     null);
                 await proposer.DeliverLastVoteMessage(lastVoteMessage);
-                Assert.AreEqual(propose.LastVoteMessages.Count, 3); // lastvote is abandonded
+                Assert.AreEqual(propose.LastVoteMessages.Count, 0); // lastvote is abandonded
 
                 var voteMsg = CreateVoteMessage(
                     cluster.Members[1].Name, cluster.Members[0].Name,
