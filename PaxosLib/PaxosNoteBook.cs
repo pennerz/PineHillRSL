@@ -145,12 +145,11 @@ namespace Paxos.Notebook
         }
     }
 
-    public enum PropserState
+    public enum ProposeState
     {
         Init,               // init
         QueryLastVote,      // query exiting vote
         BeginNewBallot,     // prepare commit
-        BeginCommit,        // commit
         Commited            // done
     }
 
@@ -190,11 +189,11 @@ namespace Paxos.Notebook
         private ulong _lastTriedBallotNo = 0;
         private PaxosDecree _decree = null;
         private PaxosDecree _originalDecree = null;
+        private ProposeState _state = ProposeState.Init;
 
         public Propose(ulong clusterSize)
         {
             _clusterSize = clusterSize;
-            State = PropserState.Init;
         }
 
         public async Task<AutoLock> AcquireLock()
@@ -223,7 +222,7 @@ namespace Paxos.Notebook
                 _lastVoteMessages.Clear();
                 _voteMessages.Clear();
                 _staleMessage.Clear();
-                State = PropserState.QueryLastVote;
+                _state = ProposeState.QueryLastVote;
                 return _lastTriedBallotNo;
             }
         }
@@ -269,7 +268,7 @@ namespace Paxos.Notebook
                 {
                     _decree = maxVoteMsg.VoteDecree;
                 }
-                State = PropserState.BeginNewBallot;
+                _state = ProposeState.BeginNewBallot;
 
                 _lastVoteMessages.Clear();
 
@@ -292,14 +291,14 @@ namespace Paxos.Notebook
             }
         }
 
-        public bool BeginCommit(ulong ballotNo)
+        public bool Commit(ulong ballotNo)
         {
             lock (_subscribedCompletionSource)
             {
                 /*
                  * commit can start from querylastvote directly because
                  * a lastvote message returned indicate the decree committed
-                if (State != PropserState.BeginNewBallot)
+                if (State != ProposeState.BeginNewBallot)
                 {
                     return false;
                 }*/
@@ -310,7 +309,12 @@ namespace Paxos.Notebook
                     return false;
                 }
 
-                State = PropserState.BeginCommit;
+                if (!IsReadyToCommit())
+                {
+                    return false;
+                }
+
+                _state = ProposeState.Commited;
                 return true;
             }
         }
@@ -333,7 +337,7 @@ namespace Paxos.Notebook
             {
                 switch (State)
                 {
-                    case PropserState.QueryLastVote:
+                    case ProposeState.QueryLastVote:
                         foreach (var lastVote in _lastVoteMessages)
                         {
                             if (lastVote.Commited)
@@ -355,7 +359,7 @@ namespace Paxos.Notebook
                         {
                             return NextAction.CollectLastVote;
                         }
-                    case PropserState.BeginNewBallot:
+                    case ProposeState.BeginNewBallot:
                         foreach (var lastVote in _lastVoteMessages)
                         {
                             if (lastVote.Commited)
@@ -408,21 +412,8 @@ namespace Paxos.Notebook
         {
             lock (_subscribedCompletionSource)
             {
-                // decree already committed in other nodes
-                if (State == PropserState.QueryLastVote ||
-                    State == PropserState.BeginNewBallot)
-                {
-                    foreach (var lastVote in _lastVoteMessages)
-                    {
-                        if (lastVote.Commited)
-                        {
-                            return lastVote.VoteDecree;
-                        }
-                    }
-                }
-
                 // already committed
-                if (State == PropserState.Commited || State == PropserState.BeginCommit)
+                if (State == ProposeState.Commited)
                 {
                     return _decree;
                 }
@@ -432,7 +423,7 @@ namespace Paxos.Notebook
         }
 
         // propose data
-        public PropserState State { get; set; }
+        public ProposeState State => _state;
 
         public ulong LastTriedBallot { set { _lastTriedBallotNo = value; } get { return _lastTriedBallotNo; } }
 
@@ -474,6 +465,33 @@ namespace Paxos.Notebook
                 return maxVoteMsg;
             }
             return null;
+        }
+        private bool IsReadyToCommit()
+        {
+            lock (_subscribedCompletionSource)
+            {
+                // decree already committed in other nodes
+                if (State == ProposeState.QueryLastVote ||
+                    State == ProposeState.BeginNewBallot)
+                {
+                    foreach (var lastVote in _lastVoteMessages)
+                    {
+                        if (lastVote.Commited)
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                // ready to commit
+                if (State == ProposeState.BeginNewBallot && _voteMessages.Count >= (int)_clusterSize / 2 + 1)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+
         }
 
     };

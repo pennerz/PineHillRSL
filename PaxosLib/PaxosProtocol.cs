@@ -420,8 +420,8 @@ namespace Paxos.Protocol
             {
                 return false;
             }
-            if (result.OngoingPropose.State == PropserState.QueryLastVote ||
-                result.OngoingPropose.State == PropserState.BeginNewBallot)
+            if (result.OngoingPropose.State == ProposeState.QueryLastVote ||
+                result.OngoingPropose.State == ProposeState.BeginNewBallot)
             {
                 var lastVoteResult = new ProposePhaseResult()
                 { DecreeNo = msg.DecreeNo, OngoingPropose = _proposeManager.GetOngoingPropose(msg.DecreeNo) };
@@ -589,7 +589,7 @@ namespace Paxos.Protocol
 
             using (var autoLock = await propose.AcquireLock())
             {
-                if (!propose.BeginCommit(ballotNo))
+                if (!propose.Commit(ballotNo))
                 {
                     // others may commit a new one with a different ballotNo
                     return null;
@@ -597,7 +597,6 @@ namespace Paxos.Protocol
 
                 var committedDecree = propose.GetCommittedDecree();
                 await _proposerNote.CommitDecree(decreeNo, committedDecree);
-                propose.State = PropserState.Commited;
 
                 return propose; // committed propose
             }
@@ -617,7 +616,7 @@ namespace Paxos.Protocol
             ulong nextBallotNo = 0;
             using (var autoLock = await propose.AcquireLock())
             {
-                if (propose.State != PropserState.QueryLastVote && propose.State != PropserState.BeginNewBallot)
+                if (propose.State != ProposeState.QueryLastVote && propose.State != ProposeState.BeginNewBallot)
                 {
                     return new StateBallotMessageResult()
                     { NeedToCollectLastVote = false };
@@ -656,14 +655,14 @@ namespace Paxos.Protocol
                 // 1. decree passed, and begin to vote the ballot
                 // 2. decree committed
                 //
-                if (propose.State != PropserState.QueryLastVote &&
-                    propose.State != PropserState.BeginNewBallot)
+                if (propose.State != ProposeState.QueryLastVote &&
+                    propose.State != ProposeState.BeginNewBallot)
                 {
                     return new LastVoteMessageResult()
                     { Action = LastVoteMessageResult.ResultAction.None };
                 }
 
-                if (propose.State == PropserState.BeginNewBallot && !msg.Commited)
+                if (propose.State == ProposeState.BeginNewBallot && !msg.Commited)
                 {
                     // voter may find the decree committed by others
                     // it will responed this beginnewballot with a
@@ -684,11 +683,10 @@ namespace Paxos.Protocol
                 ulong lstVoteMsgCount = propose.AddLastVoteMessage(msg);
                 if (msg.Commited)
                 {
-                    if (propose.BeginCommit(msg.BallotNo))
+                    if (propose.Commit(msg.BallotNo))
                     {
                         var committedDecree = propose.GetCommittedDecree();
                         await _proposerNote.CommitDecree(msg.DecreeNo, committedDecree);
-                        propose.State = PropserState.Commited;
                     }
                     else
                     {
@@ -732,7 +730,7 @@ namespace Paxos.Protocol
             }
             using (var autoLock = await propose.AcquireLock())
             {
-                if (propose.State != PropserState.BeginNewBallot)
+                if (propose.State != ProposeState.BeginNewBallot)
                 {
                     return new VoteMessageResult()
                     { Action = VoteMessageResult.ResultAction.None };

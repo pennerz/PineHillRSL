@@ -463,7 +463,7 @@ namespace Paxos.Tests
 
                     var returnedLastVote = propose.LastVoteMessages[i-1];
                     VerifyLastVoteMessage(returnedLastVote, 1/*decreeNo*/, 2/*ballotNo*/, 0/*votedBallotNo*/, null/*votedContent*/);
-                    VerifyPropose(propose, 2/*lastTriedBallot*/, PropserState.QueryLastVote, decreeContent);
+                    VerifyPropose(propose, 2/*lastTriedBallot*/, ProposeState.QueryLastVote, decreeContent);
                     Assert.IsTrue(proposerNote.GetCommittedDecreeCount() == 0);
                 }
                 var collectLastVoteResult = await collectLastVoteTask;
@@ -553,11 +553,11 @@ namespace Paxos.Tests
 
                     if (i <=2)
                     {
-                        VerifyPropose(propose, 4/*lastTriedBallot*/, PropserState.QueryLastVote, decreeContent);
+                        VerifyPropose(propose, 4/*lastTriedBallot*/, ProposeState.QueryLastVote, decreeContent);
                     }
                     else
                     {
-                        VerifyPropose(propose, 4/*lastTriedBallot*/, PropserState.QueryLastVote, decreeContent1);
+                        VerifyPropose(propose, 4/*lastTriedBallot*/, ProposeState.QueryLastVote, decreeContent1);
                     }
                     Assert.IsTrue(proposerNote.GetCommittedDecreeCount() == 0);
                 }
@@ -624,7 +624,7 @@ namespace Paxos.Tests
                          //   VerifyLastVoteMessage(returnedLastVote, 1/*decreeNo*/, 4/*ballotNo*/, 0/*votedBallotNo*/, null/*votedContent*/);
                        // }
 
-                        VerifyPropose(propose, 4/*lastTriedBallot*/, PropserState.Commited, decreeContent1);
+                        VerifyPropose(propose, 4/*lastTriedBallot*/, ProposeState.Commited, decreeContent1);
 
                         Assert.IsTrue(proposerNote.GetCommittedDecreeCount() == 1);
                     }
@@ -637,7 +637,7 @@ namespace Paxos.Tests
 
                         VerifyLastVoteMessage(returnedLastVote, 1/*decreeNo*/, 4/*ballotNo*/, 0/*votedBallotNo*/, null/*votedContent*/);
 
-                        VerifyPropose(propose, 4/*lastTriedBallot*/, PropserState.QueryLastVote, decreeContent);
+                        VerifyPropose(propose, 4/*lastTriedBallot*/, ProposeState.QueryLastVote, decreeContent);
 
                         Assert.IsTrue(proposerNote.GetCommittedDecreeCount() == 0);
                     }
@@ -712,7 +712,7 @@ namespace Paxos.Tests
 
                     VerifyLastVoteMessage(returnedLastVote, 1/*decreeNo*/, 4/*ballotNo*/, 2/*votedBallotNo*/, decreeContent1/*votedContent*/);
 
-                    VerifyPropose(propose, 4/*lastTriedBallot*/, PropserState.QueryLastVote, decreeContent1);
+                    VerifyPropose(propose, 4/*lastTriedBallot*/, ProposeState.QueryLastVote, decreeContent1);
                     Assert.IsTrue(proposerNote.GetCommittedDecreeCount() == 0);
                 }
                 var collectLastVoteResult = await collectLastVoteTask;
@@ -765,7 +765,7 @@ namespace Paxos.Tests
                 await proposer.DeliverVoteMessage(votemsg);
                 // nothing changed
                 Assert.AreEqual(propose.VotedMessages.Count, 0);
-                Assert.AreEqual(propose.State, PropserState.QueryLastVote);
+                Assert.AreEqual(propose.State, ProposeState.QueryLastVote);
 
                 proposeManager.Reset();
             }
@@ -923,12 +923,12 @@ namespace Paxos.Tests
                 var beginBallotResult = await beginBallotTask;
                 var nextAction = await beginBallotResult.OngoingPropose.GetNextAction();
                 Assert.AreEqual(nextAction, Propose.NextAction.CollectLastVote);
-                VerifyPropose(propose, 3, PropserState.BeginNewBallot, decreeContent1);
+                VerifyPropose(propose, 3, ProposeState.BeginNewBallot, decreeContent1);
                 Assert.AreEqual(propose.LastVoteMessages.Count, 0);
                 Assert.AreEqual(propose.VotedMessages.Count, 1);
 
                 propose.PrepareNewBallot(propose.Decree);
-                VerifyPropose(propose, 5, PropserState.QueryLastVote, decreeContent1);
+                VerifyPropose(propose, 5, ProposeState.QueryLastVote, decreeContent1);
 
             }
 
@@ -1045,7 +1045,7 @@ namespace Paxos.Tests
             }
         }
 
-        private void VerifyPropose(Propose propose, ulong lastTriedBallot, PropserState state, string decreeContent)
+        private void VerifyPropose(Propose propose, ulong lastTriedBallot, ProposeState state, string decreeContent)
         {
             Assert.AreEqual(propose.LastTriedBallot, lastTriedBallot);
             // ongoing decree is decreeContent
