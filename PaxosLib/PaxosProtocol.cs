@@ -118,14 +118,14 @@ namespace Paxos.Protocol
 
                 // udpate next ballot no
                 var result = await _note.UpdateNextBallotNo(msg.DecreeNo, msg.BallotNo);
-                var oldBallotNo = result.Item1;
+                var oldNextBallotNo = result.Item1;
                 var lastVote = result.Item2;
-                if (oldBallotNo >= msg.BallotNo)
+                if (oldNextBallotNo >= msg.BallotNo)
                 {
                     // do not response the ballotNo < current nextBallotNo
                     return new StaleBallotMessage()
                     {
-                        NextBallotNo = oldBallotNo,
+                        NextBallotNo = oldNextBallotNo,
                         TargetNode = msg.SourceNode,
                         BallotNo = msg.BallotNo,
                         DecreeNo = msg.DecreeNo
@@ -146,8 +146,8 @@ namespace Paxos.Protocol
                     TargetNode = msg.SourceNode,
                     BallotNo = msg.BallotNo,
                     DecreeNo = msg.DecreeNo,
-                    VoteBallotNo = lastVote != null ? lastVote.BallotNo : 0,
-                    VoteDecree = lastVote?.VoteDecree
+                    VoteBallotNo = lastVote != null ? lastVote.VotedBallotNo : 0,
+                    VoteDecree = lastVote?.VotedDecree
                 };
             }
         }
@@ -195,12 +195,11 @@ namespace Paxos.Protocol
                 {
                     TargetNode = msg.SourceNode,
                     DecreeNo = msg.DecreeNo,
-                    BallotNo = msg.BallotNo,
-                    VoteDecree = msg.Decree
+                    BallotNo = msg.BallotNo
                 };
 
                 // save last vote
-                oldNextBallotNo = await _note.UpdateLastVote(msg.DecreeNo, msg.BallotNo, voteMsg);
+                oldNextBallotNo = await _note.UpdateLastVote(msg.DecreeNo, msg.BallotNo, msg.Decree);
 
                 return voteMsg;
             }
@@ -372,9 +371,9 @@ namespace Paxos.Protocol
                 }
                 else if (nextAction == Notebook.Propose.NextAction.Commit)
                 {
-                    var commitDecree = propose.GetCommittedDecree();
-                    await CommitPropose(lastVoteResult.DecreeNo, nextBallotNo, commitDecree);
-                    await NotifyLearnersResult(lastVoteResult.DecreeNo, nextBallotNo, commitDecree);
+                    await CommitPropose(lastVoteResult.DecreeNo, nextBallotNo);
+                    var committedDecree = propose.GetCommittedDecree();
+                    await NotifyLearnersResult(lastVoteResult.DecreeNo, nextBallotNo, committedDecree);
                     _proposeManager.RemovePropose(nextDecreeNo);
                     if (decreeNo == 0)
                     {
@@ -384,7 +383,7 @@ namespace Paxos.Protocol
                     }
                     return new ProposeResult()
                     {
-                        Decree = commitDecree,
+                        Decree = committedDecree,
                         DecreeNo = lastVoteResult.DecreeNo
                     };
                 }
@@ -400,14 +399,14 @@ namespace Paxos.Protocol
                 }
                 else if (nextAction == Notebook.Propose.NextAction.Commit)
                 {
-                    var commitDecree = propose.GetCommittedDecree();
-                    await CommitPropose(lastVoteResult.DecreeNo, nextBallotNo, commitDecree);
-                    await NotifyLearnersResult(lastVoteResult.DecreeNo, nextBallotNo, commitDecree);
+                    await CommitPropose(lastVoteResult.DecreeNo, nextBallotNo);
+                    var committedDecree = propose.GetCommittedDecree();
+                    await NotifyLearnersResult(lastVoteResult.DecreeNo, nextBallotNo, committedDecree);
 
                     _proposeManager.RemovePropose(nextDecreeNo);
                     return new ProposeResult()
                     {
-                        Decree = commitDecree,
+                        Decree = committedDecree,
                         DecreeNo = lastVoteResult.DecreeNo
                     };
                 }
@@ -579,7 +578,7 @@ namespace Paxos.Protocol
             return await completionSource.Task;
         }
 
-        public async Task<Propose> CommitPropose(ulong decreeNo, ulong ballotNo, PaxosDecree committedDecree)
+        public async Task<Propose> CommitPropose(ulong decreeNo, ulong ballotNo)
         {
             var propose = _proposeManager.GetOngoingPropose(decreeNo);
             if (propose == null)
@@ -590,12 +589,13 @@ namespace Paxos.Protocol
 
             using (var autoLock = await propose.AcquireLock())
             {
-                if (!propose.BeginCommit(ballotNo, committedDecree))
+                if (!propose.BeginCommit(ballotNo))
                 {
                     // others may commit a new one with a different ballotNo
                     return null;
                 }
 
+                var committedDecree = propose.GetCommittedDecree();
                 await _proposerNote.CommitDecree(decreeNo, committedDecree);
                 propose.State = PropserState.Commited;
 
@@ -684,11 +684,10 @@ namespace Paxos.Protocol
                 ulong lstVoteMsgCount = propose.AddLastVoteMessage(msg);
                 if (msg.Commited)
                 {
-                    var commitDecree = propose.GetCommittedDecree();
-
-                    if (propose.BeginCommit(msg.BallotNo, commitDecree))
+                    if (propose.BeginCommit(msg.BallotNo))
                     {
-                        await _proposerNote.CommitDecree(msg.DecreeNo, commitDecree);
+                        var committedDecree = propose.GetCommittedDecree();
+                        await _proposerNote.CommitDecree(msg.DecreeNo, committedDecree);
                         propose.State = PropserState.Commited;
                     }
                     else

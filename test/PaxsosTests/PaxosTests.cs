@@ -217,12 +217,10 @@ namespace Paxos.Tests
                 var voteMsg = new VoteMessage();
                 voteMsg.DecreeNo = 1;
                 voteMsg.BallotNo = 2;
-                voteMsg.VoteDecree = new PaxosDecree()
-                { Content = voteContent };
                 voteMsg.SourceNode = sourceNode;
                 voteMsg.TargetNode = targetNode;
-
-                await voterNote.UpdateLastVote(1, 2, voteMsg);
+                await voterNote.UpdateLastVote(1, 2,
+                    new PaxosDecree(){ Content = voteContent });
 
                 nextBallotMsg.BallotNo = 3;
                 await voter.DeliverNextBallotMessage(nextBallotMsg);
@@ -237,7 +235,7 @@ namespace Paxos.Tests
                 msgList.Clear();
 
                 //1.5 decree has been committed in ledger
-                await proposerNote.CommitDecree(1, voteMsg.VoteDecree);
+                await proposerNote.CommitDecree(1, lastVoteMsg.VoteDecree);
                 nextBallotMsg.BallotNo = 2; // do not care about the ballot no for committed decree
 
                 await voter.DeliverNextBallotMessage(nextBallotMsg);
@@ -305,13 +303,11 @@ namespace Paxos.Tests
                 Assert.IsNotNull(voteMsg);
                 Assert.AreEqual(voteMsg.DecreeNo, (ulong)1);
                 Assert.AreEqual(voteMsg.BallotNo, (ulong)2);
-                Assert.IsNotNull(voteMsg.VoteDecree);
-                Assert.AreEqual(voteMsg.VoteDecree.Content, voteContent);
 
                 msgList.Clear();
 
                 // 2.3 Decree committed, return a lastvotemsg, indicate the decree committed
-                await proposerNote.CommitDecree(beginBallotMsg.DecreeNo, voteMsg.VoteDecree);
+                await proposerNote.CommitDecree(beginBallotMsg.DecreeNo, beginBallotMsg.Decree);
                 beginBallotMsg.BallotNo = 3;
                 await voter.DeliverBeginBallotMessage(beginBallotMsg);    // vote
                 Assert.AreEqual(msgList.Count, 1);
@@ -650,7 +646,7 @@ namespace Paxos.Tests
                 var nextAction = await collectLastVoteResult.OngoingPropose.GetNextAction();
                 Assert.AreEqual(nextAction, Propose.NextAction.None);
                 Assert.IsTrue(collectLastVoteResult.IsCommitted);
-                Assert.AreEqual(collectLastVoteResult.OngoingPropose.OngoingDecree.Content, decreeContent1);
+                Assert.AreEqual(collectLastVoteResult.OngoingPropose.GetCommittedDecree().Content, decreeContent1);
 
                 proposeManager.Reset();
             }
@@ -765,8 +761,7 @@ namespace Paxos.Tests
                 // vote will not be accept at this state
                 var votemsg = CreateVoteMessage(
                     cluster.Members[1].Name, cluster.Members[0].Name,
-                    1/*decreeNo*/, 4/*ballotNo*/,
-                    decreeContent);
+                    1/*decreeNo*/, 4/*ballotNo*/);
                 await proposer.DeliverVoteMessage(votemsg);
                 // nothing changed
                 Assert.AreEqual(propose.VotedMessages.Count, 0);
@@ -846,8 +841,7 @@ namespace Paxos.Tests
                 {
                     var voteMsg = CreateVoteMessage(
                         cluster.Members[i].Name, cluster.Members[0].Name,
-                        1/*decreeNo*/, 3/*ballotNo*/,
-                        decreeContent1);
+                        1/*decreeNo*/, 3/*ballotNo*/);
                     await proposer.DeliverVoteMessage(voteMsg);
                     Assert.AreEqual(propose.VotedMessages.Count, i);
                     if (i < 3)
@@ -863,7 +857,7 @@ namespace Paxos.Tests
                 var nextAction = await beginBallotResult.OngoingPropose.GetNextAction();
 
                 Assert.AreEqual(nextAction, Propose.NextAction.Commit);
-                Assert.AreEqual(propose.OngoingDecree.Content, decreeContent1);
+                Assert.AreEqual(propose.Decree.Content, decreeContent1);
             }
 
             // staleballotmessage will reset the state to query last vote
@@ -919,8 +913,7 @@ namespace Paxos.Tests
                     }
                     var voteMsg = CreateVoteMessage(
                         cluster.Members[i].Name, cluster.Members[0].Name,
-                        1/*decreeNo*/, 3/*ballotNo*/,
-                        decreeContent1);
+                        1/*decreeNo*/, 3/*ballotNo*/);
                     await proposer.DeliverVoteMessage(voteMsg);
                     Assert.AreEqual(propose.VotedMessages.Count, i);
                     Assert.IsFalse(beginBallotTask.IsCompleted);
@@ -934,7 +927,7 @@ namespace Paxos.Tests
                 Assert.AreEqual(propose.LastVoteMessages.Count, 0);
                 Assert.AreEqual(propose.VotedMessages.Count, 1);
 
-                propose.PrepareNewBallot(propose.OngoingDecree);
+                propose.PrepareNewBallot(propose.Decree);
                 VerifyPropose(propose, 5, PropserState.QueryLastVote, decreeContent1);
 
             }
@@ -987,8 +980,7 @@ namespace Paxos.Tests
 
                 var voteMsg = CreateVoteMessage(
                     cluster.Members[1].Name, cluster.Members[0].Name,
-                    1/*decreeNo*/, 2/*ballotNo*/,
-                    decreeContent1);
+                    1/*decreeNo*/, 2/*ballotNo*/);
                 await proposer.DeliverVoteMessage(voteMsg);
                 Assert.AreEqual(propose.VotedMessages.Count, 0);
             }
@@ -1015,16 +1007,14 @@ namespace Paxos.Tests
 
         }
 
-        private VoteMessage CreateVoteMessage(string srcNode, string targetNode, ulong decreeNo, ulong ballotNo, string votedDecree)
+        private VoteMessage CreateVoteMessage(string srcNode, string targetNode, ulong decreeNo, ulong ballotNo)
         {
             return new VoteMessage()
             {
                 DecreeNo = decreeNo,
                 BallotNo = ballotNo,
                 SourceNode = srcNode,
-                TargetNode = targetNode,
-                VoteDecree = new PaxosDecree()
-                { Content = votedDecree }
+                TargetNode = targetNode
             };
         }
         private StaleBallotMessage CreateStaleMessage(string srcNode, string targetNode, ulong decreeNo, ulong ballotNo, ulong nextBallotNo)
@@ -1059,7 +1049,7 @@ namespace Paxos.Tests
         {
             Assert.AreEqual(propose.LastTriedBallot, lastTriedBallot);
             // ongoing decree is decreeContent
-            Assert.AreEqual(propose.OngoingDecree.Content, decreeContent);
+            Assert.AreEqual(propose.Decree.Content, decreeContent);
             Assert.AreEqual(propose.State, state);
 
         }

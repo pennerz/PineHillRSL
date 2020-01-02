@@ -71,7 +71,6 @@ namespace Paxos.Message
         {
             MessageType = PaxosMessageType.VOTE;
         }
-        public PaxosDecree VoteDecree { get; set; }
     }
 
     [Serializable()]
