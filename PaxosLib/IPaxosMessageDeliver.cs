@@ -9,7 +9,7 @@ namespace Paxos.Message
     /// <summary>
     /// Paxos message deliver interface
     /// </summary>
-    public interface IMessageDeliver
+    public interface IMessageDeliver : IDisposable
     {
         ///
         /// Following are messages channel, should be moved out of the node interface

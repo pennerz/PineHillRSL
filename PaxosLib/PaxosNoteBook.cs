@@ -41,7 +41,7 @@ namespace Paxos.Notebook
         public VoteInfo Vote{ get; set; }
     }
 
-    public class VoterNote
+    public class VoterNote : IDisposable
     {
         // persistent module
         private readonly IPaxosVotedBallotLog _logger;
@@ -51,6 +51,20 @@ namespace Paxos.Notebook
         public VoterNote(IPaxosVotedBallotLog logger)
         {
             _logger = logger;
+        }
+
+        public virtual void Dispose()
+        { }
+
+        public async Task Load()
+        {
+            var it = await _logger.Begin();
+            var itEnd = await _logger.End();
+            for (; !it.Equals(itEnd); it = await it.Next())
+            {
+                _ballotInfo.AddOrUpdate(it.VotedBallot.Item1, it.VotedBallot.Item2,
+                    (key, oldValue) => it.VotedBallot.Item2);
+            }
         }
 
         public ulong GetNextBallotNo(ulong decreeNo)
@@ -496,7 +510,7 @@ namespace Paxos.Notebook
 
     };
 
-    public class ProposeManager
+    public class ProposeManager : IDisposable
     {
         private int _nextDecreeNo = 0;
         private ConcurrentDictionary<ulong, Propose> _ongoingProposes = new ConcurrentDictionary<ulong, Propose>();
@@ -504,6 +518,11 @@ namespace Paxos.Notebook
         public ProposeManager(ulong baseDecreeNo)
         {
             _nextDecreeNo = (int)baseDecreeNo;
+        }
+
+        public virtual void Dispose()
+        {
+
         }
 
         public ulong GetNextDecreeNo()
@@ -548,7 +567,7 @@ namespace Paxos.Notebook
         }
     }
 
-    public class ProposerNote
+    public class ProposerNote : IDisposable
     {
         // proposer role
         //private ConcurrentDictionary<ulong, Propose> _decreeState = new ConcurrentDictionary<ulong, Propose>();
@@ -563,6 +582,21 @@ namespace Paxos.Notebook
                 throw new ArgumentNullException("IPaxosCommitedDecreeLogger");
             }
             _logger = logger;
+        }
+
+        public virtual void Dispose()
+        { }
+
+        public async Task Load()
+        {
+            var it = await _logger.Begin();
+            var itEnd = await _logger.End();
+            for (; !it.Equals(itEnd); it = await it.Next())
+            {
+                _committedDecrees.AddOrUpdate(it.DecreeNo, it.Decree,
+                    (key, oldValue) => it.Decree);
+            }
+
         }
 
         /*

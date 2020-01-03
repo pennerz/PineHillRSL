@@ -10,21 +10,25 @@ using System.Threading.Tasks;
 
 namespace Paxos.Node
 {
-    public class PaxosNode
+    public class PaxosNode : IDisposable
     {
-        private readonly VoterRole _voterRole;
-        private readonly ProposerRole _proposerRole;
+        private VoterRole _voterRole;
+        private ProposerRole _proposerRole;
 
         private readonly PaxosCluster _cluster;
         private readonly NodeInfo _nodeInfo;
 
-        private readonly PaxosNodeMessageDeliver _messager;
+        private PaxosNodeMessageDeliver _messager;
 
-        //private readonly Task _messageHandlerTask;
-
-        //private NetworkServer _networkSever;
         private RpcClient _rpcClient;
         private RpcServer _rpcServer;
+
+        private FilePaxosCommitedDecreeLog _proposeLogger;
+        private FilePaxosVotedBallotLog _voterLogger;
+
+        private VoterNote _voterNote;
+        private ProposerNote _proposerNote;
+        private ProposeManager _proposeManager;
 
 
         public PaxosNode(
@@ -64,25 +68,58 @@ namespace Paxos.Node
             _rpcServer = new RpcServer(serverAddr);
 
 
-            var ledgerLogger = new FilePaxosCommitedDecreeLog(".\\loegger" + _nodeInfo.Name + ".log");
-            //var ledger = new Ledger(ledgerLogger);
+            _proposeLogger = new FilePaxosCommitedDecreeLog(".\\loegger" + _nodeInfo.Name + ".log");
+            _voterLogger = new FilePaxosVotedBallotLog(".\\votedlogger_" + _nodeInfo.Name + ".log");
+            _voterNote = new VoterNote(_voterLogger);
+            _proposerNote = new ProposerNote(_proposeLogger);
+            _proposeManager = new ProposeManager(_proposerNote.GetMaximumCommittedDecreeNo());
 
-            var votedLogger = new FilePaxosVotedBallotLog(".\\votedlogger_" + _nodeInfo.Name + ".log");
-            var voterNote = new VoterNote(votedLogger);
-            var proposerNote = new ProposerNote(ledgerLogger);
-            var proposeManager = new ProposeManager(proposerNote.GetMaximumCommittedDecreeNo());
-
-            _voterRole = new VoterRole(_nodeInfo, _cluster, _rpcClient, voterNote, proposerNote);
+            _voterRole = new VoterRole(_nodeInfo, _cluster, _rpcClient, _voterNote, _proposerNote);
             _proposerRole = new ProposerRole(
-                _nodeInfo, _cluster, _rpcClient, proposerNote, proposeManager);
+                _nodeInfo, _cluster, _rpcClient, _proposerNote, _proposeManager);
+
+            _messager = new PaxosNodeMessageDeliver(_proposerRole, _voterRole);
+            var rpcRequestHandler = new PaxosMessageHandler(_messager, null);
+            _rpcServer.RegisterRequestHandler(rpcRequestHandler);
+            var taask = _rpcServer.Start();
+        }
+
+        public void Dispose()
+        {
+            _messager?.Dispose();
+            _voterRole?.Dispose();
+            _proposerRole?.Dispose();
+            _proposeManager?.Dispose();
+            _voterNote?.Dispose();
+            _proposerNote?.Dispose();
+            _proposeLogger?.Dispose();
+            _voterLogger?.Dispose();
+        }
+
+        public async Task Load(string proposerLog, string voterLog)
+        {
+            Dispose();
+
+            _proposeLogger = new FilePaxosCommitedDecreeLog(proposerLog);
+            _voterLogger = new FilePaxosVotedBallotLog(voterLog);
+
+            _voterNote = new VoterNote(_voterLogger);
+            await _voterNote.Load();
+
+            _proposerNote = new ProposerNote(_proposeLogger);
+            await _proposerNote.Load();
+
+            _proposeManager = new ProposeManager(_proposerNote.GetMaximumCommittedDecreeNo());
+
+            _voterRole = new VoterRole(_nodeInfo, _cluster, _rpcClient, _voterNote, _proposerNote);
+            _proposerRole = new ProposerRole(
+                _nodeInfo, _cluster, _rpcClient, _proposerNote, _proposeManager);
 
             _messager = new PaxosNodeMessageDeliver(_proposerRole, _voterRole);
             var rpcRequestHandler = new PaxosMessageHandler(_messager, null);
             _rpcServer.RegisterRequestHandler(rpcRequestHandler);
             var taask = _rpcServer.Start();
 
-            //_networkSever = networkServer;
-            //_networkSever.RegisterRequestHandler(rpcRequestHandler);
         }
 
         public Task<ProposeResult> ProposeDecree(PaxosDecree decree, ulong decreeNo)

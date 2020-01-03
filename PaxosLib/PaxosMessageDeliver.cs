@@ -27,6 +27,11 @@ namespace Paxos.Message
             _voterRole = voterRole;
         }
 
+        public virtual void Dispose()
+        {
+
+        }
+
         ///
         /// Following are messages channel, should be moved out of the node interface
         ///

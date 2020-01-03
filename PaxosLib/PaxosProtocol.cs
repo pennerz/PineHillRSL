@@ -44,7 +44,7 @@ namespace Paxos.Protocol
     /// CommitDecree            Save the decree
     /// </summary>
     ///
-    public class VoterRole
+    public class VoterRole : IDisposable
     {
         private readonly RpcClient _rpcClient;
 
@@ -71,6 +71,11 @@ namespace Paxos.Protocol
             _rpcClient = rpcClient;
             _note = voterNote;
             _ledger = ledger;
+        }
+
+        public virtual void Dispose()
+        {
+
         }
 
         public async Task DeliverNextBallotMessage(NextBallotMessage msg)
@@ -242,7 +247,7 @@ namespace Paxos.Protocol
     ///     
     /// </summary>
 
-    public class ProposerRole
+    public class ProposerRole : IDisposable
     {
         private class LastVoteMessageResult
         {
@@ -293,6 +298,9 @@ namespace Paxos.Protocol
             _proposeManager = proposerManager;
             Stop = false;
         }
+
+        public virtual void Dispose()
+        { }
 
         public bool Stop { get; set; }
 

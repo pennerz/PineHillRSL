@@ -10,6 +10,7 @@ using Paxos.Rpc;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -94,6 +95,81 @@ namespace Paxos.Tests
             Assert.IsTrue(readReslut.IsFound);
             Assert.IsTrue(readReslut.Decree.Content.Equals("test3"));
             Assert.IsTrue(readReslut.MaxDecreeNo == 3);
+
+            foreach(var node in nodeMap)
+            {
+                node.Value.Dispose();
+            }
+        }
+
+        [TestMethod()]
+        public async Task PaxosNodeBootstrapTest()
+        {
+            var cluster = new PaxosCluster();
+            for (int i = 0; i < 5; i++)
+            {
+                var node = new NodeInfo();
+                node.Name = "Node" + i.ToString();
+                cluster.Members.Add(node);
+
+                var proposerLogFile = ".\\loegger" + node.Name + ".log";
+                var votedLogFile = ".\\votedlogger_" + node.Name + ".log";
+                File.Delete(proposerLogFile);
+                File.Delete(votedLogFile);
+            }
+
+            await BeginNewProposeTest();
+            for (int i = 0; i < 5; i++)
+            {
+                var node = new NodeInfo();
+                node.Name = "Node" + i.ToString();
+                cluster.Members.Add(node);
+            }
+
+            var networkInfr = new TestNetworkInfr();
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
+
+            var nodeMap = new Dictionary<string, PaxosNode>();
+            foreach (var nodeInfo in cluster.Members)
+            {
+                var node = new PaxosNode(cluster, nodeInfo);
+                nodeMap[nodeInfo.Name] = node;
+                var proposerLogFile = ".\\loegger" + nodeInfo.Name + ".log";
+                var votedLogFile = ".\\votedlogger_" + nodeInfo.Name + ".log";
+                await node.Load(proposerLogFile, votedLogFile);
+            }
+
+            var proposer = nodeMap[cluster.Members[0].Name];
+
+            var readReslut = await proposer.ReadDecree(1);
+            Assert.IsTrue(readReslut.IsFound);
+            Assert.IsTrue(readReslut.Decree.Content.Equals("test"));
+            Assert.IsTrue(readReslut.MaxDecreeNo == 3);
+
+            var proposer2 = nodeMap[cluster.Members[1].Name];
+
+            // this will get the committed decree in proposer1
+            readReslut = await proposer2.ReadDecree(1);
+            Assert.IsTrue(readReslut.IsFound);
+            Assert.IsTrue(readReslut.Decree.Content.Equals("test"));
+            Assert.IsTrue(readReslut.MaxDecreeNo == 3);
+
+            // proposer1 propose a new decree
+            readReslut = await proposer.ReadDecree(2);
+            Assert.IsTrue(readReslut.IsFound);
+            Assert.IsTrue(readReslut.Decree.Content.Equals("test2"));
+            Assert.IsTrue(readReslut.MaxDecreeNo == 3);
+
+            // proposer2 propose a new decree
+            readReslut = await proposer.ReadDecree(3);
+            Assert.IsTrue(readReslut.IsFound);
+            Assert.IsTrue(readReslut.Decree.Content.Equals("test3"));
+            Assert.IsTrue(readReslut.MaxDecreeNo == 3);
+
+            foreach (var node in nodeMap)
+            {
+                node.Value.Dispose();
+            }
         }
 
         [TestMethod()]
@@ -1017,6 +1093,7 @@ namespace Paxos.Tests
                 TargetNode = targetNode
             };
         }
+
         private StaleBallotMessage CreateStaleMessage(string srcNode, string targetNode, ulong decreeNo, ulong ballotNo, ulong nextBallotNo)
         {
             return new StaleBallotMessage()
