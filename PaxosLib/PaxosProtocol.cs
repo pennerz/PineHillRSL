@@ -14,7 +14,7 @@ using System.Linq;
 namespace Paxos.Protocol
 {
 
-    public interface IPaxos
+    public interface IPaxosNotification
     {
         Task UpdateSuccessfullDecree(UInt64 decreeNo, PaxosDecree decree);
         Task Checkpoint();
@@ -53,6 +53,7 @@ namespace Paxos.Protocol
         private readonly PaxosCluster _cluster;
         private readonly VoterNote _note;
         private readonly ProposerNote _ledger;
+        IPaxosNotification _notificationSubscriber;
 
         public VoterRole(
             NodeInfo nodeInfo,
@@ -79,6 +80,11 @@ namespace Paxos.Protocol
 
         }
 
+        public void SubscribeNotification(IPaxosNotification listener)
+        {
+            _notificationSubscriber = listener;
+        }
+
         public async Task DeliverNextBallotMessage(NextBallotMessage msg)
         {
             // process nextballotmessage
@@ -101,6 +107,9 @@ namespace Paxos.Protocol
         {
             // commit in logs
             await _ledger.CommitDecree(msg.DecreeNo, msg.Decree);
+
+            if (_notificationSubscriber != null)
+                await _notificationSubscriber.UpdateSuccessfullDecree(msg.DecreeNo, msg.Decree);
         }
 
         private async Task<PaxosMessage> ProcessNextBallotMessageInternal(NextBallotMessage msg)
@@ -280,6 +289,8 @@ namespace Paxos.Protocol
         private readonly ProposerNote _proposerNote;
         private readonly ProposeManager _proposeManager;
 
+        IPaxosNotification _notificationSubscriber;
+
         public ProposerRole(
             NodeInfo nodeInfo,
             PaxosCluster cluster,
@@ -302,6 +313,11 @@ namespace Paxos.Protocol
 
         public virtual void Dispose()
         { }
+
+        public void SubscribeNotification(IPaxosNotification listener)
+        {
+            _notificationSubscriber = listener;
+        }
 
         public bool Stop { get; set; }
 
@@ -358,8 +374,6 @@ namespace Paxos.Protocol
                     // already committed
                     if (decreeNo == 0)
                     {
-                        nextDecreeNo = _proposeManager.GetNextDecreeNo();
-                        _proposeManager.AddPropose(nextDecreeNo, (ulong)_cluster.Members.Count);
                         continue;
                     }
 
@@ -596,6 +610,9 @@ namespace Paxos.Protocol
             await NotifyLearnersResult(decreeNo, ballotNo, propose.GetCommittedDecree());
             _proposeManager.RemovePropose(decreeNo);
 
+            if (_notificationSubscriber != null)
+                await _notificationSubscriber?.UpdateSuccessfullDecree(decreeNo, propose.GetCommittedDecree());
+
             return propose;
         }
 
@@ -773,6 +790,7 @@ namespace Paxos.Protocol
         private async Task BroadcastQueryLastVote(UInt64 decreeNo, ulong nextBallotNo)
         {
             // 1. collect decree for this instance, send NextBallotMessage
+            var tasks = new List<Task>();
             foreach (var node in _cluster.Members)
             {
                 if (node.Name == _nodeInfo.Name)
@@ -784,12 +802,13 @@ namespace Paxos.Protocol
                 nextBallotMessage.DecreeNo = decreeNo;
                 nextBallotMessage.BallotNo = nextBallotNo;
 
-                await SendPaxosMessage(nextBallotMessage);
+                tasks.Add(SendPaxosMessage(nextBallotMessage));
             }
-
+            await Task.WhenAll(tasks);
         }
         private async Task BroadcastBeginNewBallot(UInt64 decreeNo, UInt64 ballotNo, PaxosDecree newBallotDecree)
         {
+            var tasks = new List<Task>();
             foreach (var node in _cluster.Members)
             {
                 if (node.Name == _nodeInfo.Name)
@@ -802,13 +821,14 @@ namespace Paxos.Protocol
                 beginBallotMessage.TargetNode = node.Name;
                 beginBallotMessage.Decree = newBallotDecree;
 
-                await SendPaxosMessage(beginBallotMessage);
+                tasks.Add(SendPaxosMessage(beginBallotMessage));
             }
+            await Task.WhenAll(tasks);
         }
 
         private async Task NotifyLearnersResult(ulong decreeNo, ulong ballotNo, PaxosDecree decree)
         {
-            var successfullMessageList = new List<SuccessMessage>();
+            var tasks = new List<Task>();
 
             foreach (var node in _cluster.Members)
             {
@@ -822,8 +842,9 @@ namespace Paxos.Protocol
                 successMessage.BallotNo = ballotNo;
                 successMessage.Decree = decree;
 
-                await SendPaxosMessage(successMessage);
+                tasks.Add(SendPaxosMessage(successMessage));
             }
+            await Task.WhenAll(tasks);
         }
 
         private async Task SendPaxosMessage(PaxosMessage paxosMessage)

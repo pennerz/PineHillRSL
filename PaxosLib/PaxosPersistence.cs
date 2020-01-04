@@ -183,7 +183,7 @@ namespace Paxos.Persistence
 
         public async Task AppendLog(ulong decreeNo, PaxosDecree decree)
         {
-            lock(_dataFilePath)
+            lock (_dataFilePath)
             {
                 if (_dataStream == null)
                 {

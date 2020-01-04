@@ -13,3 +13,8 @@
 /NetworkLib/bin/Debug/netcoreapp3.0
 /CommonLib/obj
 /CommonLib/bin/Debug/netcoreapp3.0
+/CommonLib/bin/Release/netcoreapp3.0
+/NetworkLib/bin/Release/netcoreapp3.0
+/PaxosLib/bin/Release/netcoreapp3.0
+/server/bin/Release/netcoreapp3.0
+/test/PaxsosTests/bin/Release/netcoreapp3.0

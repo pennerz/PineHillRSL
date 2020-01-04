@@ -7,6 +7,7 @@ using Paxos.Persistence;
 using Paxos.Node;
 using Paxos.Request;
 using Paxos.Rpc;
+using Paxos.ReplicatedTable;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -1059,6 +1060,263 @@ namespace Paxos.Tests
                     1/*decreeNo*/, 2/*ballotNo*/);
                 await proposer.DeliverVoteMessage(voteMsg);
                 Assert.AreEqual(propose.VotedMessages.Count, 0);
+            }
+        }
+
+        [TestMethod()]
+        public async Task StateMachineTest()
+        {
+            var cluster = new PaxosCluster();
+            for (int i = 0; i < 5; i++)
+            {
+                var node = new NodeInfo();
+                node.Name = "Node" + i.ToString();
+                cluster.Members.Add(node);
+            }
+
+            var networkInfr = new TestNetworkInfr();
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
+
+            var tableNodeMap = new Dictionary<string, ReplicatedTable.ReplicatedTable>();
+            foreach (var nodeInfo in cluster.Members)
+            {
+                var node = new ReplicatedTable.ReplicatedTable(cluster, nodeInfo);
+                tableNodeMap[nodeInfo.Name] = node;
+            }
+
+
+            var master = tableNodeMap[cluster.Members[0].Name];
+            await master.InstertTable(new ReplicatedTableRequest() { Key = "1", Value = "test1" });
+            await master.InstertTable(new ReplicatedTableRequest() { Key = "2", Value = "test2" });
+            await master.InstertTable(new ReplicatedTableRequest() { Key = "3", Value = "test3" });
+   
+            foreach (var node in tableNodeMap)
+            {
+                node.Value.Dispose();
+            }
+        }
+
+        [TestMethod()]
+        public async Task StateMachinePefTest()
+        {
+            Dictionary<string, string> _table = new Dictionary<string, string>();
+            var start = DateTime.Now;
+            for (int i = 0; i < 1000; i++)
+            {
+                var Key = i.ToString();
+                var Value = "test" + i.ToString();
+                if (_table.ContainsKey(Key))
+                {
+                    _table[Key] = Value;
+                }
+                else
+                {
+                    _table.Add(Key, Value);
+                }
+            }
+            var end = DateTime.Now;
+            var costTime = (end - start).TotalMilliseconds;
+
+            var cluster = new PaxosCluster();
+            for (int i = 0; i < 5; i++)
+            {
+                var node = new NodeInfo();
+                node.Name = "Node" + i.ToString();
+                cluster.Members.Add(node);
+            }
+
+            var networkInfr = new TestNetworkInfr();
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
+
+            var tableNodeMap = new Dictionary<string, ReplicatedTable.ReplicatedTable>();
+            foreach (var nodeInfo in cluster.Members)
+            {
+                var node = new ReplicatedTable.ReplicatedTable(cluster, nodeInfo);
+                tableNodeMap[nodeInfo.Name] = node;
+            }
+
+            start = DateTime.Now;
+
+            List<Task> taskList = new List<Task>();
+            var master = tableNodeMap[cluster.Members[0].Name];
+            for (int i = 0; i < 1000; i++)
+            {
+                var task =  master.InstertTable(new ReplicatedTableRequest() { Key = i.ToString(), Value = "test" + i.ToString() });
+                taskList.Add(task);
+            }
+            await Task.WhenAll(taskList);
+
+            end = DateTime.Now;
+
+            costTime = (end - start).TotalMilliseconds;
+            Console.WriteLine("TPS: {0}", 10000 * 1000 / costTime);
+
+            foreach (var node in tableNodeMap)
+            {
+                node.Value.Dispose();
+            }
+        }
+
+        [TestMethod()]
+        public async Task PaxosPefTest()
+        {
+            var cluster = new PaxosCluster();
+            for (int i = 0; i < 5; i++)
+            {
+                var node = new NodeInfo();
+                node.Name = "Node" + i.ToString();
+                cluster.Members.Add(node);
+            }
+
+            var networkInfr = new TestNetworkInfr();
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
+
+            var nodeMap = new Dictionary<string, PaxosNode>();
+            foreach (var nodeInfo in cluster.Members)
+            {
+                var node = new PaxosNode(cluster, nodeInfo);
+                nodeMap[nodeInfo.Name] = node;
+            }
+
+            bool isParallel = false;
+            var start = DateTime.Now;
+
+            var proposer = nodeMap[cluster.Members[0].Name];
+
+            var taskList = new List<Task<Paxos.Request.ProposeResult>>();
+            for (int i = 0; i < 1000; i++)
+            {
+                var decree = new PaxosDecree()
+                {
+                    Content = "test" + i.ToString()
+                };
+                var task =  proposer.ProposeDecree(decree, 0/*nextDecreNo*/);
+                if (isParallel)
+                {
+                    taskList.Add(task);
+                }
+                else
+                {
+                    await task;
+                }
+            }
+
+            if (isParallel)
+            {
+                await Task.WhenAll(taskList);
+            }
+            var end = DateTime.Now;
+            var costTime = (end - start).TotalMilliseconds;
+
+            foreach (var node in nodeMap)
+            {
+                node.Value.Dispose();
+            }
+        }
+
+        [TestMethod()]
+        public async Task PaxosNetworkPefTest()
+        {
+            var cluster = new PaxosCluster();
+            List<NodeAddress> nodeAddrList = new List<NodeAddress>();
+            for (int i = 0; i < 5; i++)
+            {
+                var node = new NodeInfo();
+                node.Name = "Node" + i.ToString();
+                cluster.Members.Add(node);
+                nodeAddrList.Add(new NodeAddress()
+                {
+                    Node = node,
+                    Port = 0
+                });
+            }
+
+            var networkInfr = new TestNetworkInfr();
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
+            var sourceNode = cluster.Members[0].Name;
+            var targetNode = cluster.Members[1].Name;
+            var srcServerAddress = new NodeAddress()
+            {
+                Node = new NodeInfo()
+                { Name = sourceNode },
+                Port = 88
+            };
+            var srcClientAddress = new NodeAddress()
+            {
+                Node = new NodeInfo()
+                { Name = sourceNode },
+                Port = 0
+            };
+            var targetServerAddress = new NodeAddress()
+            {
+                Node = new NodeInfo()
+                { Name = targetNode },
+                Port = 88
+            };
+            var targetClientAddress = new NodeAddress()
+            {
+                Node = new NodeInfo()
+                { Name = targetNode },
+                Port = 0
+            };
+
+            List<List<RpcMessage>> msgList = new List<List<RpcMessage>>();
+            List<RpcServer> serverList = new List<RpcServer>();
+            foreach (var node in nodeAddrList)
+            {
+                var svrAddr = new NodeAddress()
+                {
+                    Node = node.Node,
+                    Port = 88
+                };
+                var msgs = new List<RpcMessage>();
+                msgList.Add(msgs);
+                var rpcServer = new RpcServer(svrAddr);
+                rpcServer.RegisterRequestHandler(new TestRpcRequestHandler(msgs));
+                await rpcServer.Start();
+                serverList.Add(rpcServer);
+            }
+
+            List<Task<RpcMessage>> tasks = new List<Task<RpcMessage>>();
+            var rpcClient = new RpcClient(srcClientAddress);
+            {
+                bool isParallel = false;
+                var start = DateTime.Now;
+                for (int round = 0; round < 1000; round++)
+                {
+                    // 1. collect decree for this instance, send NextBallotMessage
+                    foreach (var node in cluster.Members)
+                    {
+                        if (node.Name == cluster.Members[0].Name)
+                        {
+                            continue;
+                        }
+                        var nextBallotMessage = new NextBallotMessage();
+                        nextBallotMessage.TargetNode = node.Name;
+                        nextBallotMessage.DecreeNo = 2;
+                        nextBallotMessage.BallotNo = 2;
+
+                        nextBallotMessage.SourceNode = cluster.Members[0].Name;
+                        var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(nextBallotMessage);
+                        var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
+                        var remoteAddr = new NodeAddress()
+                        { Node = new NodeInfo() { Name = nextBallotMessage.TargetNode }, Port = 88 };
+                        if (isParallel)
+                        {
+                            tasks.Add(rpcClient.SendRequest(remoteAddr, rpcMsg));
+                        }
+                        else
+                        {
+                            await rpcClient.SendRequest(remoteAddr, rpcMsg);
+                        }
+                    }
+                }
+                if (isParallel)
+                {
+                    await Task.WhenAll(tasks);
+                }
+                var end = DateTime.Now;
+                var costTime = (end - start).TotalMilliseconds;
             }
         }
 

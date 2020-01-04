@@ -30,6 +30,8 @@ namespace Paxos.Node
         private ProposerNote _proposerNote;
         private ProposeManager _proposeManager;
 
+        private IPaxosNotification _notificationSubscriber;
+
 
         public PaxosNode(
             PaxosCluster cluster,
@@ -95,7 +97,12 @@ namespace Paxos.Node
             _proposeLogger?.Dispose();
             _voterLogger?.Dispose();
         }
-
+        public void SubscribeNotification(IPaxosNotification listener)
+        {
+            _notificationSubscriber = listener;
+            _proposerRole.SubscribeNotification(_notificationSubscriber);
+            _voterRole.SubscribeNotification(_notificationSubscriber);
+        }
         public async Task Load(string proposerLog, string voterLog)
         {
             Dispose();
@@ -114,6 +121,10 @@ namespace Paxos.Node
             _voterRole = new VoterRole(_nodeInfo, _cluster, _rpcClient, _voterNote, _proposerNote);
             _proposerRole = new ProposerRole(
                 _nodeInfo, _cluster, _rpcClient, _proposerNote, _proposeManager);
+
+            _proposerRole.SubscribeNotification(_notificationSubscriber);
+            _voterRole.SubscribeNotification(_notificationSubscriber);
+
 
             _messager = new PaxosNodeMessageDeliver(_proposerRole, _voterRole);
             var rpcRequestHandler = new PaxosMessageHandler(_messager, null);
