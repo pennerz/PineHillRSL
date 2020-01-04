@@ -31,5 +31,4 @@ namespace Paxos.Request
         public ulong DecreeNo { get; set; }
         public PaxosDecree Decree { get; set; }
     }
-
 }

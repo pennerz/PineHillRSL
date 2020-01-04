@@ -1,4 +1,5 @@
-﻿using Paxos.Network;
+﻿using Paxos.Common;
+using Paxos.Network;
 using Paxos.Notebook;
 using Paxos.Message;
 using Paxos.Request;
@@ -373,11 +374,11 @@ namespace Paxos.Protocol
                 var nextBallotNo = propose.GetNextBallot();
                 // check if stale message received
                 var nextAction = await propose.GetNextAction();
-                if (nextAction == Notebook.Propose.NextAction.CollectLastVote)
+                if (nextAction == Protocol.Propose.NextAction.CollectLastVote)
                 {
                     continue;
                 }
-                else if (nextAction == Notebook.Propose.NextAction.Commit)
+                else if (nextAction == Protocol.Propose.NextAction.Commit)
                 {
                     await CommitPropose(lastVoteResult.DecreeNo, nextBallotNo);
                     var committedDecree = propose.GetCommittedDecree();
@@ -401,11 +402,11 @@ namespace Paxos.Protocol
                 propose = newBallotResult.OngoingPropose;
                 nextBallotNo = propose.GetNextBallot();
                 nextAction = await propose.GetNextAction();
-                if (nextAction == Notebook.Propose.NextAction.CollectLastVote)
+                if (nextAction == Protocol.Propose.NextAction.CollectLastVote)
                 {
                     continue;
                 }
-                else if (nextAction == Notebook.Propose.NextAction.Commit)
+                else if (nextAction == Protocol.Propose.NextAction.Commit)
                 {
                     await CommitPropose(lastVoteResult.DecreeNo, nextBallotNo);
                     var committedDecree = propose.GetCommittedDecree();
