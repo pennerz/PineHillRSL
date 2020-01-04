@@ -336,20 +336,20 @@ namespace Paxos.Protocol
         {
 
             ulong nextDecreeNo = decreeNo;
-            // 1. get decree no
-            if (nextDecreeNo == 0)
-            {
-                //
-                // several propose may happen concurrently. All of them will
-                // get a unique decree no.
-                //
-                nextDecreeNo = _proposeManager.GetNextDecreeNo();
-                _proposeManager.AddPropose(nextDecreeNo, (ulong)_cluster.Members.Count);
-            }
-
 
             do
             {
+                // 1. get decree no
+                if (decreeNo == 0)
+                {
+                    //
+                    // several propose may happen concurrently. All of them will
+                    // get a unique decree no.
+                    //
+                    nextDecreeNo = _proposeManager.GetNextDecreeNo();
+                    _proposeManager.AddPropose(nextDecreeNo, (ulong)_cluster.Members.Count);
+                }
+
                 var lastVoteResult = await CollectLastVote(decree, nextDecreeNo);
                 if (lastVoteResult.IsCommitted)
                 {
@@ -381,18 +381,15 @@ namespace Paxos.Protocol
                 else if (nextAction == Protocol.Propose.NextAction.Commit)
                 {
                     await CommitPropose(lastVoteResult.DecreeNo, nextBallotNo);
-                    var committedDecree = propose.GetCommittedDecree();
-                    await NotifyLearnersResult(lastVoteResult.DecreeNo, nextBallotNo, committedDecree);
-                    _proposeManager.RemovePropose(nextDecreeNo);
+
                     if (decreeNo == 0)
                     {
-                        nextDecreeNo = _proposeManager.GetNextDecreeNo();
-                        _proposeManager.AddPropose(nextDecreeNo, (ulong)_cluster.Members.Count);
                         continue;
                     }
+
                     return new ProposeResult()
                     {
-                        Decree = committedDecree,
+                        Decree = propose.GetCommittedDecree(),
                         DecreeNo = lastVoteResult.DecreeNo
                     };
                 }
@@ -409,13 +406,9 @@ namespace Paxos.Protocol
                 else if (nextAction == Protocol.Propose.NextAction.Commit)
                 {
                     await CommitPropose(lastVoteResult.DecreeNo, nextBallotNo);
-                    var committedDecree = propose.GetCommittedDecree();
-                    await NotifyLearnersResult(lastVoteResult.DecreeNo, nextBallotNo, committedDecree);
-
-                    _proposeManager.RemovePropose(nextDecreeNo);
                     return new ProposeResult()
                     {
-                        Decree = committedDecree,
+                        Decree = propose.GetCommittedDecree(),
                         DecreeNo = lastVoteResult.DecreeNo
                     };
                 }
@@ -490,7 +483,6 @@ namespace Paxos.Protocol
             }
             return true;
         }
-
 
         public async Task<ProposePhaseResult> CollectLastVote(
             PaxosDecree decree,
@@ -587,15 +579,9 @@ namespace Paxos.Protocol
             return await completionSource.Task;
         }
 
-        public async Task<Propose> CommitPropose(ulong decreeNo, ulong ballotNo)
+        private async Task<Propose> CommitPropose(ulong decreeNo, ulong ballotNo)
         {
             var propose = _proposeManager.GetOngoingPropose(decreeNo);
-            if (propose == null)
-            {
-                // send alert
-                return null;
-            }
-
             using (var autoLock = await propose.AcquireLock())
             {
                 if (!propose.Commit(ballotNo))
@@ -604,11 +590,13 @@ namespace Paxos.Protocol
                     return null;
                 }
 
-                var committedDecree = propose.GetCommittedDecree();
-                await _proposerNote.CommitDecree(decreeNo, committedDecree);
-
-                return propose; // committed propose
+                await _proposerNote.CommitDecree(decreeNo, propose.GetCommittedDecree());
             }
+
+            await NotifyLearnersResult(decreeNo, ballotNo, propose.GetCommittedDecree());
+            _proposeManager.RemovePropose(decreeNo);
+
+            return propose;
         }
 
         private async Task<StateBallotMessageResult> ProcessStaleBallotMessageInternal(StaleBallotMessage msg)
