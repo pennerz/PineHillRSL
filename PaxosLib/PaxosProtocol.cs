@@ -229,8 +229,7 @@ namespace Paxos.Protocol
             paxosMessage.SourceNode = _nodeInfo.Name;
             var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(paxosMessage);
             var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
-            var remoteAddr = new NodeAddress()
-            { Node = new NodeInfo() { Name = paxosMessage.TargetNode }, Port = 88};
+            var remoteAddr = new NodeAddress(new NodeInfo(paxosMessage.TargetNode), 88);
 
             await _rpcClient.SendRequest(remoteAddr, rpcMsg);
         }
@@ -379,7 +378,7 @@ namespace Paxos.Protocol
 
                     return new ProposeResult()
                     {
-                        Decree = lastVoteResult.CommittedDecree,
+                        Decree =  lastVoteResult.CommittedDecree,
                         DecreeNo = lastVoteResult.DecreeNo
                     };
                 }
@@ -436,12 +435,20 @@ namespace Paxos.Protocol
             {
                 return false;
             }
-            if (result.OngoingPropose.State == ProposeState.QueryLastVote ||
-                result.OngoingPropose.State == ProposeState.BeginNewBallot)
+            using (var autolock = await result.OngoingPropose.AcquireLock())
             {
-                var lastVoteResult = new ProposePhaseResult()
-                { DecreeNo = msg.DecreeNo, OngoingPropose = _proposeManager.GetOngoingPropose(msg.DecreeNo) };
-                result.OngoingPropose?.Result?.SetResult(lastVoteResult);
+                if (result.OngoingPropose.State == ProposeState.QueryLastVote ||
+                    result.OngoingPropose.State == ProposeState.BeginNewBallot)
+                {
+                    var lastVoteResult = new ProposePhaseResult()
+                    { DecreeNo = msg.DecreeNo, OngoingPropose = _proposeManager.GetOngoingPropose(msg.DecreeNo) };
+                    lock (result.OngoingPropose)
+                    {
+                        if (!result.OngoingPropose.Result.Task.IsCompleted)
+                            result.OngoingPropose?.Result?.SetResult(lastVoteResult);
+                    }
+                }
+
             }
             //await BroadcastQueryLastVote(msg.DecreeNo, result.NextBallotNo);
             return true;
@@ -457,15 +464,52 @@ namespace Paxos.Protocol
                 case LastVoteMessageResult.ResultAction.DecreeCommitted:
                 case LastVoteMessageResult.ResultAction.NewBallotReadyToBegin:
                     {
-                        var phaseResult = new ProposePhaseResult()
+                        var propose = _proposeManager.GetOngoingPropose(msg.DecreeNo);
+                        if (propose == null)
                         {
-                            DecreeNo = msg.DecreeNo,
-                            OngoingPropose = _proposeManager.GetOngoingPropose(msg.DecreeNo),
-                            IsCommitted = LastVoteMessageResult.ResultAction.DecreeCommitted == result.Action
-                        };
+                            return false;
+                        }
+                        using (var autolock = await propose.AcquireLock())
+                        {
+                            if (propose.State == ProposeState.QueryLastVote)
+                            {
+                                var phaseResult = new ProposePhaseResult()
+                                {
+                                    DecreeNo = msg.DecreeNo,
+                                    OngoingPropose = propose,
+                                    IsCommitted = LastVoteMessageResult.ResultAction.DecreeCommitted == result.Action
+                                };
 
-                        if (result.CommittedPropose.Result != null && !result.CommittedPropose.Result.Task.IsCompleted)
-                            result.CommittedPropose.Result.SetResult(phaseResult);
+                                lock (result.CommittedPropose)
+                                {
+                                    if (result.CommittedPropose.Result != null && !result.CommittedPropose.Result.Task.IsCompleted)
+                                        result.CommittedPropose.Result.SetResult(phaseResult);
+                                }
+                            }
+                            else if (propose.State == ProposeState.Commited)
+                            {
+                                var phaseResult = new ProposePhaseResult()
+                                {
+                                    DecreeNo = msg.DecreeNo,
+                                    OngoingPropose = propose,
+                                    CommittedDecree = propose.GetCommittedDecree(),
+                                    IsCommitted = LastVoteMessageResult.ResultAction.DecreeCommitted == result.Action
+                                };
+
+                                lock (result.CommittedPropose)
+                                {
+                                    if (result.CommittedPropose.Result != null && !result.CommittedPropose.Result.Task.IsCompleted)
+                                        result.CommittedPropose.Result.SetResult(phaseResult);
+                                }
+                            }
+                            else
+                            {
+                                Console.WriteLine("error");
+
+                            }
+
+                        }
+
                     }
                     break;
             }
@@ -485,13 +529,22 @@ namespace Paxos.Protocol
                         {
                             return false;
                         }
+                        using (var autolock = await propose.AcquireLock())
+                        {
+                            if (propose.State == ProposeState.BeginNewBallot)
+                            {
+                                var newBallotResult = new ProposePhaseResult()
+                                { DecreeNo = msg.DecreeNo, OngoingPropose = _proposeManager.GetOngoingPropose(msg.DecreeNo) };
 
-                        var newBallotResult = new ProposePhaseResult()
-                        { DecreeNo = msg.DecreeNo, OngoingPropose = _proposeManager.GetOngoingPropose(msg.DecreeNo) };
+                                lock (propose)
+                                {
+                                    if (propose.Result != null && !propose.Result.Task.IsCompleted)
+                                        propose.Result.SetResult(newBallotResult);
 
-                        if (propose.Result != null && !propose.Result.Task.IsCompleted)
-                            propose.Result.SetResult(newBallotResult);
+                                }
+                            }
 
+                        }
                     }
                     break;
             }
@@ -852,8 +905,8 @@ namespace Paxos.Protocol
             paxosMessage.SourceNode = _nodeInfo.Name;
             var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(paxosMessage);
             var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
-            var remoteAddr = new NodeAddress()
-            { Node = new NodeInfo() { Name = paxosMessage.TargetNode }, Port = 88 };
+            var remoteAddr = new NodeAddress(new NodeInfo(paxosMessage.TargetNode), 88);
+            rpcMsg.NeedResp = false;
             await _rpcClient.SendRequest(remoteAddr, rpcMsg);
         }
     }

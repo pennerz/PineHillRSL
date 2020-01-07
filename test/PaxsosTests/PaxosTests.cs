@@ -26,8 +26,7 @@ namespace Paxos.Tests
             var cluster = new PaxosCluster();
             for (int i = 0; i < 5; i++)
             {
-                var node = new NodeInfo();
-                node.Name = "Node" + i.ToString();
+                var node = new NodeInfo("Node" + i.ToString());
                 cluster.Members.Add(node);
             }
 
@@ -109,8 +108,7 @@ namespace Paxos.Tests
             var cluster = new PaxosCluster();
             for (int i = 0; i < 5; i++)
             {
-                var node = new NodeInfo();
-                node.Name = "Node" + i.ToString();
+                var node = new NodeInfo("Node" + i.ToString());
                 cluster.Members.Add(node);
 
                 var proposerLogFile = ".\\loegger" + node.Name + ".log";
@@ -122,8 +120,7 @@ namespace Paxos.Tests
             await BeginNewProposeTest();
             for (int i = 0; i < 5; i++)
             {
-                var node = new NodeInfo();
-                node.Name = "Node" + i.ToString();
+                var node = new NodeInfo("Node" + i.ToString());
                 cluster.Members.Add(node);
             }
 
@@ -179,8 +176,7 @@ namespace Paxos.Tests
             var cluster = new PaxosCluster();
             for (int i = 0; i < 5; i++)
             {
-                var node = new NodeInfo();
-                node.Name = "Node" + i.ToString();
+                var node = new NodeInfo("Node" + i.ToString());
                 cluster.Members.Add(node);
             }
 
@@ -189,30 +185,10 @@ namespace Paxos.Tests
 
             var sourceNode = cluster.Members[0].Name;
             var targetNode = cluster.Members[1].Name;
-            var srcServerAddress = new NodeAddress()
-            {
-                Node = new NodeInfo()
-                { Name = sourceNode },
-                Port = 88
-            };
-            var srcClientAddress = new NodeAddress()
-            {
-                Node = new NodeInfo()
-                { Name = sourceNode },
-                Port = 0
-            };
-            var targetServerAddress = new NodeAddress()
-            {
-                Node = new NodeInfo()
-                { Name = targetNode },
-                Port = 88
-            };
-            var targetClientAddress = new NodeAddress()
-            {
-                Node = new NodeInfo()
-                { Name = targetNode },
-                Port = 0
-            };
+            var srcServerAddress = new NodeAddress(new NodeInfo(sourceNode), 88);
+            var srcClientAddress = new NodeAddress(new NodeInfo(sourceNode), 0);
+            var targetServerAddress = new NodeAddress(new NodeInfo(targetNode), 88);
+            var targetClientAddress = new NodeAddress(new NodeInfo(targetNode), 0);
 
             var logPrefix = Guid.NewGuid().ToString();
 
@@ -431,54 +407,25 @@ namespace Paxos.Tests
             List<NodeAddress> nodeAddrList = new List<NodeAddress>();
             for (int i = 0; i < 5; i++)
             {
-                var node = new NodeInfo();
-                node.Name = "Node" + i.ToString();
+                var node = new NodeInfo("Node" + i.ToString());
                 cluster.Members.Add(node);
-                nodeAddrList.Add(new NodeAddress()
-                {
-                    Node = node,
-                    Port = 0
-                });
+                nodeAddrList.Add(new NodeAddress(node, 0));
             }
 
             var networkInfr = new TestNetworkInfr();
             NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
             var sourceNode = cluster.Members[0].Name;
             var targetNode = cluster.Members[1].Name;
-            var srcServerAddress = new NodeAddress()
-            {
-                Node = new NodeInfo()
-                { Name = sourceNode },
-                Port = 88
-            };
-            var srcClientAddress = new NodeAddress()
-            {
-                Node = new NodeInfo()
-                { Name = sourceNode },
-                Port = 0
-            };
-            var targetServerAddress = new NodeAddress()
-            {
-                Node = new NodeInfo()
-                { Name = targetNode },
-                Port = 88
-            };
-            var targetClientAddress = new NodeAddress()
-            {
-                Node = new NodeInfo()
-                { Name = targetNode },
-                Port = 0
-            };
+            var srcServerAddress = new NodeAddress(new NodeInfo(sourceNode), 88);
+            var srcClientAddress = new NodeAddress(new NodeInfo(sourceNode), 0);
+            var targetServerAddress = new NodeAddress(new NodeInfo(targetNode), 88);
+            var targetClientAddress = new NodeAddress(new NodeInfo(targetNode), 0);
 
             List<List<RpcMessage>> msgList = new List<List<RpcMessage>>();
             List<RpcServer> serverList = new List<RpcServer>();
             foreach(var node in nodeAddrList)
             {
-                var svrAddr = new NodeAddress()
-                {
-                    Node = node.Node,
-                    Port = 88
-                };
+                var svrAddr = new NodeAddress(node.Node, 88);
                 var msgs = new List<RpcMessage>();
                 msgList.Add(msgs);
                 var rpcServer = new RpcServer(svrAddr);
@@ -859,11 +806,7 @@ namespace Paxos.Tests
             serverList = new List<RpcServer>();
             foreach (var node in nodeAddrList)
             {
-                var svrAddr = new NodeAddress()
-                {
-                    Node = node.Node,
-                    Port = 88
-                };
+                var svrAddr = new NodeAddress(node.Node, 88);
                 var msgs = new List<RpcMessage>();
                 msgList.Add(msgs);
                 var rpcServer = new RpcServer(svrAddr);
@@ -1069,8 +1012,7 @@ namespace Paxos.Tests
             var cluster = new PaxosCluster();
             for (int i = 0; i < 5; i++)
             {
-                var node = new NodeInfo();
-                node.Name = "Node" + i.ToString();
+                var node = new NodeInfo("Node" + i.ToString());
                 cluster.Members.Add(node);
             }
 
@@ -1101,27 +1043,13 @@ namespace Paxos.Tests
         {
             Dictionary<string, string> _table = new Dictionary<string, string>();
             var start = DateTime.Now;
-            for (int i = 0; i < 1000; i++)
-            {
-                var Key = i.ToString();
-                var Value = "test" + i.ToString();
-                if (_table.ContainsKey(Key))
-                {
-                    _table[Key] = Value;
-                }
-                else
-                {
-                    _table.Add(Key, Value);
-                }
-            }
             var end = DateTime.Now;
             var costTime = (end - start).TotalMilliseconds;
 
             var cluster = new PaxosCluster();
             for (int i = 0; i < 5; i++)
             {
-                var node = new NodeInfo();
-                node.Name = "Node" + i.ToString();
+                var node = new NodeInfo("Node" + i.ToString());
                 cluster.Members.Add(node);
             }
 
@@ -1139,10 +1067,15 @@ namespace Paxos.Tests
 
             List<Task> taskList = new List<Task>();
             var master = tableNodeMap[cluster.Members[0].Name];
-            for (int i = 0; i < 1000; i++)
+            for (int i = 0; i < 10000; i++)
             {
                 var task =  master.InstertTable(new ReplicatedTableRequest() { Key = i.ToString(), Value = "test" + i.ToString() });
                 taskList.Add(task);
+                if (taskList.Count > 2)
+                {
+                    await Task.WhenAll(taskList);
+                    taskList.Clear();
+                }
             }
             await Task.WhenAll(taskList);
 
@@ -1163,8 +1096,7 @@ namespace Paxos.Tests
             var cluster = new PaxosCluster();
             for (int i = 0; i < 5; i++)
             {
-                var node = new NodeInfo();
-                node.Name = "Node" + i.ToString();
+                var node = new NodeInfo("Node" + i.ToString());
                 cluster.Members.Add(node);
             }
 
@@ -1178,13 +1110,13 @@ namespace Paxos.Tests
                 nodeMap[nodeInfo.Name] = node;
             }
 
-            bool isParallel = false;
+            bool isParallel = true;
             var start = DateTime.Now;
 
             var proposer = nodeMap[cluster.Members[0].Name];
 
             var taskList = new List<Task<Paxos.Request.ProposeResult>>();
-            for (int i = 0; i < 1000; i++)
+            for (int i = 0; i < 10000; i++)
             {
                 var decree = new PaxosDecree()
                 {
@@ -1194,6 +1126,11 @@ namespace Paxos.Tests
                 if (isParallel)
                 {
                     taskList.Add(task);
+                    if (taskList.Count > 2)
+                    {
+                        await Task.WhenAll(taskList);
+                        taskList.Clear();
+                    }
                 }
                 else
                 {
@@ -1221,54 +1158,25 @@ namespace Paxos.Tests
             List<NodeAddress> nodeAddrList = new List<NodeAddress>();
             for (int i = 0; i < 5; i++)
             {
-                var node = new NodeInfo();
-                node.Name = "Node" + i.ToString();
+                var node = new NodeInfo("Node" + i.ToString());
                 cluster.Members.Add(node);
-                nodeAddrList.Add(new NodeAddress()
-                {
-                    Node = node,
-                    Port = 0
-                });
+                nodeAddrList.Add(new NodeAddress(node, 0));
             }
 
             var networkInfr = new TestNetworkInfr();
             NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
             var sourceNode = cluster.Members[0].Name;
             var targetNode = cluster.Members[1].Name;
-            var srcServerAddress = new NodeAddress()
-            {
-                Node = new NodeInfo()
-                { Name = sourceNode },
-                Port = 88
-            };
-            var srcClientAddress = new NodeAddress()
-            {
-                Node = new NodeInfo()
-                { Name = sourceNode },
-                Port = 0
-            };
-            var targetServerAddress = new NodeAddress()
-            {
-                Node = new NodeInfo()
-                { Name = targetNode },
-                Port = 88
-            };
-            var targetClientAddress = new NodeAddress()
-            {
-                Node = new NodeInfo()
-                { Name = targetNode },
-                Port = 0
-            };
+            var srcServerAddress = new NodeAddress(new NodeInfo(sourceNode), 88);
+            var srcClientAddress = new NodeAddress(new NodeInfo(sourceNode), 0);
+            var targetServerAddress = new NodeAddress(new NodeInfo(targetNode), 88);
+            var targetClientAddress = new NodeAddress(new NodeInfo(targetNode), 0);
 
             List<List<RpcMessage>> msgList = new List<List<RpcMessage>>();
             List<RpcServer> serverList = new List<RpcServer>();
             foreach (var node in nodeAddrList)
             {
-                var svrAddr = new NodeAddress()
-                {
-                    Node = node.Node,
-                    Port = 88
-                };
+                var svrAddr = new NodeAddress(node.Node, 88);
                 var msgs = new List<RpcMessage>();
                 msgList.Add(msgs);
                 var rpcServer = new RpcServer(svrAddr);
@@ -1277,20 +1185,33 @@ namespace Paxos.Tests
                 serverList.Add(rpcServer);
             }
 
+            List<RpcMessage> rpcMessages = new List<RpcMessage>();
+            foreach (var node in cluster.Members)
+            {
+                var nextBallotMessage = new NextBallotMessage();
+                nextBallotMessage.TargetNode = node.Name;
+                nextBallotMessage.DecreeNo = 2;
+                nextBallotMessage.BallotNo = 2;
+
+                nextBallotMessage.SourceNode = cluster.Members[0].Name;
+                var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(nextBallotMessage);
+                var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
+                rpcMessages.Add(rpcMsg);
+            }
+
             List<Task<RpcMessage>> tasks = new List<Task<RpcMessage>>();
             var rpcClient = new RpcClient(srcClientAddress);
             {
-                bool isParallel = false;
+                bool isParallel = true;
                 var start = DateTime.Now;
-                for (int round = 0; round < 1000; round++)
+                for (int round = 0; round < 50000; round++)
                 {
                     // 1. collect decree for this instance, send NextBallotMessage
-                    foreach (var node in cluster.Members)
+                    //foreach (var node in cluster.Members)
+                    for (int i = 1; i < cluster.Members.Count; i++)
                     {
-                        if (node.Name == cluster.Members[0].Name)
-                        {
-                            continue;
-                        }
+                        var node = cluster.Members[i];
+
                         var nextBallotMessage = new NextBallotMessage();
                         nextBallotMessage.TargetNode = node.Name;
                         nextBallotMessage.DecreeNo = 2;
@@ -1299,8 +1220,7 @@ namespace Paxos.Tests
                         nextBallotMessage.SourceNode = cluster.Members[0].Name;
                         var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(nextBallotMessage);
                         var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
-                        var remoteAddr = new NodeAddress()
-                        { Node = new NodeInfo() { Name = nextBallotMessage.TargetNode }, Port = 88 };
+                        var remoteAddr = new NodeAddress(new NodeInfo(node.Name), 88);
                         if (isParallel)
                         {
                             tasks.Add(rpcClient.SendRequest(remoteAddr, rpcMsg));

@@ -10,6 +10,7 @@ namespace Paxos.Network
 {
     public class NodeInfo : IEquatable<NodeInfo>
     {
+        private readonly string _name;
         public bool Equals(NodeInfo rhs)
         {
             return Name.Equals(rhs.Name);
@@ -20,9 +21,13 @@ namespace Paxos.Network
         }
         public override int GetHashCode()
         {
-            return 1;
+            return _name.GetHashCode();
         }
-        public string Name { get; set; }
+        public NodeInfo(string name)
+        {
+            _name = name;
+        }
+        public string Name => _name;
     }
 
     /// <summary>
@@ -30,6 +35,9 @@ namespace Paxos.Network
     /// </summary>
     public class NodeAddress : IEquatable<NodeAddress>
     {
+        private readonly NodeInfo _nodeInfo;
+        private readonly ushort _port;
+
         public bool Equals(NodeAddress rhs)
         {
             if (!Node.Equals(rhs.Node))
@@ -49,11 +57,17 @@ namespace Paxos.Network
 
         public override int GetHashCode()
         {
-            return 1;
+            return Node.GetHashCode() + Port.GetHashCode();
         }
 
-        public NodeInfo Node { get; set; }
-        public ushort Port { get; set; }
+        public NodeAddress(NodeInfo nodeInfo, ushort port)
+        {
+            _nodeInfo = nodeInfo;
+            _port = port;
+        }
+
+        public NodeInfo Node => _nodeInfo;
+        public ushort Port => _port;
     }
 
     /// <summary>
@@ -80,7 +94,7 @@ namespace Paxos.Network
 
         Task SendMessage(NetworkMessage msg);
 
-        Task<NetworkMessage> ReceiveMessage();
+        Task<List<NetworkMessage>> ReceiveMessage();
     }
 
     /// <summary>

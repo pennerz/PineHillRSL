@@ -56,17 +56,9 @@ namespace Paxos.Node
             _cluster = cluster;
             _nodeInfo = nodeInfo;
 
-            var localAddr = new NodeAddress()
-            {
-                Node = _nodeInfo,
-                Port = 0
-            };
+            var localAddr = new NodeAddress(_nodeInfo, 0);
             _rpcClient = new RpcClient(localAddr);
-            var serverAddr = new NodeAddress()
-            {
-                Node = _nodeInfo,
-                Port = 88
-            };
+            var serverAddr = new NodeAddress(_nodeInfo, 88);
             _rpcServer = new RpcServer(serverAddr);
 
 

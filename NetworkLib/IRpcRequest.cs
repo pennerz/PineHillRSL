@@ -19,11 +19,13 @@ namespace Paxos.Rpc
         {
             RequestId = Guid.NewGuid();
             IsRequest = true;
+            NeedResp = true;
         }
 
         public Guid RequestId { get; set; }
         public bool IsRequest { get; set; }
         public string RequestContent { get; set; }
+        public bool NeedResp { get; set; }
     }
 
     /// <summary>

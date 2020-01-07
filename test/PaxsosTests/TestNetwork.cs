@@ -23,7 +23,9 @@ namespace Paxos.Tests
         private readonly NodeAddress _localAddress;
         private readonly NodeAddress _remoteAddress;
 
-        private readonly List<NetworkMessage> _receivedMessages = new List<NetworkMessage>();
+        private TestConnection _remoteConnection = null;
+
+        private List<NetworkMessage> _receivedMessages = new List<NetworkMessage>();
         private SemaphoreSlim _receivedMessageSemaphore = new SemaphoreSlim(0);
 
         public TestConnection(NodeAddress localAddr, NodeAddress remoteAddr, TestNetworkInfr networkInfr)
@@ -35,24 +37,33 @@ namespace Paxos.Tests
 
         public Task SendMessage(NetworkMessage msg)
         {
-            var connection = _networkInfr.GetConnection(_remoteAddress, _localAddress);
-            connection.DeliverMessage(msg);
+            if (_remoteConnection == null)
+            {
+                _remoteConnection = _networkInfr.GetConnection(_remoteAddress, _localAddress);
+
+            }
+            _remoteConnection.DeliverMessage(msg);
 
             return Task.CompletedTask;
         }
 
-        public async Task<NetworkMessage> ReceiveMessage()
+        public async Task<List<NetworkMessage>> ReceiveMessage()
         {
             do
             {
                 await _receivedMessageSemaphore.WaitAsync();
+                var newMsgList = new List<NetworkMessage>();
                 lock (_receivedMessages)
                 {
                     if (_receivedMessages.Count > 0)
                     {
-                        var message = _receivedMessages[0];
-                        _receivedMessages.RemoveAt(0);
-                        return message;
+                        //var message = _receivedMessages[0];
+                        //_receivedMessages.RemoveAt(0);
+                        // return message;
+
+                        var result = _receivedMessages;
+                        _receivedMessages = newMsgList;
+                        return result;
                     }
                 }
             } while (true);
@@ -88,8 +99,8 @@ namespace Paxos.Tests
             lock (_receivedMessages)
             {
                 _receivedMessages.Add(message);
-                _receivedMessageSemaphore.Release();
             }
+            _receivedMessageSemaphore.Release();
         }
 
         public NodeAddress LocalAddress => _localAddress;
@@ -138,37 +149,87 @@ namespace Paxos.Tests
     {
         List<TestConnection> _connections = new List<TestConnection>();
         List<TestNetworkServer> _servers = new List<TestNetworkServer>();
+        Dictionary<int, List<TestConnection>> _connectionIndex = new Dictionary<int, List<TestConnection>>();
 
-        public List<TestConnection> NetworkConnections  => _connections;
+        //public List<TestConnection> NetworkConnections  => _connections;
+        private bool _useConnectionMap = false;
+        public void AddConnection(TestConnection connection)
+        {
+            lock(_connections)
+            {
+                if (_useConnectionMap)
+                {
+                    _connectionIndex.TryAdd(connection.LocalAddress.GetHashCode() + connection.RemoteAddress.GetHashCode(), new List<TestConnection>());
+                    _connectionIndex[connection.LocalAddress.GetHashCode() + connection.RemoteAddress.GetHashCode()].Add(connection);
+                }
+                else
+                {
+                    _connections.Add(connection);
+                }
+            }
+        }
 
         public List<TestNetworkServer> NetworkServers => _servers;
 
         public TestConnection GetConnection(NodeAddress localAddr, NodeAddress remoteAddr)
         {
-            if (_connections.Count == 0)
+            lock(_connections)
             {
-                return null;
+                if (_useConnectionMap)
+                {
+                    var key = localAddr.GetHashCode() + remoteAddr.GetHashCode();
+                    if (!_connectionIndex.ContainsKey(key))
+                    {
+                        return null;
+                    }
+                    var connectionList = _connectionIndex[key];
+                    if (connectionList.Count == 1)
+                    {
+                        return connectionList[0];
+                    }
+                    else if (connectionList.Count == 0)
+                    {
+                        return null;
+                    }
+                    else
+                    {
+                        var matchList = connectionList.Where(connection =>
+                           connection.LocalAddress.Equals(localAddr) &&
+                           connection.RemoteAddress.Equals(remoteAddr));
+
+                        if (matchList.Count() == 0)
+                        {
+                            return null;
+                        }
+                        return matchList.First();
+                    }
+                }
+                else
+                {
+                    var connectionList = _connections.Where(connection =>
+                            connection.LocalAddress.Equals(localAddr) &&
+                            connection.RemoteAddress.Equals(remoteAddr));
+                    if (connectionList.Count() == 0)
+                    {
+                        return null;
+                    }
+                    return connectionList.First();
+                }
             }
-            if (_connections.Where(connection =>
-                connection.LocalAddress.Equals(localAddr) &&
-                connection.RemoteAddress.Equals(remoteAddr)).Count() == 0)
-            {
-                return null;
-            }
-           return _connections.Where(connection =>
-                connection.LocalAddress.Equals(localAddr) &&
-                connection.RemoteAddress.Equals(remoteAddr)).First();
         }
 
         public TestNetworkServer GetServer(NodeAddress serverAddr)
         {
-            if (_servers.Where(server =>
-                server.ServerAddress.Equals(serverAddr)).Count() == 0)
+            lock(_servers)
             {
-                return null;
+                var serverList = _servers.Where(server =>
+                    server.ServerAddress.Equals(serverAddr));
+                if (serverList.Count() == 0)
+                {
+                    return null;
+                }
+                return serverList.First();
             }
-            return _servers.Where(server =>
-                server.ServerAddress.Equals(serverAddr)).First();
         }
 
         public async Task WaitUntillAllReceivedMessageConsumed()
@@ -233,7 +294,7 @@ namespace Paxos.Tests
             {
                 return false;
             }
-            _netowrkInfr.NetworkConnections.Add(connection);
+            _netowrkInfr.AddConnection(connection);
             _connectionNotifier?.OnNewConnection(connection);
 
             return true;
@@ -264,7 +325,10 @@ namespace Paxos.Tests
             var server = new TestNetworkServer(_networkInfr);
             await server.StartServer(serverAddr);
 
-            _networkInfr.NetworkServers.Add(server);
+            lock(_networkInfr.NetworkServers)
+            {
+                _networkInfr.NetworkServers.Add(server);
+            }
             return server;
         }
 
@@ -289,7 +353,7 @@ namespace Paxos.Tests
                 {
                     return Task.FromResult((IConnection)null);
                 }
-                _networkInfr.NetworkConnections.Add(clientConnection);
+                _networkInfr.AddConnection(clientConnection);
                 return Task.FromResult(clientConnection as IConnection);
             }
         }

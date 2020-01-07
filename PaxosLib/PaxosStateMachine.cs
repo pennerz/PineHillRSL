@@ -48,6 +48,7 @@ namespace Paxos.StateMachine
             public object Content { get; set; }
         }
 
+        SemaphoreSlim _lock = new SemaphoreSlim(1);
         private ulong _baseSeq = 0;
         private ulong _lastReadySeq = 0;
         private SortedList<ulong, Item> _itemList = new SortedList<ulong, Item>();
@@ -98,6 +99,15 @@ namespace Paxos.StateMachine
                 return (ulong)_itemList.Count;
             }
         }
+
+        public Task WaitReadyToContinue()
+        {
+            if (_itemList.Count < 10)
+            {
+                return Task.CompletedTask;
+            }
+            return _lock.WaitAsync();
+        }
     }
 
     public abstract class PaxosStateMachine : IDisposable, IPaxosNotification
@@ -138,7 +148,7 @@ namespace Paxos.StateMachine
 
         public async Task Request(StateMachineRequest request)
         {
-            while(_reqSlideWindow.GetPendingSequenceCount() > 100)
+            while(_reqSlideWindow.GetPendingSequenceCount() > 2)
             {
                 await Task.Delay(100);
             }

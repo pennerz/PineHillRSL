@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.IO;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;
 
@@ -30,14 +31,17 @@ namespace Paxos.Rpc
     {
         private Task _messageHandlerTask;
         private List<KeyValuePair<NodeAddress, IConnection>> _connections = new List<KeyValuePair<NodeAddress, IConnection>>();
+        private Dictionary<NodeAddress, IConnection> _connectionsTable = new Dictionary<NodeAddress, IConnection>();
         private List<NodeInfo> _pendingDeletionConnections = new List<NodeInfo>();
         private List<KeyValuePair<NodeAddress, IConnection>> _pendingAddConnections = new List<KeyValuePair<NodeAddress, IConnection>>();
-        private TaskCompletionSource<NetworkMessage> _signalTask = new TaskCompletionSource<NetworkMessage>();
+        private TaskCompletionSource<List<NetworkMessage>> _signalTask = new TaskCompletionSource<List<NetworkMessage>>();
         private NodeAddress _localAddr;
         private IRpcNodeEventHandler _rpcEventHandler;
         private bool _isStop = false;
-        private ConcurrentQueue<Tuple<IConnection, NetworkMessage>> _networkMessageQueue = new ConcurrentQueue<Tuple<IConnection, NetworkMessage>>();
+        private ConcurrentQueue<Tuple<IConnection, List<NetworkMessage>>> _networkMessageQueue = new ConcurrentQueue<Tuple<IConnection, List<NetworkMessage>>>();
+        private SemaphoreSlim _receivedMessageSemaphore = new SemaphoreSlim(0);
         private List<Task> _networkMessageProcessTask = new List<Task>();
+        private bool _usePreallocateTaskPool = false;
 
         public RpcNode(NodeAddress localAddrr, IRpcNodeEventHandler rpcNodeEventHandler)
         {
@@ -48,22 +52,33 @@ namespace Paxos.Rpc
                 await ProcessNetworkEvent();
             });
 
-            if (false)
+            if (_usePreallocateTaskPool)
             {
-                for (int i = 0; i < 3; i++)
+                for (int i = 0; i < 5; i++)
                 {
                     _networkMessageProcessTask.Add(Task.Run(async () =>
                     {
                         while (!_isStop)
                         {
-                            Tuple<IConnection, NetworkMessage> receivedEvent = null;
+                            Tuple<IConnection, List<NetworkMessage>> receivedEvent = null;
+
+                            await _receivedMessageSemaphore.WaitAsync();
                             if (!_networkMessageQueue.TryDequeue(out receivedEvent))
                             {
-                                await Task.Delay(10);
                                 continue;
                             }
-                            var rpcMessage = RpcMessageHelper.CreateRpcMessage(receivedEvent.Item2);
-                            await _rpcEventHandler.OnReceived(receivedEvent.Item1, rpcMessage);
+                            var taskList = new List<Task>();
+                            foreach (var recvNetworkMsg in receivedEvent.Item2)
+                            {
+                                var task = Task.Run(async () =>
+                                {
+                                    var rpcMessage = RpcMessageHelper.CreateRpcMessage(recvNetworkMsg);
+                                    await _rpcEventHandler.OnReceived(receivedEvent.Item1, rpcMessage);
+                                });
+                                taskList.Add(task);
+                            }
+
+                            await Task.WhenAll(taskList);
                         }
                     }));
 
@@ -87,12 +102,16 @@ namespace Paxos.Rpc
         public void AddConnection(IConnection connection)
         {
             NodeAddress remoteAddress = connection.RemoteAddress;
+            var pendingConnection = new KeyValuePair<NodeAddress, IConnection>(remoteAddress, connection);
+            var newSignalTask = new TaskCompletionSource<List<NetworkMessage>>();
             lock (_pendingAddConnections)
             {
-                _pendingAddConnections.Add(new KeyValuePair<NodeAddress, IConnection>(remoteAddress, connection));
+                _pendingAddConnections.Add(pendingConnection);
+                _connectionsTable[remoteAddress] = connection;
+
                 var oldSignalTask = _signalTask;
-                _signalTask = new TaskCompletionSource<NetworkMessage>();
-                oldSignalTask.SetResult(new NetworkMessage());
+                _signalTask = newSignalTask;
+                oldSignalTask.SetResult((List<NetworkMessage>)null);
             }
         }
 
@@ -107,28 +126,23 @@ namespace Paxos.Rpc
             lock (_pendingAddConnections)
             {
                 connection = GetConnectionInLock(remoteAddress);
-
+                if (connection != null)
+                {
+                    return connection;
+                }
             }
 
-            if (connection == null)
-            {
-                connection = await NetworkFactory.CreateNetworkClient(_localAddr, remoteAddress);
-            }
+            connection = await NetworkFactory.CreateNetworkClient(_localAddr, remoteAddress);
+            var pendingConnection = new KeyValuePair<NodeAddress, IConnection>(remoteAddress, connection);
+            var newSignalTask = new TaskCompletionSource<List<NetworkMessage>>();
 
             lock (_pendingAddConnections)
             {
-                var oldConnection = GetConnectionInLock(remoteAddress);
-                if (oldConnection != null)
-                {
-                    connection = oldConnection;
-                }
-                else
-                {
-                    _pendingAddConnections.Add(new KeyValuePair<NodeAddress, IConnection>(remoteAddress, connection));
-                }
+                _pendingAddConnections.Add(pendingConnection);
+                _connectionsTable[remoteAddress] = connection;
                 var oldSignalTask = _signalTask;
-                _signalTask = new TaskCompletionSource<NetworkMessage>();
-                oldSignalTask.SetResult(new NetworkMessage());
+                _signalTask = newSignalTask;
+                oldSignalTask.SetResult((List<NetworkMessage>)null);
             }
 
             return connection;
@@ -140,12 +154,109 @@ namespace Paxos.Rpc
         /// <returns></returns>
         private async Task ProcessNetworkEvent()
         {
-            var recvTaskList = new List<Task<NetworkMessage>>();
-            recvTaskList.Add(_signalTask.Task);
+            var recvTaskList = new List<Task<List<NetworkMessage>>>();
+            //recvTaskList.Add(_signalTask.Task);
             foreach (var connection in _connections)
             {
                 recvTaskList.Add(connection.Value.ReceiveMessage());
             }
+
+            var runningTasks = new List<Task>();
+            for (int i = 0; i < recvTaskList.Count; i++)
+            {
+                var task = Task.Run(async () =>
+                {
+                    var signalTaskIndex = i;
+                    while(!_isStop)
+                    {
+                        await recvTaskList[signalTaskIndex];
+                        if (signalTaskIndex > 0)
+                        {
+                            var receivedConnection = _connections[signalTaskIndex].Value;
+                            var receivedNetworkMessages = recvTaskList[signalTaskIndex].Result;
+                            recvTaskList[signalTaskIndex] = _connections[signalTaskIndex].Value.ReceiveMessage();
+                            {
+                                var task = Task.Run(async () =>
+                                {
+                                    var taskList = new List<Task>();
+                                    if (receivedNetworkMessages.Count > 10)
+                                    {
+                                        Console.WriteLine("received message {0}", receivedNetworkMessages.Count);
+                                    }
+                                    foreach (var recvNetworkMsg in receivedNetworkMessages)
+                                    {
+                                        var task = Task.Run(async () =>
+                                        {
+                                            var rpcMessage = RpcMessageHelper.CreateRpcMessage(recvNetworkMsg);
+                                            await _rpcEventHandler.OnReceived(receivedConnection, rpcMessage);
+                                        });
+                                        taskList.Add(task);
+                                    }
+
+                                    await Task.WhenAll(taskList);
+                                });
+                            }
+                        }
+
+                    }
+
+                });
+
+                runningTasks.Add(task);
+            }
+
+            while (!_isStop)
+            {
+                await _signalTask.Task;
+
+                // signal event
+                MergeChangedConnection(recvTaskList);
+
+                for (int i = runningTasks.Count; i < recvTaskList.Count; i++)
+                {
+                    var signalTaskIndex = i;
+                    var task = Task.Run(async () =>
+                    {
+                        while(!_isStop)
+                        {
+                            await recvTaskList[signalTaskIndex];
+                            //if (signalTaskIndex > 0)
+                            {
+                                var receivedConnection = _connections[signalTaskIndex].Value;
+                                var receivedNetworkMessages = recvTaskList[signalTaskIndex].Result;
+                                recvTaskList[signalTaskIndex] = _connections[signalTaskIndex].Value.ReceiveMessage();
+                                {
+                                    var task = Task.Run(async () =>
+                                    {
+                                        var taskList = new List<Task>();
+                                        if (receivedNetworkMessages.Count > 10)
+                                        {
+                                            Console.WriteLine("received message {0}", receivedNetworkMessages.Count);
+                                        }
+                                        foreach (var recvNetworkMsg in receivedNetworkMessages)
+                                        {
+                                            var task = Task.Run(async () =>
+                                            {
+                                                var rpcMessage = RpcMessageHelper.CreateRpcMessage(recvNetworkMsg);
+                                                await _rpcEventHandler.OnReceived(receivedConnection, rpcMessage);
+                                            });
+                                            taskList.Add(task);
+                                        }
+
+                                        await Task.WhenAll(taskList);
+                                    });
+                                }
+                            }
+
+
+                        }
+                    });
+
+                    runningTasks.Add(task);
+                }
+            }
+
+            /*
             while (!_isStop)
             {
                 var signaledTask = await Task.WhenAny(recvTaskList);
@@ -167,27 +278,38 @@ namespace Paxos.Rpc
                 else if (signalTaskIndex > 0)
                 {
                     var receivedConnection = _connections[signalTaskIndex - 1].Value;
-                    var receivedNetworkMessage = recvTaskList[signalTaskIndex].Result;
+                    var receivedNetworkMessages = recvTaskList[signalTaskIndex].Result;
                     recvTaskList[signalTaskIndex] = _connections[signalTaskIndex - 1].Value.ReceiveMessage();
-                    //var oldSignalTask = _signalTask;
-                    //_signalTask = new TaskCompletionSource<NetworkMessage>();
-                    if (false)
+                    if (_usePreallocateTaskPool)
                     {
-                        var networkEvent = new Tuple<IConnection, NetworkMessage>(receivedConnection, receivedNetworkMessage);
+                        var networkEvent = new Tuple<IConnection, List<NetworkMessage>>(receivedConnection, receivedNetworkMessages);
                         _networkMessageQueue.Enqueue(networkEvent);
+                        _receivedMessageSemaphore.Release();
                     }
                     else
                     {
                         var task = Task.Run(async() =>
                         {
-                            var rpcMessage = RpcMessageHelper.CreateRpcMessage(receivedNetworkMessage);
-                            await _rpcEventHandler.OnReceived(receivedConnection, rpcMessage);
-                            //recvTaskList[signalTaskIndex] = _connections[signalTaskIndex - 1].Value.ReceiveMessage();
-                            //oldSignalTask.SetResult(new NetworkMessage());
+                            var taskList = new List<Task>();
+                            if (receivedNetworkMessages.Count > 10)
+                            {
+                                Console.WriteLine("received message {0}", receivedNetworkMessages.Count);
+                            }
+                            foreach(var recvNetworkMsg in receivedNetworkMessages)
+                            {
+                                var task = Task.Run(async () =>
+                                {
+                                    var rpcMessage = RpcMessageHelper.CreateRpcMessage(recvNetworkMsg);
+                                    await _rpcEventHandler.OnReceived(receivedConnection, rpcMessage);
+                                });
+                                taskList.Add(task);
+                            }
+
+                            await Task.WhenAll(taskList);
                         });
                     }
                 }
-            }
+            }*/
         }
 
         /// <summary>
@@ -198,6 +320,12 @@ namespace Paxos.Rpc
         /// <returns></returns>
         private IConnection GetConnectionInLock(NodeAddress serverAddress)
         {
+            if (!_connectionsTable.ContainsKey(serverAddress))
+            {
+                return null;
+            }
+            return _connectionsTable[serverAddress];
+
             var connectionEntry = _connections.Where(connection => connection.Key.Node.Name.Equals(serverAddress.Node.Name)).FirstOrDefault();
             if (connectionEntry.Key != null && connectionEntry.Key.Node != null && !string.IsNullOrEmpty(connectionEntry.Key.Node.Name))
             {
@@ -216,7 +344,7 @@ namespace Paxos.Rpc
         /// Merge the changed connection
         /// </summary>
         /// <param name="recvTaskList"></param>
-        private void MergeChangedConnection(List<Task<NetworkMessage>> recvTaskList)
+        private void MergeChangedConnection(List<Task<List<NetworkMessage>>> recvTaskList)
         {
             lock (_pendingAddConnections)
             {
@@ -230,7 +358,7 @@ namespace Paxos.Rpc
                     recvTaskList.Add(newConnection.Value.ReceiveMessage());
                 }
                 _pendingAddConnections.Clear();
-                recvTaskList[0] = _signalTask.Task;
+                //recvTaskList[0] = _signalTask.Task;
             }
         }
     }
@@ -264,11 +392,21 @@ namespace Paxos.Rpc
                 return null;
             }
 
-            var completionSource = new TaskCompletionSource<RpcMessage>();
-            _ongoingRequests.TryAdd(rpcRequest.RequestId, completionSource);
-            var networkMessage = RpcMessageHelper.CreateNetworkMessage(rpcRequest);
-            await connection.SendMessage(networkMessage);
-            return await completionSource.Task;
+            if (rpcRequest.NeedResp)
+            {
+                var completionSource = new TaskCompletionSource<RpcMessage>();
+                _ongoingRequests.TryAdd(rpcRequest.RequestId, completionSource);
+                var networkMessage = RpcMessageHelper.CreateNetworkMessage(rpcRequest);
+                await connection.SendMessage(networkMessage);
+                return await completionSource.Task;
+            }
+            else
+            {
+                var networkMessage = RpcMessageHelper.CreateNetworkMessage(rpcRequest);
+                await connection.SendMessage(networkMessage);
+                return null;
+            }
+
         }
 
         /// <summary>
@@ -368,13 +506,17 @@ namespace Paxos.Rpc
             {
                 rpcResp = await _rpcRequestHandler.HandleRequest(rpcRequest);
             }
-            if (rpcResp == null)
-            {
-                rpcResp = new RpcMessage()
-                { IsRequest = false, RequestId = rpcRequest.RequestId, RequestContent = "" };
-            }
 
-            await connection.SendMessage(RpcMessageHelper.CreateNetworkMessage(rpcResp));
+            if (rpcRequest.NeedResp)
+            {
+                if (rpcResp == null)
+                {
+                    rpcResp = new RpcMessage()
+                    { IsRequest = false, RequestId = rpcRequest.RequestId, RequestContent = "" };
+                }
+
+                await connection.SendMessage(RpcMessageHelper.CreateNetworkMessage(rpcResp));
+            }
         }
     }
 

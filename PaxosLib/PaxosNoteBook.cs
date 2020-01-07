@@ -191,30 +191,6 @@ namespace Paxos.Notebook
 
         }
 
-        /*
-        /// <summary>
-        /// When try to propose a new decree, get a decree no first
-        /// </summary>
-        /// <returns></returns>
-        public ulong GetNewDecreeNo(ulong clusterSize)
-        {
-            ulong nextDecreeNo = 0;
-
-            // new decree no generation is syncrhonized
-            lock(_logger)
-            {
-                nextDecreeNo = GetMaximumCommittedDecreeNoNeedLock() + 1;
-                var maxOngoingDecreeNo = GetMaxOngoingDecreeNo();
-                if (nextDecreeNo < maxOngoingDecreeNo + 1)
-                {
-                    nextDecreeNo = maxOngoingDecreeNo + 1;
-                }
-                var propose = AddPropose(nextDecreeNo, clusterSize);
-            }
-
-            return nextDecreeNo;
-        }
-        */
         /// <summary>
         /// Get the maximum committed decree no
         /// </summary>
@@ -246,64 +222,11 @@ namespace Paxos.Notebook
             return Task.FromResult(committedDecree);
         }
 
-        /*
-        public async Task<Propose> Commit(ulong decreeNo, PaxosDecree committedDecree)
-        {
-            // write the decree to ledge
-            await CommitDecreeInternal(decreeNo, committedDecree);
-
-            // propose commited, remove it from ongoing proposes
-            Propose propose = null;
-            while (!_decreeState.TryRemove(decreeNo, out propose)) ;
-
-            return propose;
-        }*/
-
         public async Task CommitDecree(ulong decreeNo, PaxosDecree commitedDecree)
         {
             await CommitDecreeInternal(decreeNo, commitedDecree);
         }
 
-
-        /*
-        public ulong GetMaxOngoingDecreeNo()
-        {
-            if (_decreeState.Count == 0)
-            {
-                return 0;
-            }
-            return _decreeState.LastOrDefault().Key;
-        }
-
-        public Propose GetPropose(ulong decreeNo)
-        {
-            Propose propose = null;
-            if (_decreeState.TryGetValue(decreeNo, out propose))
-            {
-                return propose;
-            }
-
-            return null;
-        }
-
-        public Propose AddPropose(ulong decreeNo, ulong clusterSize)
-        {
-            do
-            {
-                _decreeState.TryAdd(decreeNo, new Propose(clusterSize));
-                var propose = GetPropose(decreeNo);
-                if (propose != null)
-                {
-                    return propose;
-                }
-            } while (true);
-        }
-
-        public void UpdatePropose(ulong decreeNo, Propose propose)
-        {
-            _decreeState.AddOrUpdate(decreeNo, propose, (key, oldValue) => propose);
-        }
-        */
         public List<KeyValuePair<ulong, PaxosDecree>> GetFollowingCommittedDecress(ulong beginDecreeNo)
         {
             var committedDecrees = new List<KeyValuePair<ulong, PaxosDecree>>();
@@ -330,17 +253,6 @@ namespace Paxos.Notebook
             _committedDecrees.Clear();
         }
 
-        /*
-        public void Reset()
-        {
-            _decreeState.Clear();
-        }
-
-        public void ClearDecree(ulong decreeNo)
-        {
-            Propose propose = null;
-            _decreeState.Remove(decreeNo, out propose);
-        }*/
         private ulong GetMaximumCommittedDecreeNoNeedLock()
         {
             return _committedDecrees.LastOrDefault().Key;

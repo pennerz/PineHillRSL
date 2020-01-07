@@ -86,12 +86,19 @@ namespace Paxos.Protocol
             {
                 _lastVoteMessages.Add(lastVoteMsg);
 
-                var maxVoteMsg = GetMaximumVote();
-                if (maxVoteMsg != null)
+                if (lastVoteMsg.Commited)
                 {
-                    _decree = maxVoteMsg.VoteDecree;
+                    _decree = lastVoteMsg.VoteDecree;
                 }
+                else
+                {
+                    var maxVoteMsg = GetMaximumVote();
+                    if (maxVoteMsg != null)
+                    {
+                        _decree = maxVoteMsg.VoteDecree;
+                    }
 
+                }
                 return (ulong)_lastVoteMessages.Count;
             }
         }
@@ -199,7 +206,7 @@ namespace Paxos.Protocol
                             return NextAction.CollectLastVote;
                         }
 
-                        if (_lastVoteMessages.Count > (int)_clusterSize / 2 + 1)
+                        if (_lastVoteMessages.Count >= (int)_clusterSize / 2 + 1)
                         {
                             return NextAction.BeginBallot;
                         }
@@ -220,7 +227,7 @@ namespace Paxos.Protocol
                             return NextAction.CollectLastVote;
                         }
 
-                        if (_voteMessages.Count > (int)_clusterSize / 2 + 1)
+                        if (_voteMessages.Count >= (int)_clusterSize / 2 + 1)
                         {
                             return NextAction.Commit;
                         }
