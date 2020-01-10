@@ -1,4 +1,5 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Paxos.Common;
 using Paxos.Message;
 using Paxos.Network;
 using Paxos.Notebook;
@@ -13,6 +14,7 @@ using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.IO;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Paxos.Tests
@@ -1067,11 +1069,11 @@ namespace Paxos.Tests
 
             List<Task> taskList = new List<Task>();
             var master = tableNodeMap[cluster.Members[0].Name];
-            for (int i = 0; i < 10000; i++)
+            for (int i = 0; i < 100000; i++)
             {
                 var task =  master.InstertTable(new ReplicatedTableRequest() { Key = i.ToString(), Value = "test" + i.ToString() });
                 taskList.Add(task);
-                if (taskList.Count > 2)
+                if (taskList.Count > 4000)
                 {
                     await Task.WhenAll(taskList);
                     taskList.Clear();
@@ -1126,7 +1128,7 @@ namespace Paxos.Tests
                 if (isParallel)
                 {
                     taskList.Add(task);
-                    if (taskList.Count > 2)
+                    if (taskList.Count > 3)
                     {
                         await Task.WhenAll(taskList);
                         taskList.Clear();
@@ -1151,6 +1153,61 @@ namespace Paxos.Tests
             }
         }
 
+        [TestMethod()]
+        public async Task MultiTaskPefTest()
+        {
+            int concurrentCount = 20;
+            bool matchCal = true;
+
+            var data = Encoding.ASCII.GetBytes("aldjfalkdfjlkasdjflkasdjfklsadjflkasjdfklasdjflasdjf");
+            var str = Encoding.ASCII.GetString(data);
+
+            List<Task> tasks = new List<Task>();
+            for (int i = 0; i < concurrentCount; i++)
+            {
+                tasks.Add(Task.Run(() =>
+                {
+                    for (int i = 0; i < 1000000; i++)
+                    {
+                        var memList = new List<byte[]>();
+                        for (int j = 0; j < 1000000; j++)
+                        {
+                            if (matchCal)
+                            {
+                                double pi = 3.1414926;
+                                double d = 1414341324;
+                                double area = pi * (d / 2) * (d / 2);
+                                double circle = pi * d;
+                                //var nextBallotMessage = new NextBallotMessage();
+                                var tmpdata = new byte[128];
+                                //memList.Add(tmpdata);
+                            }
+                            else
+                            {
+                               // var str = Encoding.ASCII.GetString(data);
+                                //var result = Encoding.ASCII.GetBytes(str);
+                                var dest = System.Runtime.InteropServices.Marshal.AllocHGlobal(data.Length + 1);
+                                System.Runtime.InteropServices.Marshal.Copy(data, 0, dest, data.Length);
+
+                                //var str = System.Convert.ToBase64String(data);
+                                //var result = System.Convert.FromBase64String(str);
+                                //var nextBallotMessage = new NextBallotMessage();
+                                //nextBallotMessage.TargetNode = "testnode";
+                                //nextBallotMessage.DecreeNo = 2;
+                                //nextBallotMessage.BallotNo = 2;
+
+                                //nextBallotMessage.SourceNode = "testnode";
+                                //var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(nextBallotMessage);
+                                //var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
+                            }
+                        }
+                        memList.Clear();
+                    }
+                }));
+            }
+
+            await Task.WhenAll(tasks);
+        }
         [TestMethod()]
         public async Task PaxosNetworkPefTest()
         {
@@ -1204,7 +1261,7 @@ namespace Paxos.Tests
             {
                 bool isParallel = true;
                 var start = DateTime.Now;
-                for (int round = 0; round < 50000; round++)
+                for (int round = 0; round < 100000; round++)
                 {
                     // 1. collect decree for this instance, send NextBallotMessage
                     //foreach (var node in cluster.Members)
@@ -1217,13 +1274,20 @@ namespace Paxos.Tests
                         nextBallotMessage.DecreeNo = 2;
                         nextBallotMessage.BallotNo = 2;
 
+
                         nextBallotMessage.SourceNode = cluster.Members[0].Name;
                         var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(nextBallotMessage);
                         var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
+                        //rpcMsg.NeedResp = false;
                         var remoteAddr = new NodeAddress(new NodeInfo(node.Name), 88);
                         if (isParallel)
                         {
                             tasks.Add(rpcClient.SendRequest(remoteAddr, rpcMsg));
+                            if (tasks.Count > 500000)
+                            {
+                                await Task.WhenAll(tasks);
+                                tasks.Clear();
+                            }
                         }
                         else
                         {
@@ -1238,6 +1302,9 @@ namespace Paxos.Tests
                 var end = DateTime.Now;
                 var costTime = (end - start).TotalMilliseconds;
             }
+
+            var pefCounter = PerfCounterManager.GetInst();
+            pefCounter.GetCounterValue(0);
         }
 
         private PaxosMessage CreatePaxosMessage(RpcMessage rpcMessage)

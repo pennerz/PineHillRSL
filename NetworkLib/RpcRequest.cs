@@ -1,5 +1,6 @@
 ﻿using Paxos.Network;
 using Paxos.Common;
+using Paxos.PerCounter;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -123,6 +124,7 @@ namespace Paxos.Rpc
         public async Task<IConnection> GetConnection(NodeAddress remoteAddress)
         {
             IConnection connection = null;
+
             lock (_pendingAddConnections)
             {
                 connection = GetConnectionInLock(remoteAddress);
@@ -215,44 +217,63 @@ namespace Paxos.Rpc
                 for (int i = runningTasks.Count; i < recvTaskList.Count; i++)
                 {
                     var signalTaskIndex = i;
-                    var task = Task.Run(async () =>
+                    using (var counter = new PerfTimerCounter((int)NetworkPerfCounterType.NetworkMessageProcessTaskCreationTime))
                     {
-                        while(!_isStop)
+                        var task = Task.Run(async () =>
                         {
-                            await recvTaskList[signalTaskIndex];
-                            //if (signalTaskIndex > 0)
+                            while (!_isStop)
                             {
-                                var receivedConnection = _connections[signalTaskIndex].Value;
-                                var receivedNetworkMessages = recvTaskList[signalTaskIndex].Result;
-                                recvTaskList[signalTaskIndex] = _connections[signalTaskIndex].Value.ReceiveMessage();
+                                using (var recvCounter = new PerfTimerCounter(
+                                    (int)NetworkPerfCounterType.NetworkMessageRecvWaitTime))
                                 {
-                                    var task = Task.Run(async () =>
-                                    {
-                                        var taskList = new List<Task>();
-                                        if (receivedNetworkMessages.Count > 10)
-                                        {
-                                            Console.WriteLine("received message {0}", receivedNetworkMessages.Count);
-                                        }
-                                        foreach (var recvNetworkMsg in receivedNetworkMessages)
-                                        {
-                                            var task = Task.Run(async () =>
-                                            {
-                                                var rpcMessage = RpcMessageHelper.CreateRpcMessage(recvNetworkMsg);
-                                                await _rpcEventHandler.OnReceived(receivedConnection, rpcMessage);
-                                            });
-                                            taskList.Add(task);
-                                        }
-
-                                        await Task.WhenAll(taskList);
-                                    });
+                                    await recvTaskList[signalTaskIndex];
                                 }
+
+                                //if (signalTaskIndex > 0)
+                                {
+                                    var receivedConnection = _connections[signalTaskIndex].Value;
+                                    var receivedNetworkMessages = recvTaskList[signalTaskIndex].Result;
+
+                                    StatisticCounter.ReportCounter(
+                                        (int)NetworkPerfCounterType.NetworkMessageBatchCount,
+                                        receivedNetworkMessages.Count);
+
+                                    recvTaskList[signalTaskIndex] = _connections[signalTaskIndex].Value.ReceiveMessage();
+                                    {
+                                        var task = Task.Run(async () =>
+                                        {
+                                            using (var messageProcessTimer = new PerfTimerCounter(
+                                                (int)NetworkPerfCounterType.NetworkMessageProcessTime))
+                                            {
+                                                var taskList = new List<Task>();
+                                                if (receivedNetworkMessages.Count > 10)
+                                                {
+                                                    Console.WriteLine("received message {0}", receivedNetworkMessages.Count);
+                                                }
+                                                foreach (var recvNetworkMsg in receivedNetworkMessages)
+                                                {
+                                                    var task = Task.Run(async () =>
+                                                    {
+                                                        StatisticCounter.ReportCounter((int)NetworkPerfCounterType.ConcurrentNetworkTaskCount, 1);
+                                                        var rpcMessage = RpcMessageHelper.CreateRpcMessage(recvNetworkMsg);
+                                                        await _rpcEventHandler.OnReceived(receivedConnection, rpcMessage);
+                                                    });
+                                                    taskList.Add(task);
+                                                }
+
+                                                await Task.WhenAll(taskList);
+                                                StatisticCounter.ReportCounter((int)NetworkPerfCounterType.ConcurrentNetworkTaskCount, -taskList.Count);
+                                            }
+                                        });
+                                    }
+                                }
+
+
                             }
+                        });
+                        runningTasks.Add(task);
+                    }
 
-
-                        }
-                    });
-
-                    runningTasks.Add(task);
                 }
             }
 

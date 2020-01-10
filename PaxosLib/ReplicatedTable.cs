@@ -8,6 +8,8 @@ using Paxos.Request;
 using Paxos.Rpc;
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Paxos.ReplicatedTable
@@ -16,29 +18,94 @@ namespace Paxos.ReplicatedTable
     {
         public string Key { get; set; }
         public string Value { get; set; }
+
+        public TaskCompletionSource<bool> Result { get; set; }
+
+    }
+
+    public class BatchRplicatedTableRequest
+    {
+        List<ReplicatedTableRequest> _batchRequest = new List<ReplicatedTableRequest>();
+        public List<ReplicatedTableRequest> Requests => _batchRequest;
     }
 
     class RequestSerializer
     {
         public static string Serialize(ReplicatedTableRequest req)
         {
-            return req.Key + "_" + req.Value;
+            return "Single_" + req.Key + "_" + req.Value;
         }
 
-        public static ReplicatedTableRequest DeSerialize(string content)
+        public static string Serialize(BatchRplicatedTableRequest batchRequest)
+        {
+            var content = "Batch_";
+            foreach(var req in batchRequest.Requests)
+            {
+                content += "Request:" + req.Key + "_" + req.Value;
+            }
+
+            return content;
+        }
+
+        public static object DeSerialize(string content)
         {
             var separatorIndex = content.IndexOf('_');
-            return new ReplicatedTableRequest()
+            var type = content.Substring(0, separatorIndex);
+            if (type == "Single")
             {
-                Key = content.Substring(0, separatorIndex),
-                Value = content.Substring(separatorIndex + 1)
-            };
+                content = content.Substring(separatorIndex + 1);
+                separatorIndex = content.IndexOf('_');
+                return new ReplicatedTableRequest()
+                {
+                    Key = content.Substring(0, separatorIndex),
+                    Value = content.Substring(separatorIndex + 1)
+                };
+            }
+            else if (type == "Batch")
+            {
+                content = content.Substring(separatorIndex + 1);
+                var batchRequest = new BatchRplicatedTableRequest();
+                do
+                {
+                    separatorIndex = content.IndexOf("Request:");
+                    if (separatorIndex < 0)
+                    {
+                        break;
+                    }
+                    content = content.Substring(8);
+                    separatorIndex = content.IndexOf("Request:");
+                    string requestContent;
+                    if (separatorIndex < 0)
+                    {
+                        requestContent = content;
+                        content = "";
+                    }
+                    else
+                    {
+                        requestContent = content.Substring(0, separatorIndex);
+                        content = content.Substring(separatorIndex);
+                    }
+                    separatorIndex = requestContent.IndexOf('_');
+                    var request = new ReplicatedTableRequest()
+                    {
+                        Key = requestContent.Substring(0, separatorIndex),
+                        Value = requestContent.Substring(separatorIndex + 1)
+                    };
+                    batchRequest.Requests.Add(request);
+                } while (true);
+                return batchRequest;
+            }
+
+            return null;
         }
     }
 
     public class ReplicatedTable : StateMachine.PaxosStateMachine
     {
         Dictionary<string, string> _table = new Dictionary<string, string>();
+        int _pendingCount = 0;
+        List<ReplicatedTableRequest> _queueRequests = new List<ReplicatedTableRequest>();
+        ConcurrentDictionary<object, BatchRplicatedTableRequest> _pendingRequests = new ConcurrentDictionary<object, BatchRplicatedTableRequest>();
 
         public ReplicatedTable(
             PaxosCluster cluster,
@@ -49,21 +116,92 @@ namespace Paxos.ReplicatedTable
 
         public async Task InstertTable(ReplicatedTableRequest tableRequest)
         {
-            var request = new StateMachine.StateMachineRequest();
-            request.Content = RequestSerializer.Serialize(tableRequest);
-            await Request(request);
+            tableRequest.Result = new TaskCompletionSource<bool>();
+            lock(_queueRequests)
+            {
+                _queueRequests.Add(tableRequest);
+            }
+            var task = ProcessRequest();
+            await tableRequest.Result.Task;
+
+        }
+
+        protected Task ProcessRequest()
+        {
+            if (_pendingRequests.Count > 10)
+            {
+                return Task.CompletedTask;
+            }
+
+            var task = Task.Run(async () =>
+            {
+                while(true)
+                {
+                    var batchRequest = new BatchRplicatedTableRequest();
+                    lock (_queueRequests)
+                    {
+                        if (_queueRequests.Count > 1000 || _pendingRequests.Count == 0)
+                        {
+                            foreach (var req in _queueRequests)
+                            {
+                                batchRequest.Requests.Add(req);
+                            }
+                            _queueRequests.Clear();
+                            _pendingRequests.TryAdd(batchRequest, batchRequest);
+                        }
+                    }
+                    if (batchRequest.Requests.Count == 0)
+                    {
+                        return;
+                    }
+                    var request = new StateMachine.StateMachineRequest();
+                    request.Content = RequestSerializer.Serialize(batchRequest);
+                    await Request(request);
+                    foreach (var req in batchRequest.Requests)
+                    {
+                        req.Result.SetResult(true);
+                    }
+                    BatchRplicatedTableRequest outBatchRequest = null;
+                    _pendingRequests.TryRemove(batchRequest, out outBatchRequest);
+
+                }
+            });
+            return task;
         }
 
         protected override Task ExecuteRequest(StateMachine.StateMachineRequest request)
         {
-            var tableRequst = RequestSerializer.DeSerialize(request.Content);
-            if (_table.ContainsKey(tableRequst.Key))
+            var result = RequestSerializer.DeSerialize(request.Content);
+            var batchRequest = result as BatchRplicatedTableRequest;
+            if (batchRequest != null)
             {
-                _table[tableRequst.Key] = tableRequst.Value;
+                foreach(var tableRequst in batchRequest.Requests)
+                {
+                    if (_table.ContainsKey(tableRequst.Key))
+                    {
+                        _table[tableRequst.Key] = tableRequst.Value;
+                    }
+                    else
+                    {
+                        _table.Add(tableRequst.Key, tableRequst.Value);
+                    }
+                }
             }
             else
             {
-                _table.Add(tableRequst.Key, tableRequst.Value);
+                var tableRequest = result as ReplicatedTableRequest;
+                if (tableRequest != null)
+                {
+                    if (_table.ContainsKey(tableRequest.Key))
+                    {
+                        _table[tableRequest.Key] = tableRequest.Value;
+                    }
+                    else
+                    {
+                        _table.Add(tableRequest.Key, tableRequest.Value);
+                    }
+
+                }
             }
             return Task.CompletedTask;
         }
