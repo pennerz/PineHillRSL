@@ -33,15 +33,15 @@ namespace Paxos.ReplicatedTable
     {
         public static string Serialize(ReplicatedTableRequest req)
         {
-            return "Single_" + req.Key + "_" + req.Value;
+            return "Single@" + req.Key + "@" + req.Value;
         }
 
         public static string Serialize(BatchRplicatedTableRequest batchRequest)
         {
-            var content = "Batch_";
+            var content = "Batch@";
             foreach(var req in batchRequest.Requests)
             {
-                content += "Request:" + req.Key + "_" + req.Value;
+                content += "Request:" + req.Key + "@" + req.Value;
             }
 
             return content;
@@ -49,12 +49,12 @@ namespace Paxos.ReplicatedTable
 
         public static object DeSerialize(string content)
         {
-            var separatorIndex = content.IndexOf('_');
+            var separatorIndex = content.IndexOf('@');
             var type = content.Substring(0, separatorIndex);
             if (type == "Single")
             {
                 content = content.Substring(separatorIndex + 1);
-                separatorIndex = content.IndexOf('_');
+                separatorIndex = content.IndexOf('@');
                 return new ReplicatedTableRequest()
                 {
                     Key = content.Substring(0, separatorIndex),
@@ -85,7 +85,7 @@ namespace Paxos.ReplicatedTable
                         requestContent = content.Substring(0, separatorIndex);
                         content = content.Substring(separatorIndex);
                     }
-                    separatorIndex = requestContent.IndexOf('_');
+                    separatorIndex = requestContent.IndexOf('@');
                     var request = new ReplicatedTableRequest()
                     {
                         Key = requestContent.Substring(0, separatorIndex),
@@ -128,7 +128,7 @@ namespace Paxos.ReplicatedTable
 
         protected Task ProcessRequest()
         {
-            if (_pendingRequests.Count > 10)
+            if (_pendingRequests.Count > 200)
             {
                 return Task.CompletedTask;
             }
@@ -140,7 +140,7 @@ namespace Paxos.ReplicatedTable
                     var batchRequest = new BatchRplicatedTableRequest();
                     lock (_queueRequests)
                     {
-                        if (_queueRequests.Count > 1000 || _pendingRequests.Count == 0)
+                        if (_queueRequests.Count > 500 || _pendingRequests.Count == 0)
                         {
                             foreach (var req in _queueRequests)
                             {

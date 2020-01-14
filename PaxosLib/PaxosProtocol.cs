@@ -73,6 +73,8 @@ namespace Paxos.Protocol
             _rpcClient = rpcClient;
             _note = voterNote;
             _ledger = ledger;
+
+            WaitRpcResp = false;
         }
 
         public virtual void Dispose()
@@ -106,11 +108,13 @@ namespace Paxos.Protocol
         public async Task DeliverSuccessMessage(SuccessMessage msg)
         {
             // commit in logs
-            await _ledger.CommitDecree(msg.DecreeNo, msg.Decree);
+            await _ledger.CommitDecree(msg.DecreeNo, new PaxosDecree(msg.Decree));
 
             if (_notificationSubscriber != null)
-                await _notificationSubscriber.UpdateSuccessfullDecree(msg.DecreeNo, msg.Decree);
+                await _notificationSubscriber.UpdateSuccessfullDecree(msg.DecreeNo, new PaxosDecree(msg.Decree));
         }
+
+        public bool WaitRpcResp { get; set; }
 
         private async Task<PaxosMessage> ProcessNextBallotMessageInternal(NextBallotMessage msg)
         {
@@ -126,7 +130,7 @@ namespace Paxos.Protocol
                         BallotNo = msg.BallotNo,
                         DecreeNo = msg.DecreeNo,
                         VoteBallotNo = 0, // not applicable
-                        VoteDecree = commitedDecree,
+                        VoteDecree = commitedDecree.Content,
                         CommittedDecrees = _ledger.GetFollowingCommittedDecress(msg.DecreeNo)
                     };
                 }
@@ -162,7 +166,7 @@ namespace Paxos.Protocol
                     BallotNo = msg.BallotNo,
                     DecreeNo = msg.DecreeNo,
                     VoteBallotNo = lastVote != null ? lastVote.VotedBallotNo : 0,
-                    VoteDecree = lastVote?.VotedDecree
+                    VoteDecree = lastVote?.VotedDecree.Content
                 };
             }
         }
@@ -181,7 +185,7 @@ namespace Paxos.Protocol
                         DecreeNo = msg.DecreeNo,
                         BallotNo = msg.BallotNo,
                         Commited = true,
-                        VoteDecree = commitedDecree,
+                        VoteDecree = commitedDecree.Content,
                         CommittedDecrees = _ledger.GetFollowingCommittedDecress(msg.DecreeNo)
                     };
                 }
@@ -214,7 +218,7 @@ namespace Paxos.Protocol
                 };
 
                 // save last vote
-                oldNextBallotNo = await _note.UpdateLastVote(msg.DecreeNo, msg.BallotNo, msg.Decree);
+                oldNextBallotNo = await _note.UpdateLastVote(msg.DecreeNo, msg.BallotNo, new PaxosDecree(msg.Decree));
 
                 return voteMsg;
             }
@@ -229,6 +233,7 @@ namespace Paxos.Protocol
             paxosMessage.SourceNode = _nodeInfo.Name;
             var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(paxosMessage);
             var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
+            rpcMsg.NeedResp = WaitRpcResp;
             var remoteAddr = new NodeAddress(new NodeInfo(paxosMessage.TargetNode), 88);
 
             await _rpcClient.SendRequest(remoteAddr, rpcMsg);
@@ -308,6 +313,7 @@ namespace Paxos.Protocol
             _proposerNote = proposerNote;
             _proposeManager = proposerManager;
             Stop = false;
+            NotifyLearners = true;
         }
 
         public virtual void Dispose()
@@ -352,8 +358,14 @@ namespace Paxos.Protocol
 
             ulong nextDecreeNo = decreeNo;
 
+            TimeSpan collectLastVoteCostTimeInMs = new TimeSpan();
+            TimeSpan voteCostTimeInMs = new TimeSpan();
+            TimeSpan commitCostTimeInMs = new TimeSpan();
+
+
             do
             {
+                DateTime start = DateTime.Now;
                 // 1. get decree no
                 if (decreeNo == 0)
                 {
@@ -366,6 +378,9 @@ namespace Paxos.Protocol
                 }
 
                 var lastVoteResult = await CollectLastVote(decree, nextDecreeNo);
+                DateTime collectLastVoteTime = DateTime.Now;
+                collectLastVoteCostTimeInMs += collectLastVoteTime - start;
+                var propose = _proposeManager.GetOngoingPropose(nextDecreeNo);
                 if (lastVoteResult.IsCommitted)
                 {
                     _proposeManager.RemovePropose(nextDecreeNo);
@@ -378,12 +393,18 @@ namespace Paxos.Protocol
 
                     return new ProposeResult()
                     {
-                        Decree =  lastVoteResult.CommittedDecree,
-                        DecreeNo = lastVoteResult.DecreeNo
+                        Decree = lastVoteResult.CommittedDecree,
+                        DecreeNo = lastVoteResult.DecreeNo,
+                        CollectLastVoteTimeInMs = collectLastVoteCostTimeInMs,
+                        CommitTimeInMs = commitCostTimeInMs,
+                        VoteTimeInMs = voteCostTimeInMs,
+                        GetProposeCostTime = propose.GetProposeCostTime,
+                        GetProposeLockCostTime = propose.GetProposeLockCostTime,
+                        PrepareNewBallotCostTime = propose.PrepareNewBallotCostTime,
+                        BroadcastQueryLastVoteCostTime = propose.BroadcastQueryLastVoteCostTime
                     };
                 }
 
-                var propose = lastVoteResult.OngoingPropose;
                 var nextBallotNo = propose.GetNextBallot();
                 // check if stale message received
                 var nextAction = await propose.GetNextAction();
@@ -394,7 +415,7 @@ namespace Paxos.Protocol
                 else if (nextAction == Protocol.Propose.NextAction.Commit)
                 {
                     await CommitPropose(lastVoteResult.DecreeNo, nextBallotNo);
-
+                    commitCostTimeInMs += DateTime.Now - collectLastVoteTime;
                     if (decreeNo == 0)
                     {
                         continue;
@@ -403,12 +424,21 @@ namespace Paxos.Protocol
                     return new ProposeResult()
                     {
                         Decree = propose.GetCommittedDecree(),
-                        DecreeNo = lastVoteResult.DecreeNo
+                        DecreeNo = lastVoteResult.DecreeNo,
+                        CollectLastVoteTimeInMs = collectLastVoteCostTimeInMs,
+                        CommitTimeInMs = commitCostTimeInMs,
+                        VoteTimeInMs = voteCostTimeInMs,
+                        GetProposeCostTime = propose.GetProposeCostTime,
+                        GetProposeLockCostTime = propose.GetProposeLockCostTime,
+                        PrepareNewBallotCostTime = propose.PrepareNewBallotCostTime,
+                        BroadcastQueryLastVoteCostTime = propose.BroadcastQueryLastVoteCostTime
                     };
                 }
 
                 // begin new ballot
                 var newBallotResult = await BeginNewBallot(lastVoteResult.DecreeNo, nextBallotNo);
+                var voteTime = DateTime.Now;
+                voteCostTimeInMs += voteTime - collectLastVoteTime;
                 propose = newBallotResult.OngoingPropose;
                 nextBallotNo = propose.GetNextBallot();
                 nextAction = await propose.GetNextAction();
@@ -418,11 +448,21 @@ namespace Paxos.Protocol
                 }
                 else if (nextAction == Protocol.Propose.NextAction.Commit)
                 {
+                    var beforeCommit = DateTime.Now;
                     await CommitPropose(lastVoteResult.DecreeNo, nextBallotNo);
+                    commitCostTimeInMs += DateTime.Now - beforeCommit;
+
                     return new ProposeResult()
                     {
                         Decree = propose.GetCommittedDecree(),
-                        DecreeNo = lastVoteResult.DecreeNo
+                        DecreeNo = lastVoteResult.DecreeNo,
+                        CollectLastVoteTimeInMs = collectLastVoteCostTimeInMs,
+                        CommitTimeInMs = commitCostTimeInMs,
+                        VoteTimeInMs = voteCostTimeInMs,
+                        GetProposeCostTime = propose.GetProposeCostTime,
+                        GetProposeLockCostTime = propose.GetProposeLockCostTime,
+                        PrepareNewBallotCostTime = propose.PrepareNewBallotCostTime,
+                        BroadcastQueryLastVoteCostTime = propose.BroadcastQueryLastVoteCostTime
                     };
                 }
             } while (true);
@@ -555,6 +595,7 @@ namespace Paxos.Protocol
             PaxosDecree decree,
             ulong nextDecreeNo)
         {
+            DateTime begin = DateTime.Now;
             // 1. get decree no
             if (nextDecreeNo == 0)
             {
@@ -571,11 +612,19 @@ namespace Paxos.Protocol
                 propose = _proposeManager.AddPropose(nextDecreeNo, (ulong)_cluster.Members.Count);
             }
 
+            DateTime gotProposeTime = DateTime.Now;
+            var getProposeCostTime = gotProposeTime - begin;
+            propose.GetProposeCostTime += getProposeCostTime;
+
             ulong ballotNo = 0;
             var completionSource = new TaskCompletionSource<ProposePhaseResult>();
 
             using (var autoLock = await propose.AcquireLock())
             {
+                DateTime gotProposeLockTime = DateTime.Now;
+                var gotProposeLockCostTime = gotProposeLockTime - gotProposeTime;
+                propose.GetProposeLockCostTime += gotProposeLockCostTime;
+
                 var proposeResult = await GetProposeResult(nextDecreeNo);
                 if (proposeResult != null)
                 {
@@ -591,6 +640,10 @@ namespace Paxos.Protocol
 
                 ballotNo = propose.PrepareNewBallot(decree);
 
+                DateTime gotNewBallotTime = DateTime.Now;
+                var gotNewBallotCostTime = gotNewBallotTime - gotProposeLockTime;
+                propose.PrepareNewBallotCostTime += gotNewBallotCostTime;
+
                 propose.Result = completionSource;
 
                 if (ballotNo == 0)
@@ -599,7 +652,10 @@ namespace Paxos.Protocol
                 }
             }
 
+            DateTime beforeBroadCastTime = DateTime.Now;
             await BroadcastQueryLastVote(nextDecreeNo, ballotNo);
+            var broadCastCostTime = DateTime.Now - beforeBroadCastTime;
+            propose.BroadcastQueryLastVoteCostTime += broadCastCostTime;
 
             return await completionSource.Task;
         }
@@ -645,6 +701,8 @@ namespace Paxos.Protocol
 
             return await completionSource.Task;
         }
+
+        public bool NotifyLearners { get; set; }
 
         private async Task<Propose> CommitPropose(ulong decreeNo, ulong ballotNo)
         {
@@ -850,15 +908,20 @@ namespace Paxos.Protocol
                 {
                     continue;
                 }
-                var nextBallotMessage = new NextBallotMessage();
-                nextBallotMessage.TargetNode = node.Name;
-                nextBallotMessage.DecreeNo = decreeNo;
-                nextBallotMessage.BallotNo = nextBallotNo;
+                //var task = Task.Run(async () =>
+                //{
+                    var nextBallotMessage = new NextBallotMessage();
+                    nextBallotMessage.TargetNode = node.Name;
+                    nextBallotMessage.DecreeNo = decreeNo;
+                    nextBallotMessage.BallotNo = nextBallotNo;
+                    var task =  SendPaxosMessage(nextBallotMessage);
+                //});
 
-                tasks.Add(SendPaxosMessage(nextBallotMessage));
+                tasks.Add(task);
             }
             await Task.WhenAll(tasks);
         }
+
         private async Task BroadcastBeginNewBallot(UInt64 decreeNo, UInt64 ballotNo, PaxosDecree newBallotDecree)
         {
             var tasks = new List<Task>();
@@ -868,19 +931,27 @@ namespace Paxos.Protocol
                 {
                     continue;
                 }
-                var beginBallotMessage = new BeginBallotMessage();
-                beginBallotMessage.DecreeNo = decreeNo;
-                beginBallotMessage.BallotNo = ballotNo;
-                beginBallotMessage.TargetNode = node.Name;
-                beginBallotMessage.Decree = newBallotDecree;
+                //var task = Task.Run(async () =>
+                //{
+                    var beginBallotMessage = new BeginBallotMessage();
+                    beginBallotMessage.DecreeNo = decreeNo;
+                    beginBallotMessage.BallotNo = ballotNo;
+                    beginBallotMessage.TargetNode = node.Name;
+                    beginBallotMessage.Decree = newBallotDecree.Content;
+                    var task = SendPaxosMessage(beginBallotMessage);
+                //});
 
-                tasks.Add(SendPaxosMessage(beginBallotMessage));
+                tasks.Add(task);
             }
             await Task.WhenAll(tasks);
         }
 
         private async Task NotifyLearnersResult(ulong decreeNo, ulong ballotNo, PaxosDecree decree)
         {
+            if (!NotifyLearners)
+            {
+                return;
+            }
             var tasks = new List<Task>();
 
             foreach (var node in _cluster.Members)
@@ -889,13 +960,18 @@ namespace Paxos.Protocol
                 {
                     continue;
                 }
-                var successMessage = new SuccessMessage();
-                successMessage.TargetNode = node.Name;
-                successMessage.DecreeNo = decreeNo;
-                successMessage.BallotNo = ballotNo;
-                successMessage.Decree = decree;
+                //var task = Task.Run(async () =>
+                //{
+                    var successMessage = new SuccessMessage();
+                    successMessage.TargetNode = node.Name;
+                    successMessage.DecreeNo = decreeNo;
+                    successMessage.BallotNo = ballotNo;
+                    successMessage.Decree = decree.Content;
 
-                tasks.Add(SendPaxosMessage(successMessage));
+                    var task = SendPaxosMessage(successMessage);
+                //});
+
+                tasks.Add(task);
             }
             await Task.WhenAll(tasks);
         }
@@ -903,10 +979,17 @@ namespace Paxos.Protocol
         private async Task SendPaxosMessage(PaxosMessage paxosMessage)
         {
             paxosMessage.SourceNode = _nodeInfo.Name;
+            DateTime begin = DateTime.Now;
             var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(paxosMessage);
+            var paxosRpcMsgCostTime = DateTime.Now - begin;
             var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
             var remoteAddr = new NodeAddress(new NodeInfo(paxosMessage.TargetNode), 88);
             rpcMsg.NeedResp = false;
+            var serializeCostTime = DateTime.Now - begin;
+            if (serializeCostTime.TotalMilliseconds > 100)
+            {
+                Console.WriteLine("serialize/deserialize cost too much time");
+            }
             await _rpcClient.SendRequest(remoteAddr, rpcMsg);
         }
     }

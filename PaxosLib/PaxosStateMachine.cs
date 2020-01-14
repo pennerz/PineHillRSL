@@ -26,12 +26,12 @@ namespace Paxos.StateMachine
     {
         public static string Serialize(StateMachineRequest req)
         {
-            return req.RequestId + "_" + req.Content;
+            return req.RequestId + "#" + req.Content;
         }
 
         public static StateMachineRequest DeSerialize(string content)
         {
-            var separatorIndex = content.IndexOf('_');
+            var separatorIndex = content.IndexOf('#');
             return new StateMachineRequest()
             {
                 RequestId = content.Substring(0, separatorIndex),
@@ -148,10 +148,11 @@ namespace Paxos.StateMachine
 
         public async Task Request(StateMachineRequest request)
         {
-            while(_reqSlideWindow.GetPendingSequenceCount() > 2)
+            /*
+            while(_reqSlideWindow.GetPendingSequenceCount() > 200)
             {
                 await Task.Delay(100);
-            }
+            }*/
             request.RequestId = Guid.NewGuid().ToString();
             request.Result = new TaskCompletionSource<bool>();
             lock(_requestList)
@@ -159,7 +160,13 @@ namespace Paxos.StateMachine
                 _requestList.Add(request.RequestId, request);
 
             }
+            var begin = DateTime.Now;
             var result = await _node.ProposeDecree(new PaxosDecree() { Content = StateMachineRequestSerializer.Serialize(request) }, 0);
+            var proposeTime = DateTime.Now - begin;
+            if (proposeTime.TotalMilliseconds > 500)
+            {
+                Console.WriteLine("too slow");
+            }
 
             await request.Result.Task;
         }

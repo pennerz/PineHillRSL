@@ -39,6 +39,7 @@ namespace Paxos.Protocol
         private PaxosDecree _originalDecree = null;
         private ProposeState _state = ProposeState.Init;
 
+
         public Propose(ulong clusterSize)
         {
             _clusterSize = clusterSize;
@@ -88,14 +89,14 @@ namespace Paxos.Protocol
 
                 if (lastVoteMsg.Commited)
                 {
-                    _decree = lastVoteMsg.VoteDecree;
+                    _decree = new PaxosDecree(lastVoteMsg.VoteDecree);
                 }
                 else
                 {
                     var maxVoteMsg = GetMaximumVote();
                     if (maxVoteMsg != null)
                     {
-                        _decree = maxVoteMsg.VoteDecree;
+                        _decree = new PaxosDecree(maxVoteMsg.VoteDecree);
                     }
 
                 }
@@ -121,7 +122,7 @@ namespace Paxos.Protocol
                 var maxVoteMsg = GetMaximumVote();
                 if (maxVoteMsg != null)
                 {
-                    _decree = maxVoteMsg.VoteDecree;
+                    _decree = new PaxosDecree(maxVoteMsg.VoteDecree);
                 }
                 _state = ProposeState.BeginNewBallot;
 
@@ -291,6 +292,13 @@ namespace Paxos.Protocol
         public List<LastVoteMessage> LastVoteMessages => _lastVoteMessages;
 
         public List<VoteMessage> VotedMessages => _voteMessages;
+
+        // conters
+        public TimeSpan GetProposeCostTime { get; set; }
+        public TimeSpan GetProposeLockCostTime { get; set; }
+        public TimeSpan PrepareNewBallotCostTime { get; set; }
+        public TimeSpan BroadcastQueryLastVoteCostTime { get; set; }
+
 
         /// <summary>
         /// get the maximum vote in the ammon the lastvote messages

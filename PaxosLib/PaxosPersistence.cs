@@ -6,11 +6,19 @@ using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.IO;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Paxos.Persistence
 {
     public enum IteratorType { Default, End};
+
+    public class LogAppendRequest
+    {
+        public int Offset { get; set; }
+
+        public TaskCompletionSource<bool> Result = new TaskCompletionSource<bool>();
+    }
 
     public interface ICommittedDecreeIterator : IEquatable<ICommittedDecreeIterator>, IDisposable
     {
@@ -147,20 +155,231 @@ namespace Paxos.Persistence
         }
     }
 
-    public class FilePaxosCommitedDecreeLog : IPaxosCommitedDecreeLog
+    class Buffer
+    {
+        private byte[] _buffer = null;
+        private int _bufLen = 0;
+        public byte[] DataBuf => _buffer;
+        public int BufLen => _bufLen;
+        public int Length { get; set; }
+
+        public Buffer()
+        {
+            Length = 0;
+        }
+        public void AllocateBuffer(int size)
+        {
+            var newBuffer = new byte[size];
+            if (_buffer != null & BufLen != 0)
+            {
+                _buffer.CopyTo(newBuffer, 0);
+            }
+            _buffer = newBuffer;
+            _bufLen = size;
+        }
+
+        public void EnQueueData(byte[] data)
+        {
+            if (data == null || data.Length == 0) return;
+            if (Length + data.Length > _bufLen)
+            {
+                AllocateBuffer(_bufLen * 2);
+            }
+            data.CopyTo(_buffer, Length);
+            Length += data.Length;
+        }
+    }
+
+    public class BaseLogWriter : IDisposable
     {
         private string _dataFilePath;
         private FileStream _dataStream;
 
-        public FilePaxosCommitedDecreeLog(string dataFilePath)
+        private List<Buffer> _ringBuffer = new List<Buffer>();
+        private int _currentIndex;
+        private int _off = 0;
+        private bool _ongoing = false;
+        private List<LogAppendRequest> _appendRequestsQueue = new List<LogAppendRequest>();
+        private SemaphoreSlim _pendingRequestLock = new SemaphoreSlim(0);
+        private Task _appendTask;
+
+        public BaseLogWriter(string dataFilePath)
+        {
+            IsStop = false;
+            _dataFilePath = new string(dataFilePath);
+            for (int i = 0; i < 2; i++)
+            {
+                var buffer = new Buffer();
+                buffer.AllocateBuffer(1024 * 1024);
+                _ringBuffer.Add(buffer);
+            }
+
+
+            _appendTask = Task.Run(async () =>
+            {
+                do
+                {
+                    await _pendingRequestLock.WaitAsync();
+
+                    byte[] writeBuf = null;
+                    int writeEndOff = 0;
+                    int bufLen = 0;
+
+                    var begin = DateTime.Now;
+                    lock (_dataStream)
+                    {
+                        if (!_ongoing)
+                        {
+                            var curBuffer = _ringBuffer[_currentIndex];
+
+                            writeBuf = curBuffer.DataBuf;
+                            bufLen = curBuffer.Length;
+                            writeEndOff = _off;
+                            _currentIndex++;
+                            _currentIndex %= _ringBuffer.Count;
+                            curBuffer = _ringBuffer[_currentIndex];
+                            curBuffer.Length = 0;
+                        }
+                    }
+                    var getBufTime = DateTime.Now - begin;
+                    if (writeBuf == null || bufLen == 0)
+                    {
+                        continue;
+                    }
+                    await _dataStream.WriteAsync(writeBuf, 0, bufLen);
+                    await _dataStream.FlushAsync();
+
+                    List<LogAppendRequest> finishedReqList = new List<LogAppendRequest>();
+                    var writeStreamTime = DateTime.Now - begin - getBufTime;
+                    lock (_dataStream)
+                    {
+                        _ongoing = false;
+
+                        foreach (var req in _appendRequestsQueue)
+                        {
+                            if (writeEndOff >= req.Offset)
+                            {
+                                finishedReqList.Add(req);
+                            }
+                            else
+                            {
+                                break;
+                            }
+                        }
+                        _appendRequestsQueue.RemoveRange(0, finishedReqList.Count);
+                    }
+                    var task = Task.Run(() =>
+                    {
+                        var begin = DateTime.Now;
+                        foreach (var req in finishedReqList)
+                        {
+                            req.Result.SetResult(true);
+                        }
+                        var notifyTime = DateTime.Now - begin;
+                        if (notifyTime.TotalMilliseconds > 500)
+                        {
+                            Console.WriteLine("too slow");
+                        }
+                    });
+                    var notifyRequesTime = DateTime.Now - begin - getBufTime - writeStreamTime;
+
+                    var totoalTime = DateTime.Now - begin;
+                    if (totoalTime.TotalMilliseconds > 500)
+                    {
+                        Console.WriteLine("too slow");
+                    }
+
+                } while (!IsStop);
+            });
+        }
+
+        public async Task AppendLog(byte[] datablock1, byte[] datablock2, byte[] datablock3)
+        {
+            lock (_dataFilePath)
+            {
+                if (_dataStream == null)
+                {
+                    OpenForAppend();
+                }
+            }
+            var begin = DateTime.Now;
+            var request = new LogAppendRequest();
+            var objAllocatedTime = DateTime.Now - begin;
+
+            var blockLength = datablock1.Length;
+            if (datablock2 != null) blockLength += datablock2.Length;
+            if (datablock3 != null) blockLength += datablock3.Length;
+
+            TimeSpan lockWaitTime;
+            var beforeLock = DateTime.Now;
+            lock (_dataStream)
+            {
+                var curBuffer = _ringBuffer[_currentIndex];
+
+                lockWaitTime = DateTime.Now - beforeLock;
+                DateTime beforeCopy = DateTime.Now;
+                if (blockLength + curBuffer.Length > curBuffer.BufLen)
+                {
+                    // increase the buffer size
+                    curBuffer.AllocateBuffer(curBuffer.BufLen * 2);
+                }
+                curBuffer.EnQueueData(datablock1);
+                if (datablock2 != null)
+                {
+                    curBuffer.EnQueueData(datablock2);
+                }
+                if (datablock3 != null)
+                {
+                    curBuffer.EnQueueData(datablock3);
+                }
+                _off += blockLength;
+                request.Offset = _off;
+                _appendRequestsQueue.Add(request);
+            }
+            _pendingRequestLock.Release();
+
+            var requestInQueueTime = DateTime.Now - begin - objAllocatedTime ;
+
+
+            var taskCreateTime = DateTime.Now - begin - objAllocatedTime  - requestInQueueTime;
+
+            await request.Result.Task;
+
+            var appendTime = DateTime.Now - begin;
+            if (appendTime.TotalMilliseconds > 500)
+            {
+                Console.WriteLine("too slow");
+            }
+        }
+
+        public void OpenForAppend()
+        {
+            _dataStream?.Close();
+            _dataStream = new FileStream(_dataFilePath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.ReadWrite);
+        }
+
+        public void Dispose()
+        {
+            _dataStream?.Close();
+            _dataStream?.Dispose();
+        }
+
+        public bool IsStop { get; set; }
+    }
+
+    public class FilePaxosCommitedDecreeLog : BaseLogWriter, IPaxosCommitedDecreeLog
+    {
+        private string _dataFilePath;
+
+
+        public FilePaxosCommitedDecreeLog(string dataFilePath): base(dataFilePath)
         {
             _dataFilePath = dataFilePath;
         }
 
-        public virtual void Dispose()
+        public new void Dispose()
         {
-            _dataStream?.Close();
-            _dataStream?.Dispose();
+            base.Dispose();
         }
 
         public Task<ICommittedDecreeIterator> Begin()
@@ -175,31 +394,22 @@ namespace Paxos.Persistence
             return Task.FromResult(new FileCommittedDecreeIterator(null, 0, null, IteratorType.End) as ICommittedDecreeIterator);
         }
 
-        public void OpenForAppend()
-        {
-            _dataStream?.Close();
-            _dataStream = new FileStream(_dataFilePath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.ReadWrite);
-        }
-
         public async Task AppendLog(ulong decreeNo, PaxosDecree decree)
         {
-            lock (_dataFilePath)
-            {
-                if (_dataStream == null)
-                {
-                    OpenForAppend();
-                }
-            }
-
+            var begin = DateTime.Now;
             var data = Encoding.UTF8.GetBytes(Serializer<PaxosDecree>.Serialize(decree));
-            var dataBuf = new byte[sizeof(uint) + sizeof(ulong) + data.Length];
-            data.CopyTo(dataBuf, sizeof(uint) + sizeof(ulong));
-            BitConverter.GetBytes((uint)data.Length + sizeof(ulong)).CopyTo(dataBuf, 0);
-            BitConverter.GetBytes(decreeNo).CopyTo(dataBuf, sizeof(uint));
-            await _dataStream.WriteAsync(dataBuf, 0, dataBuf.Length);
-            await _dataStream.FlushAsync();
 
+            await AppendLog(BitConverter.GetBytes((uint)data.Length + sizeof(ulong)),
+                BitConverter.GetBytes(decreeNo), data);
+
+
+            var appendTime = DateTime.Now - begin;
+            if (appendTime.TotalMilliseconds > 500)
+            {
+                Console.WriteLine("too slow");
+            }
         }
+
     }
 
     class FileVotedBallotIterator : IVotedBallotIterator
@@ -304,19 +514,17 @@ namespace Paxos.Persistence
         }
     }
 
-    public class FilePaxosVotedBallotLog : IPaxosVotedBallotLog
+    public class FilePaxosVotedBallotLog : BaseLogWriter, IPaxosVotedBallotLog
     {
         private string _dataFilePath;
-        private FileStream _dataStream;
 
-        public FilePaxosVotedBallotLog(string dataFilePath)
+        public FilePaxosVotedBallotLog(string dataFilePath) : base(dataFilePath)
         {
             _dataFilePath = dataFilePath;
         }
-        public virtual void Dispose()
+        public new void Dispose()
         {
-            _dataStream?.Close();
-            _dataStream?.Dispose();
+            base.Dispose();
         }
 
         public Task<IVotedBallotIterator> Begin()
@@ -331,28 +539,20 @@ namespace Paxos.Persistence
             return Task.FromResult(new FileVotedBallotIterator(null, new Tuple<ulong, DecreeBallotInfo>(0, null), IteratorType.End) as IVotedBallotIterator);
         }
 
-        public void OpenForAppend()
-        {
-            _dataStream?.Close();
-            _dataStream = new FileStream(_dataFilePath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.ReadWrite);
-        }
 
         public async Task AppendLog(ulong decreeNo, DecreeBallotInfo ballotInfo)
         {
-            lock (_dataFilePath)
-            {
-                if (_dataStream == null)
-                {
-                    OpenForAppend();
-                }
-            }
+            var begin = DateTime.Now;
             var data = Encoding.UTF8.GetBytes(Serializer<DecreeBallotInfo>.Serialize(ballotInfo));
-            var dataBuf = new byte[sizeof(uint) + sizeof(ulong) + data.Length];
-            data.CopyTo(dataBuf, sizeof(uint) + sizeof(ulong) );
-            BitConverter.GetBytes((uint)data.Length + sizeof(ulong)).CopyTo(dataBuf, 0);
-            BitConverter.GetBytes(decreeNo).CopyTo(dataBuf, sizeof(uint));
-            await _dataStream.WriteAsync(dataBuf, 0, dataBuf.Length);
-            await _dataStream.FlushAsync();
+
+            await AppendLog(BitConverter.GetBytes((uint)data.Length + sizeof(ulong)),
+                BitConverter.GetBytes(decreeNo), data);
+
+            var totalTime = DateTime.Now - begin;
+            if (totalTime.TotalMilliseconds > 500)
+            {
+                Console.WriteLine("too slow");
+            }
         }
     }
 

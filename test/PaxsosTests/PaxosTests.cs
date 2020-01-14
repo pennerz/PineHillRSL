@@ -12,6 +12,7 @@ using Paxos.ReplicatedTable;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -19,11 +20,78 @@ using System.Threading.Tasks;
 
 namespace Paxos.Tests
 {
+    public class Statistic
+    {
+        private UInt64 _min = UInt64.MaxValue;
+        private UInt64 _max = 0;
+        private UInt64 _sum = 0;
+        private UInt64 _count = 0;
+        private List<int> _lock = new List<int>();
+
+        public UInt64 Min => _min;
+        public UInt64 Max => _max;
+        public UInt64 Avg
+        {
+            get
+            {
+                lock(_lock)
+                {
+                    if (_count > 0)
+                    {
+                        return _sum / _count;
+                    }
+                    return _min;
+                }
+            }
+        }
+
+        public UInt64 Count { get; set; }
+
+        public void Accumulate(UInt64 val)
+        {
+            lock(_lock)
+            {
+                if (val < _min)
+                {
+                    _min = val;
+                }
+                if (val > _max)
+                {
+                    _max = val;
+                }
+                _sum += val;
+                _count++;
+            }
+        }
+    }
     [TestClass()]
     public class PaxosTests
     {
+        [TestInitialize()]
+        public void TestIntialize()
+        {
+            int maxWorker = 0;
+            int maxIocp = 0;
+
+            ThreadPool.GetAvailableThreads(out maxWorker, out maxIocp);
+            ThreadPool.GetMinThreads(out maxWorker, out maxIocp);
+            var currentThreadCount = ThreadPool.ThreadCount;
+            if (ThreadPool.SetMinThreads(maxWorker * 4 , maxIocp * 3))
+            {
+                Console.WriteLine("success increase min threads");
+                ThreadPool.GetAvailableThreads(out maxWorker, out maxIocp);
+                currentThreadCount = ThreadPool.ThreadCount;
+            }
+        }
+
         [TestMethod()]
         public async Task BeginNewProposeTest()
+        {
+            await ProposeTest(true);
+            await ProposeTest(false);
+        }
+
+        private async Task ProposeTest(bool notifyLearner)
         {
             var cluster = new PaxosCluster();
             for (int i = 0; i < 5; i++)
@@ -44,6 +112,7 @@ namespace Paxos.Tests
 
 
             var proposer = nodeMap[cluster.Members[0].Name];
+            proposer.NotifyLearner = notifyLearner;
             var decree = new PaxosDecree()
             {
                 Content = "test"
@@ -55,7 +124,7 @@ namespace Paxos.Tests
             Assert.IsTrue(readReslut.MaxDecreeNo == 1);
 
             var proposer2 = nodeMap[cluster.Members[1].Name];
-
+            proposer2.NotifyLearner = notifyLearner;
             var decree2 = new PaxosDecree()
             {
                 Content = "test2"
@@ -89,16 +158,30 @@ namespace Paxos.Tests
             Assert.IsTrue(result.DecreeNo == 3);
             await networkInfr.WaitUntillAllReceivedMessageConsumed();
             readReslut = await proposer.ReadDecree(result.DecreeNo);
-            Assert.IsTrue(readReslut.IsFound);
-            Assert.IsTrue(readReslut.Decree.Content.Equals("test3"));
-            Assert.IsTrue(readReslut.MaxDecreeNo == 3);
+            if (notifyLearner)
+            {
+                Assert.IsTrue(readReslut.IsFound);
+                Assert.IsTrue(readReslut.Decree.Content.Equals("test3"));
+                Assert.IsTrue(readReslut.MaxDecreeNo == 3);
+            }
+            else
+            {
+                Assert.IsFalse(readReslut.IsFound);
+                Assert.IsTrue(readReslut.MaxDecreeNo == 2);
+                await proposer.ProposeDecree(new PaxosDecree("anythingelse"), 3);
+                readReslut = await proposer.ReadDecree(3);
+                Assert.IsTrue(readReslut.IsFound);
+                Assert.IsTrue(readReslut.Decree.Content.Equals("test3"));
+                Assert.IsTrue(readReslut.MaxDecreeNo == 3);
+
+            }
 
             readReslut = await proposer2.ReadDecree(result.DecreeNo);
             Assert.IsTrue(readReslut.IsFound);
             Assert.IsTrue(readReslut.Decree.Content.Equals("test3"));
             Assert.IsTrue(readReslut.MaxDecreeNo == 3);
 
-            foreach(var node in nodeMap)
+            foreach (var node in nodeMap)
             {
                 node.Value.Dispose();
             }
@@ -209,6 +292,7 @@ namespace Paxos.Tests
 
                 var rpcClient = new RpcClient(targetClientAddress);
                 var voter = new VoterRole(cluster.Members[1], cluster, rpcClient, voterNote, proposerNote);
+                voter.WaitRpcResp = true;
                 var nextBallotMsg = new NextBallotMessage();
                 nextBallotMsg.DecreeNo = 1;
                 nextBallotMsg.BallotNo = 1;
@@ -223,7 +307,7 @@ namespace Paxos.Tests
                 Assert.AreEqual(lastVoteMsg.DecreeNo, (ulong)1);
                 Assert.AreEqual(lastVoteMsg.BallotNo, (ulong)1);
                 Assert.AreEqual(lastVoteMsg.VoteBallotNo, (ulong)0);
-                Assert.IsNull(lastVoteMsg.VoteDecree);
+                Assert.AreEqual(lastVoteMsg.VoteDecree, "");
                 Assert.AreEqual(voterNote.GetNextBallotNo(nextBallotMsg.DecreeNo), (ulong)1);
                 Assert.IsFalse(lastVoteMsg.Commited);
                 msgList.Clear();
@@ -238,7 +322,7 @@ namespace Paxos.Tests
                 Assert.AreEqual(lastVoteMsg.DecreeNo, (ulong)1);
                 Assert.AreEqual(lastVoteMsg.BallotNo, (ulong)2);
                 Assert.AreEqual(lastVoteMsg.VoteBallotNo, (ulong)0);
-                Assert.IsNull(lastVoteMsg.VoteDecree);
+                Assert.AreEqual(lastVoteMsg.VoteDecree, "");
                 Assert.AreEqual(voterNote.GetNextBallotNo(nextBallotMsg.DecreeNo), (ulong)2);
                 Assert.IsFalse(lastVoteMsg.Commited);
                 msgList.Clear();
@@ -285,12 +369,12 @@ namespace Paxos.Tests
                 Assert.AreEqual(lastVoteMsg.DecreeNo, (ulong)1);
                 Assert.AreEqual(lastVoteMsg.BallotNo, (ulong)3);
                 Assert.AreEqual(lastVoteMsg.VoteBallotNo, (ulong)2);
-                Assert.AreEqual(lastVoteMsg.VoteDecree.Content, voteContent);
+                Assert.AreEqual(lastVoteMsg.VoteDecree, voteContent);
                 Assert.IsFalse(lastVoteMsg.Commited);
                 msgList.Clear();
 
                 //1.5 decree has been committed in ledger
-                await proposerNote.CommitDecree(1, lastVoteMsg.VoteDecree);
+                await proposerNote.CommitDecree(1, new PaxosDecree(lastVoteMsg.VoteDecree));
                 nextBallotMsg.BallotNo = 2; // do not care about the ballot no for committed decree
 
                 await voter.DeliverNextBallotMessage(nextBallotMsg);
@@ -300,7 +384,7 @@ namespace Paxos.Tests
                 Assert.AreEqual(lastVoteMsg.DecreeNo, (ulong)1);
                 Assert.AreEqual(lastVoteMsg.BallotNo, (ulong)2);
                 //Assert.AreEqual(lastVoteMsg.VoteBallotNo, (ulong)2);
-                Assert.AreEqual(lastVoteMsg.VoteDecree.Content, voteContent);
+                Assert.AreEqual(lastVoteMsg.VoteDecree, voteContent);
                 Assert.IsTrue(lastVoteMsg.Commited);
                 msgList.Clear();
 
@@ -323,6 +407,7 @@ namespace Paxos.Tests
                 // 2.2 has no NextBallotNo yet
                 var rpcClient = new RpcClient(targetClientAddress);
                 var voter = new VoterRole(cluster.Members[1], cluster, rpcClient, voterNote, proposerNote);
+                voter.WaitRpcResp = true;
 
                 var propserConnection = networkInfr.GetConnection(srcServerAddress, targetClientAddress);
 
@@ -332,10 +417,7 @@ namespace Paxos.Tests
                 beginBallotMsg.BallotNo = 1;
                 beginBallotMsg.SourceNode = sourceNode;
                 beginBallotMsg.TargetNode = targetNode;
-                beginBallotMsg.Decree = new PaxosDecree()
-                {
-                    Content = voteContent
-                };
+                beginBallotMsg.Decree = voteContent;
                 await voter.DeliverBeginBallotMessage(beginBallotMsg);    // no response
                 Assert.AreEqual(msgList.Count, 0);
 
@@ -362,7 +444,7 @@ namespace Paxos.Tests
                 msgList.Clear();
 
                 // 2.3 Decree committed, return a lastvotemsg, indicate the decree committed
-                await proposerNote.CommitDecree(beginBallotMsg.DecreeNo, beginBallotMsg.Decree);
+                await proposerNote.CommitDecree(beginBallotMsg.DecreeNo, new PaxosDecree(beginBallotMsg.Decree));
                 beginBallotMsg.BallotNo = 3;
                 await voter.DeliverBeginBallotMessage(beginBallotMsg);    // vote
                 Assert.AreEqual(msgList.Count, 1);
@@ -1073,7 +1155,7 @@ namespace Paxos.Tests
             {
                 var task =  master.InstertTable(new ReplicatedTableRequest() { Key = i.ToString(), Value = "test" + i.ToString() });
                 taskList.Add(task);
-                if (taskList.Count > 4000)
+                if (taskList.Count > 20000)
                 {
                     await Task.WhenAll(taskList);
                     taskList.Clear();
@@ -1117,21 +1199,58 @@ namespace Paxos.Tests
 
             var proposer = nodeMap[cluster.Members[0].Name];
 
-            var taskList = new List<Task<Paxos.Request.ProposeResult>>();
+            int workerCount = 0;
+            int iocpCount = 0;
+            ThreadPool.GetMinThreads(out workerCount, out iocpCount);
+            var currentThreadCount = ThreadPool.ThreadCount;
+
+            Statistic collectLastVoteTime = new Statistic();
+            Statistic voteTime = new Statistic();
+            Statistic commitTime = new Statistic();
+            Statistic getProposeTime = new Statistic();
+            Statistic getProposeLockTime = new Statistic();
+            Statistic prepareNewBallotTime = new Statistic();
+            Statistic broadcaseQueryLastVoteTime = new Statistic();
+
+            Statistic proposeDecreeTime = new Statistic();
+
+            var taskList = new List<Task>();
             for (int i = 0; i < 10000; i++)
             {
                 var decree = new PaxosDecree()
                 {
                     Content = "test" + i.ToString()
                 };
-                var task =  proposer.ProposeDecree(decree, 0/*nextDecreNo*/);
+                var task = Task.Run(async () =>
+                {
+                    var begin = DateTime.Now;
+                    var result = await proposer.ProposeDecree(decree, 0/*nextDecreNo*/);
+                    var proposeTime = DateTime.Now - begin;
+                    proposeDecreeTime.Accumulate((UInt64)proposeTime.TotalMilliseconds);
+                    collectLastVoteTime.Accumulate((UInt64)result.CollectLastVoteTimeInMs.TotalMilliseconds);
+                    voteTime.Accumulate((UInt64)result.VoteTimeInMs.TotalMilliseconds);
+                    commitTime.Accumulate((UInt64)result.CommitTimeInMs.TotalMilliseconds);
+                    getProposeTime.Accumulate((UInt64)result.GetProposeCostTime.TotalMilliseconds);
+                    getProposeLockTime.Accumulate((UInt64)result.GetProposeLockCostTime.TotalMilliseconds);
+                    prepareNewBallotTime.Accumulate((UInt64)result.PrepareNewBallotCostTime.TotalMilliseconds);
+                    broadcaseQueryLastVoteTime.Accumulate((UInt64)result.BroadcastQueryLastVoteCostTime.TotalMilliseconds);
+
+
+                });
                 if (isParallel)
                 {
                     taskList.Add(task);
-                    if (taskList.Count > 3)
+                    if (taskList.Count > 150)
                     {
                         await Task.WhenAll(taskList);
                         taskList.Clear();
+                    }
+                    if (i > 150)
+                    {
+                        Trace.WriteLine("Finished" + i.ToString());
+                        Debug.WriteLine("Finished" + i.ToString());
+                        Console.WriteLine("Finished" + i.ToString());
+
                     }
                 }
                 else
@@ -1156,7 +1275,7 @@ namespace Paxos.Tests
         [TestMethod()]
         public async Task MultiTaskPefTest()
         {
-            int concurrentCount = 20;
+            int concurrentCount = 40;
             bool matchCal = true;
 
             var data = Encoding.ASCII.GetBytes("aldjfalkdfjlkasdjflkasdjfklsadjflkasjdfklasdjflasdjf");
@@ -1165,49 +1284,59 @@ namespace Paxos.Tests
             List<Task> tasks = new List<Task>();
             for (int i = 0; i < concurrentCount; i++)
             {
-                tasks.Add(Task.Run(() =>
+                tasks.Add(Task.Run(async () =>
                 {
-                    for (int i = 0; i < 1000000; i++)
+                    List<Task> tasks = new List<Task>();
+                    for (int i = 0; i < 1000; i++)
                     {
-                        var memList = new List<byte[]>();
-                        for (int j = 0; j < 1000000; j++)
+                        var task = Task.Run(async () =>
                         {
-                            if (matchCal)
+                            for (int j = 0; j < 1000; j++)
                             {
-                                double pi = 3.1414926;
-                                double d = 1414341324;
-                                double area = pi * (d / 2) * (d / 2);
-                                double circle = pi * d;
-                                //var nextBallotMessage = new NextBallotMessage();
-                                var tmpdata = new byte[128];
-                                //memList.Add(tmpdata);
-                            }
-                            else
-                            {
-                               // var str = Encoding.ASCII.GetString(data);
-                                //var result = Encoding.ASCII.GetBytes(str);
-                                var dest = System.Runtime.InteropServices.Marshal.AllocHGlobal(data.Length + 1);
-                                System.Runtime.InteropServices.Marshal.Copy(data, 0, dest, data.Length);
+                                await Task.Run(() =>
+                                {
+                                    if (matchCal)
+                                    {
+                                        double pi = 3.1414926;
+                                        double d = 1414341324;
+                                        double area = pi * (d / 2) * (d / 2);
+                                        double circle = pi * d;
+                                        //var nextBallotMessage = new NextBallotMessage();
+                                        //var tmpdata = new byte[128];
+                                        //memList.Add(tmpdata);
+                                    }
+                                    else
+                                    {
+                                        // var str = Encoding.ASCII.GetString(data);
+                                        //var result = Encoding.ASCII.GetBytes(str);
+                                        var dest = System.Runtime.InteropServices.Marshal.AllocHGlobal(data.Length + 1);
+                                        System.Runtime.InteropServices.Marshal.Copy(data, 0, dest, data.Length);
 
-                                //var str = System.Convert.ToBase64String(data);
-                                //var result = System.Convert.FromBase64String(str);
-                                //var nextBallotMessage = new NextBallotMessage();
-                                //nextBallotMessage.TargetNode = "testnode";
-                                //nextBallotMessage.DecreeNo = 2;
-                                //nextBallotMessage.BallotNo = 2;
+                                        //var str = System.Convert.ToBase64String(data);
+                                        //var result = System.Convert.FromBase64String(str);
+                                        //var nextBallotMessage = new NextBallotMessage();
+                                        //nextBallotMessage.TargetNode = "testnode";
+                                        //nextBallotMessage.DecreeNo = 2;
+                                        //nextBallotMessage.BallotNo = 2;
 
-                                //nextBallotMessage.SourceNode = "testnode";
-                                //var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(nextBallotMessage);
-                                //var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
+                                        //nextBallotMessage.SourceNode = "testnode";
+                                        //var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(nextBallotMessage);
+                                        //var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
+                                    }
+
+                                });
                             }
-                        }
-                        memList.Clear();
+
+                        });
+                        tasks.Add(task);
+                        await Task.WhenAll(tasks);
                     }
                 }));
             }
 
             await Task.WhenAll(tasks);
         }
+
         [TestMethod()]
         public async Task PaxosNetworkPefTest()
         {
@@ -1322,7 +1451,7 @@ namespace Paxos.Tests
             lastVote.DecreeNo = decreeNo;
             lastVote.BallotNo = ballotNo;
             lastVote.VoteBallotNo = votedBallotNo; // never vote
-            lastVote.VoteDecree = votedDecree!= null? new PaxosDecree() { Content = votedDecree } : null;
+            lastVote.VoteDecree = votedDecree;
 
             return lastVote;
 
@@ -1363,7 +1492,7 @@ namespace Paxos.Tests
             else
             {
                 Assert.IsNotNull(lastVoteMsg.VoteDecree);
-                Assert.AreEqual(lastVoteMsg.VoteDecree.Content, votedDecreeContent);
+                Assert.AreEqual(lastVoteMsg.VoteDecree, votedDecreeContent);
             }
         }
 

@@ -142,5 +142,17 @@ namespace Paxos.Node
             var result = await _proposerRole.ReadDecree(decreeNo);
             return result;
         }
+
+        public bool NotifyLearner
+        {
+            get
+            {
+                return _proposerRole.NotifyLearners;
+            }
+            set
+            {
+                _proposerRole.NotifyLearners = value;
+            }
+        }
     }
 }

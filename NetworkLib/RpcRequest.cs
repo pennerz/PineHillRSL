@@ -43,6 +43,8 @@ namespace Paxos.Rpc
         private SemaphoreSlim _receivedMessageSemaphore = new SemaphoreSlim(0);
         private List<Task> _networkMessageProcessTask = new List<Task>();
         private bool _usePreallocateTaskPool = false;
+        //private SemaphoreSlim _lock = new SemaphoreSlim(1);
+        private List<int> _lock = new List<int>();
 
         public RpcNode(NodeAddress localAddrr, IRpcNodeEventHandler rpcNodeEventHandler)
         {
@@ -105,8 +107,13 @@ namespace Paxos.Rpc
             NodeAddress remoteAddress = connection.RemoteAddress;
             var pendingConnection = new KeyValuePair<NodeAddress, IConnection>(remoteAddress, connection);
             var newSignalTask = new TaskCompletionSource<List<NetworkMessage>>();
-            lock (_pendingAddConnections)
+
+            lock (_lock)
             {
+                if (_connectionsTable.ContainsKey(remoteAddress))
+                {
+                    return;
+                }
                 _pendingAddConnections.Add(pendingConnection);
                 _connectionsTable[remoteAddress] = connection;
 
@@ -125,26 +132,35 @@ namespace Paxos.Rpc
         {
             IConnection connection = null;
 
-            lock (_pendingAddConnections)
+            lock (_lock)
             {
                 connection = GetConnectionInLock(remoteAddress);
                 if (connection != null)
                 {
                     return connection;
                 }
+
             }
 
             connection = await NetworkFactory.CreateNetworkClient(_localAddr, remoteAddress);
             var pendingConnection = new KeyValuePair<NodeAddress, IConnection>(remoteAddress, connection);
             var newSignalTask = new TaskCompletionSource<List<NetworkMessage>>();
 
-            lock (_pendingAddConnections)
+            lock (_lock)
             {
-                _pendingAddConnections.Add(pendingConnection);
-                _connectionsTable[remoteAddress] = connection;
-                var oldSignalTask = _signalTask;
-                _signalTask = newSignalTask;
-                oldSignalTask.SetResult((List<NetworkMessage>)null);
+                var oldconnection = GetConnectionInLock(remoteAddress);
+                if (oldconnection == null)
+                {
+                    _pendingAddConnections.Add(pendingConnection);
+                    _connectionsTable[remoteAddress] = connection;
+                    var oldSignalTask = _signalTask;
+                    _signalTask = newSignalTask;
+                    oldSignalTask.SetResult((List<NetworkMessage>)null);
+                }
+                else
+                {
+                    connection = oldconnection;
+                }
             }
 
             return connection;
@@ -187,6 +203,11 @@ namespace Paxos.Rpc
                                     }
                                     foreach (var recvNetworkMsg in receivedNetworkMessages)
                                     {
+                                        var delayedReceivedTime = DateTime.Now - recvNetworkMsg.DeliveredTime;
+                                        if (delayedReceivedTime.TotalMilliseconds > 100)
+                                        {
+                                            Console.WriteLine("too slow");
+                                        }
                                         var task = Task.Run(async () =>
                                         {
                                             var rpcMessage = RpcMessageHelper.CreateRpcMessage(recvNetworkMsg);
@@ -240,8 +261,14 @@ namespace Paxos.Rpc
 
                                     recvTaskList[signalTaskIndex] = _connections[signalTaskIndex].Value.ReceiveMessage();
                                     {
-                                        var task = Task.Run(async () =>
+                                        var taskCreateTime = DateTime.Now;
+                                        //var task = Task.Run(async () =>
                                         {
+                                            var taskDelayedTime = DateTime.Now - taskCreateTime;
+                                            if (taskDelayedTime.TotalMilliseconds > 10)
+                                            {
+                                                Console.WriteLine("Task delayed time {0}", taskDelayedTime.TotalMilliseconds);
+                                            }
                                             using (var messageProcessTimer = new PerfTimerCounter(
                                                 (int)NetworkPerfCounterType.NetworkMessageProcessTime))
                                             {
@@ -252,8 +279,20 @@ namespace Paxos.Rpc
                                                 }
                                                 foreach (var recvNetworkMsg in receivedNetworkMessages)
                                                 {
+                                                    var delayedReceivedTime = DateTime.Now - recvNetworkMsg.DeliveredTime;
+                                                    if (delayedReceivedTime.TotalMilliseconds > 100)
+                                                    {
+                                                        Console.WriteLine("too slow");
+                                                    }
+
                                                     var task = Task.Run(async () =>
                                                     {
+                                                        var timeInReceivedQueue = DateTime.Now - recvNetworkMsg.DeliveredTime;
+                                                        if (timeInReceivedQueue.TotalMilliseconds > 10)
+                                                        {
+                                                            var handleDelaedTime = DateTime.Now - recvNetworkMsg.ReceivedTime;
+                                                            Console.WriteLine("received message delayed time in ms{0}", timeInReceivedQueue.TotalMilliseconds);
+                                                        }
                                                         StatisticCounter.ReportCounter((int)NetworkPerfCounterType.ConcurrentNetworkTaskCount, 1);
                                                         var rpcMessage = RpcMessageHelper.CreateRpcMessage(recvNetworkMsg);
                                                         await _rpcEventHandler.OnReceived(receivedConnection, rpcMessage);
@@ -264,11 +303,12 @@ namespace Paxos.Rpc
                                                 await Task.WhenAll(taskList);
                                                 StatisticCounter.ReportCounter((int)NetworkPerfCounterType.ConcurrentNetworkTaskCount, -taskList.Count);
                                             }
-                                        });
+                                            //});
+                                        }
                                     }
+
+
                                 }
-
-
                             }
                         });
                         runningTasks.Add(task);
@@ -367,7 +407,7 @@ namespace Paxos.Rpc
         /// <param name="recvTaskList"></param>
         private void MergeChangedConnection(List<Task<List<NetworkMessage>>> recvTaskList)
         {
-            lock (_pendingAddConnections)
+            lock (_lock)
             {
                 // remove connections
 

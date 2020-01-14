@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using Paxos.Common;
 
 namespace Paxos.Request
 {
@@ -8,9 +9,24 @@ namespace Paxos.Request
     /// Paxos decree
     /// </summary>
     [Serializable()]
-    public class PaxosDecree
+    public class PaxosDecree : ISer
     {
+        public PaxosDecree() { }
+        public PaxosDecree(string decree)
+        {
+            Content = decree;
+        }
         public string Content;
+
+        public string Serialize()
+        {
+            return Content;
+        }
+
+        public void DeSerialize(string str)
+        {
+            Content = str;
+        }
     }
 
     /// <summary>
@@ -30,5 +46,14 @@ namespace Paxos.Request
     {
         public ulong DecreeNo { get; set; }
         public PaxosDecree Decree { get; set; }
+        public TimeSpan CollectLastVoteTimeInMs { get; set; }
+        public TimeSpan VoteTimeInMs { get; set; }
+        public TimeSpan CommitTimeInMs { get; set; }
+
+        public TimeSpan GetProposeCostTime { get; set; }
+        public TimeSpan GetProposeLockCostTime { get; set; }
+        public TimeSpan PrepareNewBallotCostTime { get; set; }
+        public TimeSpan BroadcastQueryLastVoteCostTime { get; set; }
+
     }
 }

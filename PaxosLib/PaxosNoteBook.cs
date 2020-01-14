@@ -1,4 +1,5 @@
-﻿using Paxos.Message;
+﻿using Paxos.Common;
+using Paxos.Message;
 using Paxos.Persistence;
 using Paxos.Request;
 using System;
@@ -17,7 +18,7 @@ namespace Paxos.Notebook
         public PaxosDecree VotedDecree { get; set; }
     }
 
-    public class DecreeBallotInfo
+    public class DecreeBallotInfo: ISer
     {
         private SemaphoreSlim _lock = new SemaphoreSlim(1);
 
@@ -39,6 +40,80 @@ namespace Paxos.Notebook
         public ulong DecreeNo { get; set; }
         public ulong NextBallotNo { get; set; }
         public VoteInfo Vote{ get; set; }
+
+        public string Serialize()
+        {
+            if (Vote != null)
+            {
+                return "DecreeNo:" + DecreeNo.ToString() + "_" +
+                    "NextBallotNo:" + NextBallotNo.ToString() + "_" +
+                    "VotedBallotNo:" + Vote.VotedBallotNo.ToString() + "_" +
+                    "VotedDecree:" + Vote.VotedDecree.Content + "_";
+            }
+            else
+            {
+                return "DecreeNo:" + DecreeNo.ToString() + "_" +
+                    "NextBallotNo:" + NextBallotNo.ToString() + "_" ;
+            }
+        }
+
+        public void DeSerialize(string str)
+        {
+            while (str != null)
+            {
+                var index = str.IndexOf('_');
+                string subStr;
+                if (index != -1)
+                {
+                    subStr = str.Substring(0, index);
+                    str = str.Substring(index + 1);
+                }
+                else
+                {
+                    subStr = str;
+                    str = null;
+                }
+                index = subStr.IndexOf(':');
+                if (index == -1) continue;
+                var name = subStr.Substring(0, index);
+                var value = subStr.Substring(index + 1);
+                if (name.Equals("DecreeNo"))
+                {
+                    ulong result = 0;
+                    ulong.TryParse(value, out result);
+                    DecreeNo = result;
+                }
+                else if (name.Equals("NextBallotNo"))
+                {
+                    ulong result = 0;
+                    ulong.TryParse(value, out result);
+                    NextBallotNo = result;
+                }
+                else if (name.Equals("VotedBallotNo"))
+                {
+                    ulong result = 0;
+                    ulong.TryParse(value, out result);
+                    if (Vote == null)
+                    {
+                        Vote = new VoteInfo();
+                    }
+                    Vote.VotedBallotNo = result;
+                }
+                else if (name.Equals("VotedDecree"))
+                {
+                    if (Vote == null)
+                    {
+                        Vote = new VoteInfo();
+                    }
+                    if (Vote.VotedDecree == null)
+                    {
+                        Vote.VotedDecree = new PaxosDecree();
+                    }
+                    Vote.VotedDecree.Content = value;
+                }
+
+            }
+        }
     }
 
     public class VoterNote : IDisposable

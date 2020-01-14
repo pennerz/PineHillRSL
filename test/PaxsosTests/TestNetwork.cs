@@ -29,6 +29,10 @@ namespace Paxos.Tests
 
         private List<NetworkMessage> _receivedMessages = new List<NetworkMessage>();
         private SemaphoreSlim _receivedMessageSemaphore = new SemaphoreSlim(0);
+        //private SemaphoreSlim _lock = new SemaphoreSlim(1);
+        private List<int> _lock = new List<int>();
+
+        private Random _random = new Random();
 
         public TestConnection(NodeAddress localAddr, NodeAddress remoteAddr, TestNetworkInfr networkInfr)
         {
@@ -37,7 +41,7 @@ namespace Paxos.Tests
             _networkInfr = networkInfr;
         }
 
-        public Task SendMessage(NetworkMessage msg)
+        public async Task SendMessage(NetworkMessage msg)
         {
             using (var sendMsgTimer = new PerfTimerCounter((int)TestPerfCounterType.SendMessageTime))
             {
@@ -46,32 +50,46 @@ namespace Paxos.Tests
                     _remoteConnection = _networkInfr.GetConnection(_remoteAddress, _localAddress);
 
                 }
+                var begin = DateTime.Now;
+                var delayMs = _random.Next(3, 5);
+                await Task.Delay(delayMs);
+                var delayedTime = DateTime.Now - begin;
                 _remoteConnection.DeliverMessage(msg);
+                var sentTime = DateTime.Now - begin;
+                if (sentTime.TotalMilliseconds > 200)
+                {
+                    Console.WriteLine("send cost too much time");
+                }
             }
-
-            return Task.CompletedTask;
         }
 
         public async Task<List<NetworkMessage>> ReceiveMessage()
         {
+            var newMsgList = new List<NetworkMessage>();
+            List<NetworkMessage> result = null;
             do
             {
                 await _receivedMessageSemaphore.WaitAsync();
-                var newMsgList = new List<NetworkMessage>();
-                lock (_receivedMessages)
+                lock (_lock)
                 {
                     if (_receivedMessages.Count > 0)
                     {
                         //var message = _receivedMessages[0];
                         //_receivedMessages.RemoveAt(0);
                         // return message;
-
-                        var result = _receivedMessages;
+                         result = _receivedMessages;
                         _receivedMessages = newMsgList;
-                        return result;
+                        break;
                     }
                 }
             } while (true);
+
+            var now = DateTime.Now;
+            foreach (var msg in result)
+            {
+                msg.ReceivedTime = now;
+            }
+            return result;
         }
 
         /// <summary>
@@ -82,7 +100,7 @@ namespace Paxos.Tests
         {
             do
             {
-                lock (_receivedMessages)
+                lock (_lock)
                 {
                     if (_receivedMessages.Count == 0)
                     {
@@ -101,14 +119,15 @@ namespace Paxos.Tests
         /// <param name="message"></param>
         public void DeliverMessage(NetworkMessage message)
         {
-            lock (_receivedMessages)
+            lock (_lock)
             {
+                message.DeliveredTime = DateTime.Now;
                 _receivedMessages.Add(message);
             }
             _receivedMessageSemaphore.Release();
         }
 
-        public NodeAddress LocalAddress => _localAddress;
+    public NodeAddress LocalAddress => _localAddress;
 
         public NodeAddress RemoteAddress => _remoteAddress;
     }
@@ -155,7 +174,7 @@ namespace Paxos.Tests
     {
         List<TestConnection> _connections = new List<TestConnection>();
         List<TestNetworkServer> _servers = new List<TestNetworkServer>();
-        ConcurrentDictionary<int, List<TestConnection>> _connectionIndex = new ConcurrentDictionary<int, List<TestConnection>>();
+        ConcurrentDictionary<int, TestConnection> _connectionIndex = new ConcurrentDictionary<int, TestConnection>();
 
         //public List<TestConnection> NetworkConnections  => _connections;
         private bool _useConnectionMap = true;
@@ -163,8 +182,7 @@ namespace Paxos.Tests
         {
             if (_useConnectionMap)
             {
-                _connectionIndex.TryAdd(connection.LocalAddress.GetHashCode() + connection.RemoteAddress.GetHashCode() * 10, new List<TestConnection>());
-                _connectionIndex[connection.LocalAddress.GetHashCode() + connection.RemoteAddress.GetHashCode() * 10].Add(connection);
+                _connectionIndex.TryAdd(connection.LocalAddress.GetHashCode() + connection.RemoteAddress.GetHashCode() * 10, connection);
             }
             else
             {
@@ -184,30 +202,23 @@ namespace Paxos.Tests
                 if (_useConnectionMap)
                 {
                     var key = localAddr.GetHashCode() + remoteAddr.GetHashCode() * 10;
-                    List<TestConnection> connectionList = null;
-                    if (!_connectionIndex.TryGetValue(key, out connectionList))
+                    TestConnection connection = null;
+                    if (!_connectionIndex.TryGetValue(key, out connection))
                     {
                         return null;
                     }
-                    if (connectionList.Count == 1)
-                    {
-                        return connectionList[0];
-                    }
-                    else if (connectionList.Count == 0)
+                    if (connection == null)
                     {
                         return null;
                     }
                     else
                     {
-                        var matchList = connectionList.Where(connection =>
-                            connection.LocalAddress.Equals(localAddr) &&
-                            connection.RemoteAddress.Equals(remoteAddr));
-
-                        if (matchList.Count() == 0)
+                        if (connection.LocalAddress.Equals(localAddr) &&
+                            connection.RemoteAddress.Equals(remoteAddr))
                         {
-                            return null;
+                            return connection;
                         }
-                        return matchList.First();
+                        return null;
                     }
                 }
                 else
@@ -374,6 +385,7 @@ namespace Paxos.Tests
     public class TestRpcRequestHandler : IRpcRequestHandler
     {
         private List<RpcMessage> _messageList;
+        private SemaphoreSlim _lock = new SemaphoreSlim(1);
         public TestRpcRequestHandler(List<RpcMessage> rpcMssageList)
         {
             _messageList = rpcMssageList;
@@ -381,7 +393,7 @@ namespace Paxos.Tests
 
         public Task<RpcMessage> HandleRequest(RpcMessage request)
         {
-            lock(_messageList)
+            lock (_lock)
             {
                 _messageList.Add(request);
             }

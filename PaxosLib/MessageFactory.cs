@@ -65,7 +65,13 @@ namespace Paxos.Network
 
         public static PaxosRpcMessage CreatePaxosRpcMessage(PaxosMessage paxosMessage)
         {
+            var begin = DateTime.Now;
             PaxosRpcMessage rpcMessage = new PaxosRpcMessage();
+            var allocateObjCostTime = DateTime.Now - begin;
+            if (allocateObjCostTime.TotalMilliseconds > 500)
+            {
+                Console.WriteLine("too slow");
+            }
             switch (paxosMessage.MessageType)
             {
                 case PaxosMessageType.NEXTBALLOT:
