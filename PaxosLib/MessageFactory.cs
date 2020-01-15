@@ -70,7 +70,7 @@ namespace Paxos.Network
             var allocateObjCostTime = DateTime.Now - begin;
             if (allocateObjCostTime.TotalMilliseconds > 500)
             {
-                Console.WriteLine("too slow");
+                //Console.WriteLine("too slow");
             }
             switch (paxosMessage.MessageType)
             {

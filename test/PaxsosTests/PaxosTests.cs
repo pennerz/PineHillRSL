@@ -22,15 +22,15 @@ namespace Paxos.Tests
 {
     public class Statistic
     {
-        private UInt64 _min = UInt64.MaxValue;
-        private UInt64 _max = 0;
-        private UInt64 _sum = 0;
+        private double _min = UInt64.MaxValue;
+        private double _max = 0;
+        private double _sum = 0;
         private UInt64 _count = 0;
         private List<int> _lock = new List<int>();
 
-        public UInt64 Min => _min;
-        public UInt64 Max => _max;
-        public UInt64 Avg
+        public double Min => _min;
+        public double Max => _max;
+        public double Avg
         {
             get
             {
@@ -47,7 +47,7 @@ namespace Paxos.Tests
 
         public UInt64 Count { get; set; }
 
-        public void Accumulate(UInt64 val)
+        public void Accumulate(double val)
         {
             lock(_lock)
             {
@@ -1213,55 +1213,118 @@ namespace Paxos.Tests
             Statistic broadcaseQueryLastVoteTime = new Statistic();
 
             Statistic proposeDecreeTime = new Statistic();
+            Statistic taskCreateTime = new Statistic();
 
+
+            DateTime beginWait = DateTime.Now;
             var taskList = new List<Task>();
-            for (int i = 0; i < 10000; i++)
+            var reqList = new List<int>();
+            for (int i = 0; i < 50000; i++)
             {
-                var decree = new PaxosDecree()
+                if (false)
                 {
-                    Content = "test" + i.ToString()
-                };
-                var task = Task.Run(async () =>
-                {
-                    var begin = DateTime.Now;
-                    var result = await proposer.ProposeDecree(decree, 0/*nextDecreNo*/);
-                    var proposeTime = DateTime.Now - begin;
-                    proposeDecreeTime.Accumulate((UInt64)proposeTime.TotalMilliseconds);
-                    collectLastVoteTime.Accumulate((UInt64)result.CollectLastVoteTimeInMs.TotalMilliseconds);
-                    voteTime.Accumulate((UInt64)result.VoteTimeInMs.TotalMilliseconds);
-                    commitTime.Accumulate((UInt64)result.CommitTimeInMs.TotalMilliseconds);
-                    getProposeTime.Accumulate((UInt64)result.GetProposeCostTime.TotalMilliseconds);
-                    getProposeLockTime.Accumulate((UInt64)result.GetProposeLockCostTime.TotalMilliseconds);
-                    prepareNewBallotTime.Accumulate((UInt64)result.PrepareNewBallotCostTime.TotalMilliseconds);
-                    broadcaseQueryLastVoteTime.Accumulate((UInt64)result.BroadcastQueryLastVoteCostTime.TotalMilliseconds);
-
-
-                });
-                if (isParallel)
-                {
-                    taskList.Add(task);
-                    if (taskList.Count > 150)
+                    reqList.Add(i);
+                    if (reqList.Count < 50)
                     {
-                        await Task.WhenAll(taskList);
-                        taskList.Clear();
+                        continue;
                     }
-                    if (i > 150)
+                    beginWait = DateTime.Now;
+                    Parallel.ForEach(reqList,  (int val) =>
                     {
-                        Trace.WriteLine("Finished" + i.ToString());
-                        Debug.WriteLine("Finished" + i.ToString());
-                        Console.WriteLine("Finished" + i.ToString());
+                        var decree = new PaxosDecree()
+                        {
+                            Content = "test" + val.ToString()
+                        };
+                        //var task = Task.Run(async () =>
+                        //{
+                        var begin = DateTime.Now;
+                        var task =  proposer.ProposeDecree(decree, 0/*nextDecreNo*/);
+                        var result = task.Result;
+                        var proposeTime = DateTime.Now - begin;
+                        proposeDecreeTime.Accumulate(proposeTime.TotalMilliseconds);
+                        collectLastVoteTime.Accumulate(result.CollectLastVoteTimeInMs.TotalMilliseconds);
+                        voteTime.Accumulate(result.VoteTimeInMs.TotalMilliseconds);
+                        commitTime.Accumulate(result.CommitTimeInMs.TotalMilliseconds);
+                        getProposeTime.Accumulate(result.GetProposeCostTime.TotalMilliseconds);
+                        getProposeLockTime.Accumulate(result.GetProposeLockCostTime.TotalMilliseconds);
+                        prepareNewBallotTime.Accumulate(result.PrepareNewBallotCostTime.TotalMilliseconds);
+                        broadcaseQueryLastVoteTime.Accumulate(result.BroadcastQueryLastVoteCostTime.TotalMilliseconds);
+                        //});
 
-                    }
+                    });
+                    var waitTime = DateTime.Now - beginWait;
+                    reqList.Clear();
                 }
                 else
                 {
-                    await task;
+                    var decree = new PaxosDecree()
+                    {
+                        Content = "test" + i.ToString()
+                    };
+                    var beforeCreateTaskTime = DateTime.Now;
+                    var task = Task.Run(async () =>
+                    {
+                        var begin = DateTime.Now;
+                        var result = await proposer.ProposeDecree(decree, 0/*nextDecreNo*/);
+                        var proposeTime = DateTime.Now - begin;
+                        proposeDecreeTime.Accumulate(proposeTime.TotalMilliseconds);
+                        collectLastVoteTime.Accumulate(result.CollectLastVoteTimeInMs.TotalMilliseconds);
+                        voteTime.Accumulate(result.VoteTimeInMs.TotalMilliseconds);
+                        commitTime.Accumulate(result.CommitTimeInMs.TotalMilliseconds);
+                        getProposeTime.Accumulate(result.GetProposeCostTime.TotalMilliseconds);
+                        getProposeLockTime.Accumulate(result.GetProposeLockCostTime.TotalMilliseconds);
+                        prepareNewBallotTime.Accumulate(result.PrepareNewBallotCostTime.TotalMilliseconds);
+                        broadcaseQueryLastVoteTime.Accumulate(result.BroadcastQueryLastVoteCostTime.TotalMilliseconds);
+
+
+                    });
+                    var afterCreateTaskTime = DateTime.Now;
+                    taskCreateTime.Accumulate((afterCreateTaskTime - beforeCreateTaskTime).TotalMilliseconds);
+                    if (isParallel)
+                    {
+                        taskList.Add(task);
+                        if (taskList.Count > 500)
+                        {
+                            //await Task.WhenAll(taskList);
+                            DateTime firstFinishTime = DateTime.MaxValue;
+                            while (taskList.Count > 0)
+                            {
+                                var finishedIndex = Task.WaitAny(taskList.ToArray());
+                                taskList.RemoveAt(finishedIndex);
+                                if (DateTime.Now < firstFinishTime)
+                                {
+                                    firstFinishTime = DateTime.Now;
+                                }
+                            }
+                            var firstWaitTime = firstFinishTime - beginWait;
+                            var waitTime = DateTime.Now - beginWait;
+                            taskList.Clear();
+                            beginWait = DateTime.Now;
+
+                            if (i > 500)
+                            {
+                                Trace.WriteLine("Finished" + i.ToString());
+                                Debug.WriteLine("Finished" + i.ToString());
+                                Console.WriteLine("Finished" + i.ToString());
+
+                            }
+                        }
+                    }
+                    else
+                    {
+                        await task;
+                    }
+
                 }
             }
 
-            if (isParallel)
+            if (true)
             {
-                await Task.WhenAll(taskList);
+                if (isParallel)
+                {
+                    await Task.WhenAll(taskList);
+                }
+
             }
             var end = DateTime.Now;
             var costTime = (end - start).TotalMilliseconds;

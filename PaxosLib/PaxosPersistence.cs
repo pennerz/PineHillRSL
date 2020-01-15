@@ -278,7 +278,7 @@ namespace Paxos.Persistence
                         var notifyTime = DateTime.Now - begin;
                         if (notifyTime.TotalMilliseconds > 500)
                         {
-                            Console.WriteLine("too slow");
+                            //Console.WriteLine("too slow");
                         }
                     });
                     var notifyRequesTime = DateTime.Now - begin - getBufTime - writeStreamTime;
@@ -286,7 +286,7 @@ namespace Paxos.Persistence
                     var totoalTime = DateTime.Now - begin;
                     if (totoalTime.TotalMilliseconds > 500)
                     {
-                        Console.WriteLine("too slow");
+                        //Console.WriteLine("too slow");
                     }
 
                 } while (!IsStop);
@@ -348,7 +348,7 @@ namespace Paxos.Persistence
             var appendTime = DateTime.Now - begin;
             if (appendTime.TotalMilliseconds > 500)
             {
-                Console.WriteLine("too slow");
+                //Console.WriteLine("too slow");
             }
         }
 
@@ -406,7 +406,7 @@ namespace Paxos.Persistence
             var appendTime = DateTime.Now - begin;
             if (appendTime.TotalMilliseconds > 500)
             {
-                Console.WriteLine("too slow");
+                //Console.WriteLine("too slow");
             }
         }
 
@@ -551,7 +551,7 @@ namespace Paxos.Persistence
             var totalTime = DateTime.Now - begin;
             if (totalTime.TotalMilliseconds > 500)
             {
-                Console.WriteLine("too slow");
+                //Console.WriteLine("too slow");
             }
         }
     }

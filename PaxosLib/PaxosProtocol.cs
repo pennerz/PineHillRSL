@@ -544,7 +544,7 @@ namespace Paxos.Protocol
                             }
                             else
                             {
-                                Console.WriteLine("error");
+                                //Console.WriteLine("stale message");
 
                             }
 
@@ -988,7 +988,7 @@ namespace Paxos.Protocol
             var serializeCostTime = DateTime.Now - begin;
             if (serializeCostTime.TotalMilliseconds > 100)
             {
-                Console.WriteLine("serialize/deserialize cost too much time");
+                //Console.WriteLine("serialize/deserialize cost too much time");
             }
             await _rpcClient.SendRequest(remoteAddr, rpcMsg);
         }

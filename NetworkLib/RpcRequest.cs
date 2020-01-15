@@ -199,14 +199,14 @@ namespace Paxos.Rpc
                                     var taskList = new List<Task>();
                                     if (receivedNetworkMessages.Count > 10)
                                     {
-                                        Console.WriteLine("received message {0}", receivedNetworkMessages.Count);
+                                        //Console.WriteLine("received message {0}", receivedNetworkMessages.Count);
                                     }
                                     foreach (var recvNetworkMsg in receivedNetworkMessages)
                                     {
                                         var delayedReceivedTime = DateTime.Now - recvNetworkMsg.DeliveredTime;
                                         if (delayedReceivedTime.TotalMilliseconds > 100)
                                         {
-                                            Console.WriteLine("too slow");
+                                            //Console.WriteLine("too slow");
                                         }
                                         var task = Task.Run(async () =>
                                         {
@@ -267,7 +267,7 @@ namespace Paxos.Rpc
                                             var taskDelayedTime = DateTime.Now - taskCreateTime;
                                             if (taskDelayedTime.TotalMilliseconds > 10)
                                             {
-                                                Console.WriteLine("Task delayed time {0}", taskDelayedTime.TotalMilliseconds);
+                                                //Console.WriteLine("Task delayed time {0}", taskDelayedTime.TotalMilliseconds);
                                             }
                                             using (var messageProcessTimer = new PerfTimerCounter(
                                                 (int)NetworkPerfCounterType.NetworkMessageProcessTime))
@@ -275,14 +275,14 @@ namespace Paxos.Rpc
                                                 var taskList = new List<Task>();
                                                 if (receivedNetworkMessages.Count > 10)
                                                 {
-                                                    Console.WriteLine("received message {0}", receivedNetworkMessages.Count);
+                                                    //Console.WriteLine("received message {0}", receivedNetworkMessages.Count);
                                                 }
                                                 foreach (var recvNetworkMsg in receivedNetworkMessages)
                                                 {
                                                     var delayedReceivedTime = DateTime.Now - recvNetworkMsg.DeliveredTime;
                                                     if (delayedReceivedTime.TotalMilliseconds > 100)
                                                     {
-                                                        Console.WriteLine("too slow");
+                                                        //Console.WriteLine("too slow");
                                                     }
 
                                                     var task = Task.Run(async () =>
@@ -291,7 +291,7 @@ namespace Paxos.Rpc
                                                         if (timeInReceivedQueue.TotalMilliseconds > 10)
                                                         {
                                                             var handleDelaedTime = DateTime.Now - recvNetworkMsg.ReceivedTime;
-                                                            Console.WriteLine("received message delayed time in ms{0}", timeInReceivedQueue.TotalMilliseconds);
+                                                            //Console.WriteLine("received message delayed time in ms{0}", timeInReceivedQueue.TotalMilliseconds);
                                                         }
                                                         StatisticCounter.ReportCounter((int)NetworkPerfCounterType.ConcurrentNetworkTaskCount, 1);
                                                         var rpcMessage = RpcMessageHelper.CreateRpcMessage(recvNetworkMsg);

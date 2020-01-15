@@ -19,7 +19,7 @@ namespace Paxos.Tests
     /// in the TestNetworkInfr. When message is sent, it will find the pair
     /// connection object and deliver the message to it direclty.
     /// </summary>
-    class TestConnection : IConnection
+    public class TestConnection : IConnection
     {
         private readonly TestNetworkInfr _networkInfr;
         private readonly NodeAddress _localAddress;
@@ -58,7 +58,7 @@ namespace Paxos.Tests
                 var sentTime = DateTime.Now - begin;
                 if (sentTime.TotalMilliseconds > 200)
                 {
-                    Console.WriteLine("send cost too much time");
+                    //Console.WriteLine("send cost too much time");
                 }
             }
         }
@@ -135,7 +135,7 @@ namespace Paxos.Tests
     /// <summary>
     /// A container for one node's connections
     /// </summary>
-    class TestNodeConnections
+    public class TestNodeConnections
     {
         private NodeAddress _localAddress;
         private ConcurrentDictionary<NodeAddress, TestConnection> _connections =
@@ -170,7 +170,7 @@ namespace Paxos.Tests
     /// Network map which include all the nodes' connections. Test connection
     /// rely on it to find the right connection to deliver the message.
     /// </summary>
-    class TestNetworkInfr
+    public class TestNetworkInfr
     {
         List<TestConnection> _connections = new List<TestConnection>();
         List<TestNetworkServer> _servers = new List<TestNetworkServer>();
@@ -264,7 +264,7 @@ namespace Paxos.Tests
     /// <summary>
     /// Test implementation of INetworkServer. 
     /// </summary>
-    class TestNetworkServer : INetworkServer
+    public class TestNetworkServer : INetworkServer
     {
         private IConnectionChangeNotification _connectionNotifier;
         private TestNodeConnections _clientConnections;
@@ -326,7 +326,7 @@ namespace Paxos.Tests
     /// <summary>
     /// Test network object creator
     /// </summary>
-    class TestNetworkCreator : INetworkCreator
+    public class TestNetworkCreator : INetworkCreator
     {
         private TestNetworkInfr _networkInfr;
 
