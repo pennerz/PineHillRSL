@@ -1175,6 +1175,51 @@ namespace Paxos.Tests
         }
 
         [TestMethod()]
+        public async Task StateMachineCheckpointTest()
+        {
+            Dictionary<string, string> _table = new Dictionary<string, string>();
+            var start = DateTime.Now;
+            var end = DateTime.Now;
+            var costTime = (end - start).TotalMilliseconds;
+
+            var cluster = new PaxosCluster();
+            for (int i = 0; i < 5; i++)
+            {
+                var node = new NodeInfo("Node" + i.ToString());
+                cluster.Members.Add(node);
+            }
+
+            var networkInfr = new TestNetworkInfr();
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
+
+            var tableNodeMap = new Dictionary<string, ReplicatedTable.ReplicatedTable>();
+            foreach (var nodeInfo in cluster.Members)
+            {
+                var node = new ReplicatedTable.ReplicatedTable(cluster, nodeInfo);
+                tableNodeMap[nodeInfo.Name] = node;
+            }
+
+            start = DateTime.Now;
+
+            var master = tableNodeMap[cluster.Members[0].Name];
+            for (int i = 0; i < 1000; i++)
+            {
+                var task = master.InstertTable(new ReplicatedTableRequest() { Key = i.ToString(), Value = "test" + i.ToString() });
+                await task;
+            }
+
+            end = DateTime.Now;
+
+            costTime = (end - start).TotalMilliseconds;
+            Console.WriteLine("TPS: {0}", 10000 * 1000 / costTime);
+
+            foreach (var node in tableNodeMap)
+            {
+                node.Value.Dispose();
+            }
+        }
+
+        [TestMethod()]
         public async Task PaxosPefTest()
         {
             var cluster = new PaxosCluster();

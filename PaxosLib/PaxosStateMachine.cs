@@ -9,6 +9,7 @@ using Paxos.Request;
 using Paxos.Rpc;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -17,6 +18,7 @@ namespace Paxos.StateMachine
     public class StateMachineRequest
     {
         public string RequestId { get; set; }
+        public UInt64 SequenceId { get; set; }
         public string Content { get; set; }
 
         public TaskCompletionSource<bool> Result { get; set; }
@@ -26,94 +28,30 @@ namespace Paxos.StateMachine
     {
         public static string Serialize(StateMachineRequest req)
         {
-            return req.RequestId + "#" + req.Content;
+            return req.RequestId + "#" + req.SequenceId.ToString() + "#" + req.Content;
         }
 
         public static StateMachineRequest DeSerialize(string content)
         {
             var separatorIndex = content.IndexOf('#');
+            var requestId = content.Substring(0, separatorIndex);
+            content = content.Substring(separatorIndex + 1);
+            separatorIndex = content.IndexOf('#');
+            UInt64 sequenceId = 0;
+            UInt64.TryParse(content.Substring(0, separatorIndex), out sequenceId);
             return new StateMachineRequest()
             {
-                RequestId = content.Substring(0, separatorIndex),
+                RequestId = requestId,
+                SequenceId = sequenceId,
                 Content = content.Substring(separatorIndex + 1)
             };
-        }
-    }
-
-    public class SlideWindow
-    {
-        public class Item
-        {
-            public ulong Seq { get; set; }
-            public object Content { get; set; }
-        }
-
-        SemaphoreSlim _lock = new SemaphoreSlim(1);
-        private ulong _baseSeq = 0;
-        private ulong _lastReadySeq = 0;
-        private SortedList<ulong, Item> _itemList = new SortedList<ulong, Item>();
-
-        public SlideWindow(ulong baseSeq)
-        {
-            _baseSeq = baseSeq;
-            _lastReadySeq = _baseSeq;
-        }
-
-        public void Add(ulong seq, object content)
-        {
-            var item = new Item() { Seq = seq, Content = content };
-            lock(_itemList)
-            {
-                if (!_itemList.ContainsKey(seq))
-                {
-                    _itemList.Add(seq, item);
-                }
-            }
-        }
-
-        public Item Pop()
-        {
-            lock (_itemList)
-            {
-                if (_itemList.Count == 0)
-                {
-                    return null;
-                }
-
-                if (_itemList.Keys[0] == _lastReadySeq + 1)
-                {
-                    _lastReadySeq += 1;
-                    var item = _itemList[_lastReadySeq];
-                    _itemList.RemoveAt(0);
-                    return item;
-                }
-
-                return null;
-            }
-        }
-
-        public ulong GetPendingSequenceCount()
-        {
-            lock(_itemList)
-            {
-                return (ulong)_itemList.Count;
-            }
-        }
-
-        public Task WaitReadyToContinue()
-        {
-            if (_itemList.Count < 10)
-            {
-                return Task.CompletedTask;
-            }
-            return _lock.WaitAsync();
         }
     }
 
     public abstract class PaxosStateMachine : IDisposable, IPaxosNotification
     {
         private PaxosNode _node;
-        private SlideWindow _reqSlideWindow = new SlideWindow(0);
+        private SlidingWindow _reqSlideWindow = new SlidingWindow(0, null);
         SemaphoreSlim _lock = new SemaphoreSlim(1);
         private Dictionary<string, StateMachineRequest> _requestList = new Dictionary<string, StateMachineRequest>();
 
@@ -167,6 +105,7 @@ namespace Paxos.StateMachine
             {
                 Console.WriteLine("too slow");
             }
+            request.SequenceId = result.DecreeNo;
 
             await request.Result.Task;
         }
@@ -179,6 +118,7 @@ namespace Paxos.StateMachine
                 SequenceNo = decreeNo,
                 Request = StateMachineRequestSerializer.DeSerialize(decree.Content)
             };
+            internalRequest.Request.SequenceId = decreeNo;
             _reqSlideWindow.Add(decreeNo, internalRequest);
             var task = Task.Run(async () =>
             {
@@ -213,12 +153,13 @@ namespace Paxos.StateMachine
             return Task.CompletedTask;
         }
 
-        public virtual Task Checkpoint()
+        public Task<UInt64> Checkpoint(Stream checkpointStream)
         {
-            return Task.CompletedTask;
+            return OnCheckpoint(checkpointStream);
         }
 
         protected abstract Task ExecuteRequest(StateMachineRequest request);
+        protected abstract Task<UInt64> OnCheckpoint(Stream checkpointStream);
 
     }
 }

@@ -10,6 +10,7 @@ using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;
+using System.IO;
 
 namespace Paxos.Protocol
 {
@@ -17,7 +18,7 @@ namespace Paxos.Protocol
     public interface IPaxosNotification
     {
         Task UpdateSuccessfullDecree(UInt64 decreeNo, PaxosDecree decree);
-        Task Checkpoint();
+        Task<UInt64> Checkpoint(Stream checkpointStream);
     }
 
     public interface IPaxosStateMachine
@@ -325,6 +326,29 @@ namespace Paxos.Protocol
         }
 
         public bool Stop { get; set; }
+
+        public async Task Checkpoint()
+        {
+            // all the decree before decreeno has been checkpointed.
+            // reserver the logs from the lowest position of the positions of decrees which are bigger than decreeNo
+            if (_notificationSubscriber != null)
+            {
+                // get next checkpoint file
+                FileStream fileStream = null;
+                string filepath;
+                do
+                {
+                    filepath = "checkpoint.001";
+                    fileStream = new FileStream(filepath, FileMode.Create, FileAccess.Write, FileShare.Write);
+                    break;
+                } while (true);
+
+                var decreeNo = await _notificationSubscriber.Checkpoint(fileStream);
+
+                // save new metadata
+                await _proposerNote.Checkpoint(filepath, decreeNo);
+            }
+        }
 
         public async Task<DecreeReadResult> ReadDecree(ulong decreeNo)
         {
@@ -707,6 +731,7 @@ namespace Paxos.Protocol
         private async Task<Propose> CommitPropose(ulong decreeNo, ulong ballotNo)
         {
             var propose = _proposeManager.GetOngoingPropose(decreeNo);
+            Persistence.AppendPosition position;
             using (var autoLock = await propose.AcquireLock())
             {
                 if (!propose.Commit(ballotNo))
@@ -715,7 +740,7 @@ namespace Paxos.Protocol
                     return null;
                 }
 
-                await _proposerNote.CommitDecree(decreeNo, propose.GetCommittedDecree());
+                position = await _proposerNote.CommitDecree(decreeNo, propose.GetCommittedDecree());
             }
 
             await NotifyLearnersResult(decreeNo, ballotNo, propose.GetCommittedDecree());
@@ -724,6 +749,13 @@ namespace Paxos.Protocol
             if (_notificationSubscriber != null)
                 await _notificationSubscriber?.UpdateSuccessfullDecree(decreeNo, propose.GetCommittedDecree());
 
+            // check if need to checkpoint
+            if (position.TotalOffset > 1024 )
+            {
+                await Checkpoint();
+            }
+
+            // Max played 
             return propose;
         }
 

@@ -1,4 +1,5 @@
-﻿using Paxos.Protocol;
+﻿using Paxos.Common;
+using Paxos.Protocol;
 using Paxos.Network;
 using Paxos.Node;
 using Paxos.Persistence;
@@ -9,6 +10,8 @@ using Paxos.Rpc;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -106,6 +109,8 @@ namespace Paxos.ReplicatedTable
         int _pendingCount = 0;
         List<ReplicatedTableRequest> _queueRequests = new List<ReplicatedTableRequest>();
         ConcurrentDictionary<object, BatchRplicatedTableRequest> _pendingRequests = new ConcurrentDictionary<object, BatchRplicatedTableRequest>();
+        SemaphoreSlim _tableUpdateLock = new SemaphoreSlim(1);
+        UInt64 _lastestSeqNo = 0;
 
         public ReplicatedTable(
             PaxosCluster cluster,
@@ -169,22 +174,28 @@ namespace Paxos.ReplicatedTable
             return task;
         }
 
-        protected override Task ExecuteRequest(StateMachine.StateMachineRequest request)
+        protected override async Task ExecuteRequest(StateMachine.StateMachineRequest request)
         {
             var result = RequestSerializer.DeSerialize(request.Content);
             var batchRequest = result as BatchRplicatedTableRequest;
             if (batchRequest != null)
             {
-                foreach(var tableRequst in batchRequest.Requests)
+                await _tableUpdateLock.WaitAsync();
+                var autoLock = new AutoLock(_tableUpdateLock);
+                using (autoLock)
                 {
-                    if (_table.ContainsKey(tableRequst.Key))
+                    foreach (var tableRequst in batchRequest.Requests)
                     {
-                        _table[tableRequst.Key] = tableRequst.Value;
+                        if (_table.ContainsKey(tableRequst.Key))
+                        {
+                            _table[tableRequst.Key] = tableRequst.Value;
+                        }
+                        else
+                        {
+                            _table.Add(tableRequst.Key, tableRequst.Value);
+                        }
                     }
-                    else
-                    {
-                        _table.Add(tableRequst.Key, tableRequst.Value);
-                    }
+                    _lastestSeqNo = request.SequenceId;
                 }
             }
             else
@@ -192,19 +203,70 @@ namespace Paxos.ReplicatedTable
                 var tableRequest = result as ReplicatedTableRequest;
                 if (tableRequest != null)
                 {
-                    if (_table.ContainsKey(tableRequest.Key))
+                    lock (_tableUpdateLock)
                     {
-                        _table[tableRequest.Key] = tableRequest.Value;
+                        if (_table.ContainsKey(tableRequest.Key))
+                        {
+                            _table[tableRequest.Key] = tableRequest.Value;
+                        }
+                        else
+                        {
+                            _table.Add(tableRequest.Key, tableRequest.Value);
+                        }
+                        _lastestSeqNo = request.SequenceId;
                     }
-                    else
-                    {
-                        _table.Add(tableRequest.Key, tableRequest.Value);
-                    }
-
                 }
             }
-            return Task.CompletedTask;
+            return ;
         }
 
+        protected override async Task<UInt64> OnCheckpoint(Stream checkpointStream)
+        {
+            var databuf = new byte[1024 * 4096]; // 4M buffer
+            UInt64 checkpointedSeqNo = 0;
+            await _tableUpdateLock.WaitAsync();
+            var autoLock = new AutoLock(_tableUpdateLock);
+            using (autoLock)
+            {
+                foreach(var row in _table)
+                {
+                    int datalen = 0;
+                    while(!SerializeRow(row.Key, row.Value, databuf, out datalen))
+                    {
+                        databuf = new byte[databuf.Length * 2];
+                    }
+                    await checkpointStream.WriteAsync(databuf, 0, datalen);
+                }
+
+                checkpointedSeqNo = _lastestSeqNo;
+            }
+            return checkpointedSeqNo;
+        }
+
+        private static bool SerializeRow(string key, string val, byte[] databuf, out int len)
+        {
+            // recordSizexxxx#xxxx
+            var separatorData = Encoding.UTF8.GetBytes("#");
+            var keyData = Encoding.UTF8.GetBytes(key);
+            var valData = Encoding.UTF8.GetBytes(val);
+            int recordSize = separatorData.Length + keyData.Length + valData.Length;
+            var sizeData = BitConverter.GetBytes(recordSize);
+            if (databuf.Length < recordSize + sizeData.Length)
+            {
+                len = 0;
+                return false;
+            }
+            int sizeInBuf = 0;
+            System.Buffer.BlockCopy(sizeData, 0, databuf, 0, sizeData.Length);
+            sizeInBuf += sizeData.Length;
+            System.Buffer.BlockCopy(keyData, 0, databuf, sizeInBuf, keyData.Length);
+            sizeInBuf += keyData.Length;
+            System.Buffer.BlockCopy(separatorData, 0, databuf, sizeInBuf, separatorData.Length);
+            sizeInBuf += separatorData.Length;
+            System.Buffer.BlockCopy(valData, 0, databuf, sizeInBuf, valData.Length);
+            sizeInBuf += valData.Length;
+            len = sizeInBuf;
+            return true;
+        }
     }
 }

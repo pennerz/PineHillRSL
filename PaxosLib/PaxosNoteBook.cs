@@ -5,6 +5,7 @@ using Paxos.Request;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.IO;
 using System.Text;
 using System.Linq;
 using System.Threading;
@@ -234,13 +235,73 @@ namespace Paxos.Notebook
         }
     }
 
+    public class MetaRecord
+    {
+        private UInt64 _decreeNo = 0;
+        private string _checkpointFile;
+
+        public MetaRecord(UInt64 decreeNo, string checkpointFile)
+        {
+            _decreeNo = decreeNo;
+            _checkpointFile = checkpointFile;
+        }
+
+        public UInt64 DecreeNo => _decreeNo;
+
+        public string CheckpointFilePath => _checkpointFile;
+
+        public byte[] Serialize()
+        {
+            var filePathData = Encoding.UTF8.GetBytes(_checkpointFile);
+            var decreeNoData = BitConverter.GetBytes(_decreeNo);
+            int recrodSize = filePathData.Length + decreeNoData.Length;
+            var sizeData = BitConverter.GetBytes(recrodSize);
+            var buf = new Paxos.Persistence.Buffer();
+            buf.AllocateBuffer(recrodSize + sizeData.Length);
+            buf.EnQueueData(sizeData);
+            buf.EnQueueData(decreeNoData);
+            buf.EnQueueData(filePathData);
+            return buf.DataBuf;
+        }
+
+        public void DeSerialize(byte[] buf)
+        {
+            var recordSize = BitConverter.ToInt32(buf, 0);
+            if (recordSize < sizeof(int) + sizeof(UInt64))
+            {
+                return;
+            }
+            _decreeNo = BitConverter.ToUInt64(buf, sizeof(int));
+            _checkpointFile = Encoding.UTF8.GetString(buf, sizeof(int) + sizeof(UInt64), recordSize - sizeof(int) - sizeof(UInt64));
+        }
+    }
+
     public class ProposerNote : IDisposable
     {
+        private class RequestPositionItemComparer : SlidingWindow.IItemComparer
+        {
+            public bool IsSmaller(object left, object right)
+            {
+                if (left == null) return true;
+                if (right == null) return false;
+                var leftpos = left as AppendPosition;
+                var rightpos = right as AppendPosition;
+                if (leftpos == null) return true;
+                if (rightpos == null) return false;
+
+                return leftpos < rightpos;
+            }
+        }
         // proposer role
         //private ConcurrentDictionary<ulong, Propose> _decreeState = new ConcurrentDictionary<ulong, Propose>();
         //private Ledger _ledger;
         private readonly ConcurrentDictionary<ulong, PaxosDecree> _committedDecrees = new ConcurrentDictionary<ulong, PaxosDecree>();
         private IPaxosCommitedDecreeLog _logger;
+        private SlidingWindow _activePropose = new SlidingWindow(0, new RequestPositionItemComparer());
+        private RequestPositionItemComparer _positionComparer = new RequestPositionItemComparer();
+        private Task _positionCheckpointTask;
+        private List<Tuple<ulong, AppendPosition>> _checkpointPositionList = new List<Tuple<ulong, AppendPosition>>();
+        private bool _isStop = false;
 
         public ProposerNote(IPaxosCommitedDecreeLog logger)
         {
@@ -249,13 +310,40 @@ namespace Paxos.Notebook
                 throw new ArgumentNullException("IPaxosCommitedDecreeLogger");
             }
             _logger = logger;
+            _positionCheckpointTask = Task.Run(async () =>
+            {
+                do
+                {
+                    await Task.Delay(1000);
+                    UInt64 minDecreeNo = 0;
+                    object minValue = null;
+
+                    _activePropose.GetSmallestItem(out minDecreeNo, out minValue);
+                    var position = minValue as AppendPosition;
+                    if (position != null)
+                    {
+                        lock (_checkpointPositionList)
+                        {
+                            _checkpointPositionList.Add(new Tuple<ulong, AppendPosition>(minDecreeNo, position));
+                        }
+                    }
+
+                } while (!_isStop);
+
+            });
         }
 
         public virtual void Dispose()
-        { }
+        {
+            _isStop = true;
+        }
 
         public async Task Load()
         {
+            // load from meta
+            ulong baseDecreeNo = 0;
+            _activePropose = new SlidingWindow(baseDecreeNo, new RequestPositionItemComparer());
+
             var it = await _logger.Begin();
             var itEnd = await _logger.End();
             for (; !it.Equals(itEnd); it = await it.Next())
@@ -297,9 +385,9 @@ namespace Paxos.Notebook
             return Task.FromResult(committedDecree);
         }
 
-        public async Task CommitDecree(ulong decreeNo, PaxosDecree commitedDecree)
+        public Task<AppendPosition> CommitDecree(ulong decreeNo, PaxosDecree commitedDecree)
         {
-            await CommitDecreeInternal(decreeNo, commitedDecree);
+            return CommitDecreeInternal(decreeNo, commitedDecree);
         }
 
         public List<KeyValuePair<ulong, PaxosDecree>> GetFollowingCommittedDecress(ulong beginDecreeNo)
@@ -328,18 +416,59 @@ namespace Paxos.Notebook
             _committedDecrees.Clear();
         }
 
+        public async Task Checkpoint(string newCheckpointFile, ulong decreeNo)
+        {
+            // write new checkpoint recrod
+            var metaRecord = new MetaRecord((UInt64)decreeNo, newCheckpointFile);
+            string fileMetaFilePath = "paxos.meta";
+            var metaStream = new FileStream(fileMetaFilePath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Write);
+            var data = metaRecord.Serialize();
+            await metaStream.WriteAsync(data, 0, data.Length);
+
+            // try to truncate the logs
+            var minOff = GetMinPositionForDecrees(decreeNo + 1);
+            await _logger.Truncate(minOff);
+        }
+
+        private AppendPosition GetMinPositionForDecrees(ulong beginDecreeNo)
+        {
+            AppendPosition minPos = null;
+            Tuple<ulong, AppendPosition> lastSmallerDecree = null;
+            lock (_checkpointPositionList)
+            {
+                foreach(var item in _checkpointPositionList)
+                {
+                    if (item.Item1 > beginDecreeNo)
+                    {
+                        break;
+                    }
+                    lastSmallerDecree = item;
+                }
+            }
+            if (lastSmallerDecree != null)
+            {
+                minPos = lastSmallerDecree.Item2;
+            }
+            if (minPos == null)
+            {
+                minPos = new AppendPosition(0, 0, 0);
+            }
+
+            return minPos;
+        }
+
         private ulong GetMaximumCommittedDecreeNoNeedLock()
         {
             return _committedDecrees.LastOrDefault().Key;
         }
         
 
-        private async Task CommitDecreeInternal(ulong decreeNo, PaxosDecree decree)
+        private async Task<AppendPosition> CommitDecreeInternal(ulong decreeNo, PaxosDecree decree)
         {
             // Paxos protocol already make sure the consistency.
             // So the decree will be idempotent, just write it directly
 
-            await _logger.AppendLog(decreeNo, decree);
+            var position = await _logger.AppendLog(decreeNo, decree);
 
             // add it in cache
             lock (_committedDecrees)
@@ -348,15 +477,20 @@ namespace Paxos.Notebook
                 {
                     if (_committedDecrees.ContainsKey(decreeNo))
                     {
-                        return;
-                        //throw new Exception("decree already committed");
+                        break;
                     }
                     if (_committedDecrees.TryAdd(decreeNo, decree))
                     {
-                        return;
+                        break;
                     }
+                    //throw new Exception("decree already committed");
                 } while (true);
             }
+
+            _activePropose.Add(decreeNo, position);
+            while (_activePropose.Pop() != null) ;
+
+            return position;
         }
 
     }

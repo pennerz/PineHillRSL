@@ -17,7 +17,7 @@ namespace Paxos.Persistence
     {
         public int Offset { get; set; }
 
-        public TaskCompletionSource<bool> Result = new TaskCompletionSource<bool>();
+        public TaskCompletionSource<AppendPosition> Result = new TaskCompletionSource<AppendPosition>();
     }
 
     public interface ICommittedDecreeIterator : IEquatable<ICommittedDecreeIterator>, IDisposable
@@ -31,7 +31,8 @@ namespace Paxos.Persistence
     {
         Task<ICommittedDecreeIterator> Begin();
         Task<ICommittedDecreeIterator> End();
-        Task AppendLog(ulong decreeNo, PaxosDecree decree);
+        Task<AppendPosition> AppendLog(ulong decreeNo, PaxosDecree decree);
+        Task Truncate(AppendPosition posotion);
     }
 
     public interface IVotedBallotIterator : IEquatable<IVotedBallotIterator>, IDisposable
@@ -45,7 +46,7 @@ namespace Paxos.Persistence
         Task<IVotedBallotIterator> Begin();
         Task<IVotedBallotIterator> End();
 
-        Task AppendLog(ulong decreeNo, DecreeBallotInfo decreeBallotInfo);
+        Task<AppendPosition> AppendLog(ulong decreeNo, DecreeBallotInfo decreeBallotInfo);
     }
 
     public class LogEntry
@@ -190,10 +191,83 @@ namespace Paxos.Persistence
         }
     }
 
+    public class TruncateRequest
+    {
+        public AppendPosition Position { get; set; }
+        public TaskCompletionSource<bool> Result { get; set; }
+    }
+
+    public class AppendPosition
+    {
+        public AppendPosition(UInt64 fragementIndex, UInt64 offsetInFragment, UInt64 totalOffset)
+        {
+            FragmentIndex = fragementIndex;
+            OffsetInFragment = offsetInFragment;
+            TotalOffset = totalOffset;
+        }
+        public UInt64 FragmentIndex { get; set; }
+        public UInt64 OffsetInFragment { get; set; }
+        public UInt64 TotalOffset { get; set; }
+
+        public static bool operator<(AppendPosition left, AppendPosition right)
+        {
+            if (left == null)
+            {
+                if (right == null)
+                {
+                    return false;
+                }
+                return true;
+            }
+            if (right == null)
+            {
+                return false;
+            }
+            if (left.FragmentIndex < right.FragmentIndex)
+            {
+                return true;
+            }
+            if (left.FragmentIndex > right.FragmentIndex)
+            {
+                return false;
+            }
+            return left.OffsetInFragment < right.OffsetInFragment;
+        }
+        public static bool operator >(AppendPosition left, AppendPosition right)
+        {
+            if (right == null)
+            {
+                if (left == null)
+                {
+                    return false;
+                }
+                return true;
+            }
+            if (left == null)
+            {
+                return false;
+            }
+            if (left.FragmentIndex > right.FragmentIndex)
+            {
+                return true;
+            }
+            if (left.FragmentIndex < right.FragmentIndex)
+            {
+                return false;
+            }
+            return left.OffsetInFragment > right.OffsetInFragment;
+        }
+    }
+
     public class BaseLogWriter : IDisposable
     {
         private string _dataFilePath;
         private FileStream _dataStream;
+        private List<UInt64> _prevDataStreamLength = new List<UInt64>();
+        private UInt64 _baseFragmentIndex = 0;
+        private UInt64 _currentFragmentIndex = 0;
+        private UInt64 _fragmentSizeLimit = 1024;
+        private UInt64 _fragmentBaseOffset = 0;
 
         private List<Buffer> _ringBuffer = new List<Buffer>();
         private int _currentIndex;
@@ -202,11 +276,12 @@ namespace Paxos.Persistence
         private List<LogAppendRequest> _appendRequestsQueue = new List<LogAppendRequest>();
         private SemaphoreSlim _pendingRequestLock = new SemaphoreSlim(0);
         private Task _appendTask;
+        private List<TruncateRequest> _truncateRequestList = new List<TruncateRequest>();
 
         public BaseLogWriter(string dataFilePath)
         {
             IsStop = false;
-            _dataFilePath = new string(dataFilePath);
+            _dataFilePath = dataFilePath + "_";
             for (int i = 0; i < 2; i++)
             {
                 var buffer = new Buffer();
@@ -226,35 +301,53 @@ namespace Paxos.Persistence
                     int bufLen = 0;
 
                     var begin = DateTime.Now;
-                    lock (_dataStream)
-                    {
-                        if (!_ongoing)
-                        {
-                            var curBuffer = _ringBuffer[_currentIndex];
 
-                            writeBuf = curBuffer.DataBuf;
-                            bufLen = curBuffer.Length;
-                            writeEndOff = _off;
-                            _currentIndex++;
-                            _currentIndex %= _ringBuffer.Count;
-                            curBuffer = _ringBuffer[_currentIndex];
-                            curBuffer.Length = 0;
+                    TruncateRequest truncateRequest = null;
+                    lock (_truncateRequestList)
+                    {
+                        if (_truncateRequestList.Count > 0)
+                        {
+                            truncateRequest = _truncateRequestList[0];
                         }
+                    }
+                    if (truncateRequest != null)
+                    {
+                        await TruncateInlock(truncateRequest.Position);
+                        lock (_truncateRequestList)
+                        {
+                            _truncateRequestList.RemoveAt(0);
+                        }
+                        truncateRequest.Result.SetResult(true);
+
+                    }
+
+                    lock (_ringBuffer)
+                    {
+                        var curBuffer = _ringBuffer[_currentIndex];
+
+                        writeBuf = curBuffer.DataBuf;
+                        bufLen = curBuffer.Length;
+                        writeEndOff = _off;
+                        _currentIndex++;
+                        _currentIndex %= _ringBuffer.Count;
+                        curBuffer = _ringBuffer[_currentIndex];
+                        curBuffer.Length = 0;
                     }
                     var getBufTime = DateTime.Now - begin;
                     if (writeBuf == null || bufLen == 0)
                     {
                         continue;
                     }
+
+                    OpenForAppend();
+
                     await _dataStream.WriteAsync(writeBuf, 0, bufLen);
                     await _dataStream.FlushAsync();
 
                     List<LogAppendRequest> finishedReqList = new List<LogAppendRequest>();
                     var writeStreamTime = DateTime.Now - begin - getBufTime;
-                    lock (_dataStream)
+                    lock (_ringBuffer)
                     {
-                        _ongoing = false;
-
                         foreach (var req in _appendRequestsQueue)
                         {
                             if (writeEndOff >= req.Offset)
@@ -268,12 +361,14 @@ namespace Paxos.Persistence
                         }
                         _appendRequestsQueue.RemoveRange(0, finishedReqList.Count);
                     }
+                    var currentFragmentIndex = _currentFragmentIndex;
+                    var currentFragmentBaseOff = _fragmentBaseOffset;
                     var task = Task.Run(() =>
                     {
                         var begin = DateTime.Now;
                         foreach (var req in finishedReqList)
                         {
-                            req.Result.SetResult(true);
+                            req.Result.SetResult(new AppendPosition(currentFragmentIndex, (UInt64)req.Offset - currentFragmentBaseOff, (UInt64)req.Offset));
                         }
                         var notifyTime = DateTime.Now - begin;
                         if (notifyTime.TotalMilliseconds > 500)
@@ -293,15 +388,8 @@ namespace Paxos.Persistence
             });
         }
 
-        public async Task AppendLog(byte[] datablock1, byte[] datablock2, byte[] datablock3)
+        public async Task<AppendPosition> AppendLog(byte[] datablock1, byte[] datablock2, byte[] datablock3)
         {
-            lock (_dataFilePath)
-            {
-                if (_dataStream == null)
-                {
-                    OpenForAppend();
-                }
-            }
             var begin = DateTime.Now;
             var request = new LogAppendRequest();
             var objAllocatedTime = DateTime.Now - begin;
@@ -312,7 +400,7 @@ namespace Paxos.Persistence
 
             TimeSpan lockWaitTime;
             var beforeLock = DateTime.Now;
-            lock (_dataStream)
+            lock (_ringBuffer)
             {
                 var curBuffer = _ringBuffer[_currentIndex];
 
@@ -343,19 +431,51 @@ namespace Paxos.Persistence
 
             var taskCreateTime = DateTime.Now - begin - objAllocatedTime  - requestInQueueTime;
 
-            await request.Result.Task;
+            var appendPosition = await request.Result.Task;
 
             var appendTime = DateTime.Now - begin;
             if (appendTime.TotalMilliseconds > 500)
             {
                 //Console.WriteLine("too slow");
             }
+
+            return appendPosition;
+        }
+
+        public Task Truncate(AppendPosition position)
+        {
+            var reqeust = new TruncateRequest()
+            {
+                Position = position,
+                Result = new TaskCompletionSource<bool>()
+            };
+            lock(_truncateRequestList)
+            {
+                if (_truncateRequestList.Count == 0)
+                {
+                    _truncateRequestList.Add(reqeust);  // only one request allowed
+                }
+            }
+
+            _pendingRequestLock.Release();
+            return reqeust.Result.Task;
         }
 
         public void OpenForAppend()
         {
+            if (_dataStream != null &&  _dataStream.Position < (long)_fragmentSizeLimit)
+            {
+                return;
+            }
+            if (_dataStream != null)
+            {
+                _currentFragmentIndex++;
+                _fragmentBaseOffset += (UInt64)_dataStream.Position;
+                _prevDataStreamLength.Add((UInt64)_dataStream.Position);
+            }
             _dataStream?.Close();
-            _dataStream = new FileStream(_dataFilePath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.ReadWrite);
+            _dataStream?.Dispose();
+            _dataStream = new FileStream(_dataFilePath + _currentFragmentIndex.ToString(), FileMode.OpenOrCreate, FileAccess.Write, FileShare.ReadWrite);
         }
 
         public void Dispose()
@@ -365,6 +485,33 @@ namespace Paxos.Persistence
         }
 
         public bool IsStop { get; set; }
+
+        private async Task<bool> TruncateInlock(AppendPosition position)
+        {
+            // remove all the files before the current fragment index
+            if (_baseFragmentIndex >= position.FragmentIndex)
+            {
+                return false; // nothing to truncate
+            }
+            UInt64 truncateDataSize = 0;
+            for (UInt64 i = _baseFragmentIndex; i < position.FragmentIndex; i++)
+            {
+                truncateDataSize += (UInt64)_prevDataStreamLength[0];
+                _prevDataStreamLength.RemoveAt(0);
+                var filePath = _dataFilePath + i.ToString();
+                File.Delete(filePath);
+            }
+            _baseFragmentIndex = position.FragmentIndex;
+            _fragmentBaseOffset -= truncateDataSize;
+            _off -= (int)truncateDataSize;
+
+            foreach(var req in _appendRequestsQueue)
+            {
+                req.Offset -= (int)truncateDataSize;
+            }
+
+            return true;
+        }
     }
 
     public class FilePaxosCommitedDecreeLog : BaseLogWriter, IPaxosCommitedDecreeLog
@@ -394,12 +541,12 @@ namespace Paxos.Persistence
             return Task.FromResult(new FileCommittedDecreeIterator(null, 0, null, IteratorType.End) as ICommittedDecreeIterator);
         }
 
-        public async Task AppendLog(ulong decreeNo, PaxosDecree decree)
+        public async Task<AppendPosition> AppendLog(ulong decreeNo, PaxosDecree decree)
         {
             var begin = DateTime.Now;
             var data = Encoding.UTF8.GetBytes(Serializer<PaxosDecree>.Serialize(decree));
 
-            await AppendLog(BitConverter.GetBytes((uint)data.Length + sizeof(ulong)),
+            var position = await AppendLog(BitConverter.GetBytes((uint)data.Length + sizeof(ulong)),
                 BitConverter.GetBytes(decreeNo), data);
 
 
@@ -408,6 +555,13 @@ namespace Paxos.Persistence
             {
                 //Console.WriteLine("too slow");
             }
+            return position;
+        }
+
+
+        public new Task Truncate(AppendPosition position)
+        {
+            return base.Truncate(position);
         }
 
     }
@@ -540,12 +694,12 @@ namespace Paxos.Persistence
         }
 
 
-        public async Task AppendLog(ulong decreeNo, DecreeBallotInfo ballotInfo)
+        public async Task<AppendPosition> AppendLog(ulong decreeNo, DecreeBallotInfo ballotInfo)
         {
             var begin = DateTime.Now;
             var data = Encoding.UTF8.GetBytes(Serializer<DecreeBallotInfo>.Serialize(ballotInfo));
 
-            await AppendLog(BitConverter.GetBytes((uint)data.Length + sizeof(ulong)),
+            var position = await AppendLog(BitConverter.GetBytes((uint)data.Length + sizeof(ulong)),
                 BitConverter.GetBytes(decreeNo), data);
 
             var totalTime = DateTime.Now - begin;
@@ -553,7 +707,10 @@ namespace Paxos.Persistence
             {
                 //Console.WriteLine("too slow");
             }
+
+            return position;
         }
+
     }
 
     public interface IPaxosNotePeisisent
