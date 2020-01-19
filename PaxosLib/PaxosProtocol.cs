@@ -19,6 +19,7 @@ namespace Paxos.Protocol
     {
         Task UpdateSuccessfullDecree(UInt64 decreeNo, PaxosDecree decree);
         Task<UInt64> Checkpoint(Stream checkpointStream);
+        Task LoadCheckpoint(UInt64 decreeNo, Stream checkpointStream);
     }
 
     public interface IPaxosStateMachine
@@ -76,6 +77,17 @@ namespace Paxos.Protocol
             _ledger = ledger;
 
             WaitRpcResp = false;
+
+            var task = Task.Run(async () =>
+            {
+                while(true)
+                {
+                    await Task.Delay(1000);
+                    var maxDecreeNo = _ledger.GetMaximumCommittedDecreeNo();
+                    var position = _note.GetMaxPositionForDecrees(maxDecreeNo);
+                    _note.Truncate(maxDecreeNo, position);
+                }
+            });
         }
 
         public virtual void Dispose()
@@ -320,6 +332,25 @@ namespace Paxos.Protocol
         public virtual void Dispose()
         { }
 
+        public async Task Load()
+        {
+            await _proposerNote.Load();
+            if (_notificationSubscriber != null)
+            {
+                var metaRecord = _proposerNote.ProposeRoleMetaRecord;
+                if (!string.IsNullOrEmpty(metaRecord.CheckpointFilePath))
+                {
+                    var checkpointStream = new FileStream(metaRecord.CheckpointFilePath, FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite);
+                    await _notificationSubscriber.LoadCheckpoint(metaRecord.DecreeNo, checkpointStream);
+                }
+
+                foreach(var committedDecree in _proposerNote.CommittedDecrees)
+                {
+                    await _notificationSubscriber.UpdateSuccessfullDecree(committedDecree.Key, committedDecree.Value);
+                }
+            }
+        }
+
         public void SubscribeNotification(IPaxosNotification listener)
         {
             _notificationSubscriber = listener;
@@ -339,7 +370,7 @@ namespace Paxos.Protocol
                 do
                 {
                     filepath = "checkpoint.001";
-                    fileStream = new FileStream(filepath, FileMode.Create, FileAccess.Write, FileShare.Write);
+                    fileStream = new FileStream(filepath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
                     break;
                 } while (true);
 
@@ -614,6 +645,22 @@ namespace Paxos.Protocol
             }
             return true;
         }
+
+        public async Task DeliverSuccessMessage(SuccessMessage msg)
+        {
+            // commit in logs
+            var position = await _proposerNote.CommitDecree(msg.DecreeNo, new PaxosDecree(msg.Decree));
+
+            if (_notificationSubscriber != null)
+                await _notificationSubscriber.UpdateSuccessfullDecree(msg.DecreeNo, new PaxosDecree(msg.Decree));
+
+            // check if need to checkpoint
+            if (position.TotalOffset > 1024)
+            {
+                await Checkpoint();
+            }
+        }
+
 
         public async Task<ProposePhaseResult> CollectLastVote(
             PaxosDecree decree,

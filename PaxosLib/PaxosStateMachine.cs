@@ -158,8 +158,20 @@ namespace Paxos.StateMachine
             return OnCheckpoint(checkpointStream);
         }
 
+        public async Task LoadCheckpoint(UInt64 decreeNo, Stream checkpointStream)
+        {
+            await OnLoadCheckpoint(decreeNo, checkpointStream);
+            var lastDecreeNo = decreeNo;
+            if (lastDecreeNo > 0)
+            {
+                --lastDecreeNo;
+            }
+            _reqSlideWindow = new SlidingWindow(lastDecreeNo, null);
+        }
+
         protected abstract Task ExecuteRequest(StateMachineRequest request);
         protected abstract Task<UInt64> OnCheckpoint(Stream checkpointStream);
+        protected abstract Task OnLoadCheckpoint(UInt64 decreeNo, Stream checkpointStream);
 
     }
 }

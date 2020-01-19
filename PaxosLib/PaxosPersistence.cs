@@ -47,6 +47,7 @@ namespace Paxos.Persistence
         Task<IVotedBallotIterator> End();
 
         Task<AppendPosition> AppendLog(ulong decreeNo, DecreeBallotInfo decreeBallotInfo);
+        Task Truncate(AppendPosition posotion);
     }
 
     public class LogEntry
@@ -61,13 +62,19 @@ namespace Paxos.Persistence
         private PaxosDecree _currentDecree;
         private ulong _currentDecreeNo;
         private IteratorType _itType = IteratorType.Default;
+        private string _filePathPrefix;
+        private UInt64 _fileIndex;
 
         public FileCommittedDecreeIterator(
             FileStream dataStream,
+            string filePathPrefix,
+            UInt64 fileIndex,
             ulong decreeNo,
             PaxosDecree decree,
             IteratorType itType)
         {
+            _filePathPrefix = filePathPrefix;
+            _fileIndex = fileIndex;
             _dataStream = dataStream;
             _currentDecreeNo = decreeNo;
             _currentDecree = decree;
@@ -90,9 +97,20 @@ namespace Paxos.Persistence
             var readlen = await _dataStream.ReadAsync(databuf, 0, sizeof(uint));
             if (readlen != sizeof(uint))
             {
-                // not enough data
                 _dataStream.Close();
-                return new FileCommittedDecreeIterator(null, 0, null, IteratorType.End);
+
+                // not enough data
+                UInt64 fileIndex = _fileIndex + 1;
+                try
+                {
+                    var dataStream = new FileStream(_filePathPrefix + fileIndex.ToString(), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    var fileIt = new FileCommittedDecreeIterator(dataStream, _filePathPrefix, fileIndex, 0, null, IteratorType.Default);
+                    return await fileIt.Next();
+                }
+                catch (Exception e)
+                {
+                    return new FileCommittedDecreeIterator(null, null, 0, 0, null, IteratorType.End);
+                }
             }
             uint dataSize = BitConverter.ToUInt32(databuf, 0);
             databuf = new byte[dataSize];
@@ -101,14 +119,14 @@ namespace Paxos.Persistence
             {
                 // not enough data
                 _dataStream.Close();
-                return new FileCommittedDecreeIterator(null, 0, null, IteratorType.End);
+                return new FileCommittedDecreeIterator(null, null, 0, 0, null, IteratorType.End);
             }
 
             var data = Encoding.UTF8.GetString(databuf, (int)sizeof(ulong), (int)(dataSize - sizeof(ulong)));
             var decree = Serializer<PaxosDecree>.Deserialize(data);
             ulong decreeNo = BitConverter.ToUInt64(databuf, 0);
 
-            next = new FileCommittedDecreeIterator(_dataStream, decreeNo, decree, IteratorType.Default);
+            next = new FileCommittedDecreeIterator(_dataStream, _filePathPrefix, _fileIndex, decreeNo, decree, IteratorType.Default);
 
             return next;
         }
@@ -288,7 +306,7 @@ namespace Paxos.Persistence
                 buffer.AllocateBuffer(1024 * 1024);
                 _ringBuffer.Add(buffer);
             }
-
+            OpenForAppend();
 
             _appendTask = Task.Run(async () =>
             {
@@ -521,7 +539,7 @@ namespace Paxos.Persistence
 
         public FilePaxosCommitedDecreeLog(string dataFilePath): base(dataFilePath)
         {
-            _dataFilePath = dataFilePath;
+            _dataFilePath = dataFilePath + "_";
         }
 
         public new void Dispose()
@@ -531,14 +549,23 @@ namespace Paxos.Persistence
 
         public Task<ICommittedDecreeIterator> Begin()
         {
-            var dataStream = new FileStream(_dataFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            var fileIt = new FileCommittedDecreeIterator(dataStream, 0, null, IteratorType.Default);
+            UInt64 fileIndex = 0;
+            do
+            {
+                if (File.Exists(_dataFilePath + fileIndex.ToString()))
+                {
+                    break;
+                }
+                fileIndex++;
+            } while (true);
+            var dataStream = new FileStream(_dataFilePath + fileIndex.ToString(), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            var fileIt = new FileCommittedDecreeIterator(dataStream, _dataFilePath, fileIndex, 0, null, IteratorType.Default);
             return fileIt.Next();
         }
 
         public Task<ICommittedDecreeIterator> End()
         {
-            return Task.FromResult(new FileCommittedDecreeIterator(null, 0, null, IteratorType.End) as ICommittedDecreeIterator);
+            return Task.FromResult(new FileCommittedDecreeIterator(null, null, 0, 0, null, IteratorType.End) as ICommittedDecreeIterator);
         }
 
         public async Task<AppendPosition> AppendLog(ulong decreeNo, PaxosDecree decree)
@@ -571,12 +598,18 @@ namespace Paxos.Persistence
         private FileStream _dataStream;
         private IteratorType _itType = IteratorType.Default;
         private Tuple<ulong, DecreeBallotInfo> _votedBallot;
+        private string _dataFilePrefix;
+        private UInt64 _fileIndex = 0;
 
         public FileVotedBallotIterator(
             FileStream dataStream,
+            string filePrefix,
+            UInt64 fileIndex,
             Tuple<ulong, DecreeBallotInfo> votedBallot,
             IteratorType itType)
         {
+            _dataFilePrefix = filePrefix;
+            _fileIndex = fileIndex;
             _dataStream = dataStream;
             _votedBallot = votedBallot;
             _itType = itType;
@@ -597,7 +630,18 @@ namespace Paxos.Persistence
             {
                 // not enough data
                 _dataStream.Close();
-                return new FileVotedBallotIterator(null, null, IteratorType.End);
+                // try next file
+                UInt64 fileIndex = _fileIndex + 1;
+                try
+                {
+                    var dataStream = new FileStream(_dataFilePrefix + fileIndex.ToString(), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    var fileIt = new FileVotedBallotIterator(dataStream, _dataFilePrefix, fileIndex, null, IteratorType.Default);
+                    return await fileIt.Next();
+                }
+                catch (Exception e)
+                {
+                    return new FileVotedBallotIterator(null, null, 0, null, IteratorType.End);
+                }
             }
             uint dataSize = BitConverter.ToUInt32(databuf, 0);
 
@@ -607,7 +651,7 @@ namespace Paxos.Persistence
             {
                 // not enough data
                 _dataStream.Close();
-                return new FileVotedBallotIterator(null, null, IteratorType.End);
+                return new FileVotedBallotIterator(null, null, 0, null, IteratorType.End);
             }
             ulong decreeNo = BitConverter.ToUInt64(databuf, 0);
             var data = Encoding.UTF8.GetString(databuf, (int)sizeof(ulong), (int)(dataSize - sizeof(ulong)));
@@ -615,6 +659,8 @@ namespace Paxos.Persistence
 
             next = new FileVotedBallotIterator(
                 _dataStream,
+                _dataFilePrefix,
+                _fileIndex,
                 new Tuple<ulong, DecreeBallotInfo>(decreeNo, decreeBallotInfo),
                 IteratorType.Default);
 
@@ -674,7 +720,7 @@ namespace Paxos.Persistence
 
         public FilePaxosVotedBallotLog(string dataFilePath) : base(dataFilePath)
         {
-            _dataFilePath = dataFilePath;
+            _dataFilePath = dataFilePath + "_";
         }
         public new void Dispose()
         {
@@ -683,14 +729,24 @@ namespace Paxos.Persistence
 
         public Task<IVotedBallotIterator> Begin()
         {
-            var dataStream = new FileStream(_dataFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            var fileIt = new FileVotedBallotIterator(dataStream, null, IteratorType.Default);
+            UInt64 fileIndex = 0;
+            do
+            {
+                if (File.Exists(_dataFilePath + fileIndex.ToString()))
+                {
+                    break;
+                }
+                fileIndex++;
+            } while (true);
+
+            var dataStream = new FileStream(_dataFilePath + fileIndex.ToString(), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            var fileIt = new FileVotedBallotIterator(dataStream, _dataFilePath, fileIndex, null, IteratorType.Default);
             return fileIt.Next();
         }
 
         public Task<IVotedBallotIterator> End()
         {
-            return Task.FromResult(new FileVotedBallotIterator(null, new Tuple<ulong, DecreeBallotInfo>(0, null), IteratorType.End) as IVotedBallotIterator);
+            return Task.FromResult(new FileVotedBallotIterator(null, null, 0, new Tuple<ulong, DecreeBallotInfo>(0, null), IteratorType.End) as IVotedBallotIterator);
         }
 
 
@@ -710,6 +766,12 @@ namespace Paxos.Persistence
 
             return position;
         }
+
+        public new Task Truncate(AppendPosition posotion)
+        {
+            return base.Truncate(posotion);
+        }
+
 
     }
 

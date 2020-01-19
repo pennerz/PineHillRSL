@@ -116,7 +116,7 @@ namespace Paxos.Node
 
             _proposerRole.SubscribeNotification(_notificationSubscriber);
             _voterRole.SubscribeNotification(_notificationSubscriber);
-
+            await _proposerRole.Load();
 
             _messager = new PaxosNodeMessageDeliver(_proposerRole, _voterRole);
             var rpcRequestHandler = new PaxosMessageHandler(_messager, null);

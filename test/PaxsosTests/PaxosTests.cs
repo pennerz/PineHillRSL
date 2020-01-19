@@ -1186,6 +1186,12 @@ namespace Paxos.Tests
             for (int i = 0; i < 5; i++)
             {
                 var node = new NodeInfo("Node" + i.ToString());
+
+                var proposerLogFile = ".\\loegger" + node.Name + ".log";
+                var votedLogFile = ".\\votedlogger_" + node.Name + ".log";
+                File.Delete(proposerLogFile);
+                File.Delete(votedLogFile);
+
                 cluster.Members.Add(node);
             }
 
@@ -1202,13 +1208,28 @@ namespace Paxos.Tests
             start = DateTime.Now;
 
             var master = tableNodeMap[cluster.Members[0].Name];
-            for (int i = 0; i < 1000; i++)
+            for (int i = 0; i < 500; i++)
             {
                 var task = master.InstertTable(new ReplicatedTableRequest() { Key = i.ToString(), Value = "test" + i.ToString() });
                 await task;
             }
 
             end = DateTime.Now;
+
+
+            foreach (var nodeInfo in cluster.Members)
+            {
+                var node = new ReplicatedTable.ReplicatedTable(cluster, nodeInfo);
+                tableNodeMap[nodeInfo.Name] = node;
+                var proposerLogFile = ".\\loegger" + nodeInfo.Name + ".log";
+                var votedLogFile = ".\\votedlogger_" + nodeInfo.Name + ".log";
+
+                await node.Load(proposerLogFile, votedLogFile);
+            }
+
+            start = DateTime.Now;
+
+            master = tableNodeMap[cluster.Members[0].Name];
 
             costTime = (end - start).TotalMilliseconds;
             Console.WriteLine("TPS: {0}", 10000 * 1000 / costTime);

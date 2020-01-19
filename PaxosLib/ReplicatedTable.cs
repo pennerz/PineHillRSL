@@ -243,6 +243,45 @@ namespace Paxos.ReplicatedTable
             return checkpointedSeqNo;
         }
 
+        protected override async Task OnLoadCheckpoint(UInt64 decreeNo, Stream checkpointStream)
+        {
+            var databuf = new byte[1024 * 4096]; // 4M buffer
+            UInt64 checkpointedSeqNo = 0;
+            await _tableUpdateLock.WaitAsync();
+            var autoLock = new AutoLock(_tableUpdateLock);
+            using (autoLock)
+            {
+                do
+                {
+                    var readlen = await checkpointStream.ReadAsync(databuf, 0, sizeof(int));
+                    if (readlen != sizeof(int))
+                    {
+                        break;
+                    }
+                    var dataSize = BitConverter.ToInt32(databuf, 0);
+                    if (dataSize < 0)
+                    {
+                        break;
+                    }
+                    readlen = await checkpointStream.ReadAsync(databuf, sizeof(int), dataSize);
+                    if (readlen != dataSize)
+                    {
+                        break;
+                    }
+                    string key;
+                    string val;
+                    if (DeSerializeRow(databuf, readlen + sizeof(int), out key, out val))
+                    {
+                        _table.Add(key, val);
+                    }
+
+                } while (true);
+
+                _lastestSeqNo = decreeNo;
+            }
+        }
+
+
         private static bool SerializeRow(string key, string val, byte[] databuf, out int len)
         {
             // recordSizexxxx#xxxx
@@ -266,6 +305,20 @@ namespace Paxos.ReplicatedTable
             System.Buffer.BlockCopy(valData, 0, databuf, sizeInBuf, valData.Length);
             sizeInBuf += valData.Length;
             len = sizeInBuf;
+            return true;
+        }
+        private static bool DeSerializeRow(byte[] databuf, int len, out string key, out string val)
+        {
+            // recordSizexxxx#xxxx
+            key = "";
+            val = "";
+            string content = Encoding.UTF8.GetString(databuf, sizeof(int), len - sizeof(int));
+            var separatorIndex = content.IndexOf("#");
+            if (separatorIndex != -1)
+            {
+                key = content.Substring(0, separatorIndex);
+                val = content.Substring(separatorIndex + 1, content.Length - separatorIndex - 1);
+            }
             return true;
         }
     }

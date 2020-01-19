@@ -124,9 +124,43 @@ namespace Paxos.Notebook
         // voter role
         private readonly ConcurrentDictionary<ulong, DecreeBallotInfo> _ballotInfo = new ConcurrentDictionary<ulong, DecreeBallotInfo>();
 
+        private List<Tuple<UInt64, AppendPosition>> _checkpointPositionList = new List<Tuple<UInt64, AppendPosition>>();
+
+        private UInt64 _maxDecreeNo = 0;
+        private AppendPosition _lastAppendPosition;
+
+        private bool _isStop = false;
+        private Task _positionCheckpointTask;
+
         public VoterNote(IPaxosVotedBallotLog logger)
         {
             _logger = logger;
+
+            _positionCheckpointTask = Task.Run(async () =>
+            {
+                do
+                {
+                    await Task.Delay(1000);
+
+                    UInt64 maxDecreeNo = 0;
+                    AppendPosition lastAppendPosition;
+                    lock (_logger)
+                    {
+                        maxDecreeNo = _maxDecreeNo;
+                        lastAppendPosition = _lastAppendPosition;
+                    }
+
+                    if (lastAppendPosition != null)
+                    {
+                        lock (_checkpointPositionList)
+                        {
+                            _checkpointPositionList.Add(new Tuple<UInt64, AppendPosition>(maxDecreeNo, lastAppendPosition));
+                        }
+                    }
+
+                } while (!_isStop);
+
+            });
         }
 
         public virtual void Dispose()
@@ -167,7 +201,20 @@ namespace Paxos.Notebook
                 return result;
             }
             decreeBallotInfo.NextBallotNo = nextBallotNo;
-            await _logger.AppendLog(decreeNo, decreeBallotInfo);
+            var appendPosition = await _logger.AppendLog(decreeNo, decreeBallotInfo);
+            lock(_logger)
+            {
+                if (decreeNo > _maxDecreeNo)
+                {
+                    _maxDecreeNo = decreeNo;
+                }
+
+                if (_lastAppendPosition == null || appendPosition > _lastAppendPosition)
+                {
+                    _lastAppendPosition = appendPosition;
+                }
+            }
+
             decreeBallotInfo.ReleaseLock();
             return result;
         }
@@ -197,7 +244,15 @@ namespace Paxos.Notebook
                 VotedDecree = voteDecree
             };
 
-            await _logger.AppendLog(decreeNo, decreeBallotInfo);
+            var appendPosition = await _logger.AppendLog(decreeNo, decreeBallotInfo);
+            lock (_logger)
+            {
+                if (_lastAppendPosition == null || appendPosition > _lastAppendPosition)
+                {
+                    _lastAppendPosition = appendPosition;
+                }
+            }
+
             decreeBallotInfo.ReleaseLock();
             return oldNextBallotNo;
         }
@@ -233,6 +288,36 @@ namespace Paxos.Notebook
                 }
             } while (true);
         }
+        public AppendPosition GetMaxPositionForDecrees(ulong decreeNo)
+        {
+            AppendPosition minPos = null;
+            lock (_checkpointPositionList)
+            {
+                foreach (var item in _checkpointPositionList)
+                {
+                    if (item.Item1 > decreeNo)
+                    {
+                        break;
+                    }
+                    minPos = item.Item2;
+                }
+            }
+
+            if (minPos == null)
+            {
+                minPos = new AppendPosition(0, 0, 0);
+            }
+
+            return minPos;
+        }
+
+        public void Truncate(UInt64 maxDecreeNo, AppendPosition position)
+        {
+            // remove all the information before maxDecreeNo
+
+            _logger.Truncate(position);
+        }
+
     }
 
     public class MetaRecord
@@ -272,7 +357,7 @@ namespace Paxos.Notebook
                 return;
             }
             _decreeNo = BitConverter.ToUInt64(buf, sizeof(int));
-            _checkpointFile = Encoding.UTF8.GetString(buf, sizeof(int) + sizeof(UInt64), recordSize - sizeof(int) - sizeof(UInt64));
+            _checkpointFile = Encoding.UTF8.GetString(buf, sizeof(int) + sizeof(UInt64), recordSize - sizeof(UInt64));
         }
     }
 
@@ -302,6 +387,8 @@ namespace Paxos.Notebook
         private Task _positionCheckpointTask;
         private List<Tuple<ulong, AppendPosition>> _checkpointPositionList = new List<Tuple<ulong, AppendPosition>>();
         private bool _isStop = false;
+
+        private MetaRecord _metaRecord = null;
 
         public ProposerNote(IPaxosCommitedDecreeLog logger)
         {
@@ -344,21 +431,54 @@ namespace Paxos.Notebook
             ulong baseDecreeNo = 0;
             _activePropose = new SlidingWindow(baseDecreeNo, new RequestPositionItemComparer());
 
+            // write new checkpoint recrod
+            var metaRecord = new MetaRecord(0, "");
+
+            var recordBuff = new byte[1024 * 1024];
+            string fileMetaFilePath = "paxos.meta";
+            var metaStream = new FileStream(fileMetaFilePath, FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite);
+            do
+            {
+                var readlen = await metaStream.ReadAsync(recordBuff, 0, sizeof(int));
+                if (readlen != sizeof(int))
+                {
+                    break;
+                }
+                var recordSize = BitConverter.ToInt32(recordBuff, 0);
+                if (recordSize < 0)
+                {
+                    break;
+                }
+                readlen = await metaStream.ReadAsync(recordBuff, sizeof(int), recordSize);
+                if (readlen != recordSize)
+                {
+                    break;
+                }
+                metaRecord.DeSerialize(recordBuff);
+            } while (true);
+
+            _metaRecord = metaRecord;
+
             var it = await _logger.Begin();
             var itEnd = await _logger.End();
             for (; !it.Equals(itEnd); it = await it.Next())
             {
+                if (it.DecreeNo < metaRecord.DecreeNo)
+                {
+                    continue;
+                }
                 _committedDecrees.AddOrUpdate(it.DecreeNo, it.Decree,
                     (key, oldValue) => it.Decree);
             }
+           _activePropose = new SlidingWindow(metaRecord.DecreeNo, new RequestPositionItemComparer());
 
-        }
+    }
 
-        /// <summary>
-        /// Get the maximum committed decree no
-        /// </summary>
-        /// <returns></returns>
-        public ulong GetMaximumCommittedDecreeNo()
+    /// <summary>
+    /// Get the maximum committed decree no
+    /// </summary>
+    /// <returns></returns>
+    public ulong GetMaximumCommittedDecreeNo()
         {
             ulong maximumCommittedDecreeNo = 0;
             lock(_logger)
@@ -421,7 +541,7 @@ namespace Paxos.Notebook
             // write new checkpoint recrod
             var metaRecord = new MetaRecord((UInt64)decreeNo, newCheckpointFile);
             string fileMetaFilePath = "paxos.meta";
-            var metaStream = new FileStream(fileMetaFilePath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Write);
+            var metaStream = new FileStream(fileMetaFilePath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.ReadWrite);
             var data = metaRecord.Serialize();
             await metaStream.WriteAsync(data, 0, data.Length);
 
@@ -493,6 +613,9 @@ namespace Paxos.Notebook
             return position;
         }
 
+        public MetaRecord ProposeRoleMetaRecord => _metaRecord;
+
+        public IReadOnlyDictionary<ulong, PaxosDecree> CommittedDecrees => _committedDecrees;
     }
 
 }
