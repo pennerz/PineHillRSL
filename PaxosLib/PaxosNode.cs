@@ -23,8 +23,8 @@ namespace Paxos.Node
         private RpcClient _rpcClient;
         private RpcServer _rpcServer;
 
-        private FilePaxosCommitedDecreeLog _proposeLogger;
-        private FilePaxosVotedBallotLog _voterLogger;
+        private ILogger _proposeLogger;
+        private ILogger _voterLogger;
 
         private MetaNote _metaNote;
         private VoterNote _voterNote;
@@ -63,8 +63,8 @@ namespace Paxos.Node
             _rpcServer = new RpcServer(serverAddr);
 
             var metaLogger = new FileLogger(".\\" + _nodeInfo.Name + ".meta");
-            _proposeLogger = new FilePaxosCommitedDecreeLog(".\\" + _nodeInfo.Name + ".proposerlog");
-            _voterLogger = new FilePaxosVotedBallotLog(".\\" + _nodeInfo.Name + ".voterlog");
+            _proposeLogger = new FileLogger(".\\" + _nodeInfo.Name + ".proposerlog");
+            _voterLogger = new FileLogger(".\\" + _nodeInfo.Name + ".voterlog");
             _voterNote = new VoterNote(_voterLogger);
             _proposerNote = new ProposerNote(_proposeLogger, metaLogger);
             _proposeManager = new ProposeManager(_proposerNote.GetMaximumCommittedDecreeNo());
@@ -100,8 +100,8 @@ namespace Paxos.Node
         {
             Dispose();
 
-            _proposeLogger = new FilePaxosCommitedDecreeLog(proposerLog);
-            _voterLogger = new FilePaxosVotedBallotLog(voterLog);
+            _proposeLogger = new FileLogger(proposerLog);
+            _voterLogger = new FileLogger(voterLog);
 
             _voterNote = new VoterNote(_voterLogger);
             await _voterNote.Load();
@@ -141,8 +141,8 @@ namespace Paxos.Node
             var proposerLog = fileBase + ".proposerlog";
             var voterLog = fileBase + ".voterlog";
 
-            _proposeLogger = new FilePaxosCommitedDecreeLog(proposerLog);
-            _voterLogger = new FilePaxosVotedBallotLog(voterLog);
+            _proposeLogger = new FileLogger(proposerLog);
+            _voterLogger = new FileLogger(voterLog);
 
             _voterNote = new VoterNote(_voterLogger);
             await _voterNote.Load();

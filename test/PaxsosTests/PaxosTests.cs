@@ -277,8 +277,8 @@ namespace Paxos.Tests
 
             var logPrefix = Guid.NewGuid().ToString();
 
-            var ledgerLogger = new FilePaxosCommitedDecreeLog(logPrefix + "logger_node1.log");
-            var votedLogger = new FilePaxosVotedBallotLog(logPrefix + "votedlogger_node1.log");
+            var ledgerLogger = new FileLogger(logPrefix + "logger_node1.log");
+            var votedLogger = new FileLogger(logPrefix + "votedlogger_node1.log");
             var proposerNote = new ProposerNote(ledgerLogger);
             var voterNote = new VoterNote(votedLogger);
 
@@ -520,7 +520,7 @@ namespace Paxos.Tests
 
 
             var logPrefix = Guid.NewGuid().ToString();
-            var ledgerLogger = new FilePaxosCommitedDecreeLog(logPrefix + "logger.log");
+            var ledgerLogger = new FileLogger(logPrefix + "logger.log");
             var proposerNote = new ProposerNote(ledgerLogger);
             var proposeManager = new ProposeManager(proposerNote.GetMaximumCommittedDecreeNo() + 1);
 

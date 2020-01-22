@@ -117,10 +117,49 @@ namespace Paxos.Notebook
         }
     }
 
+    public class VotedBallotRecord
+    {
+        private UInt64 _decreeNo;
+        private DecreeBallotInfo _votedBallotInfo;
+
+        public VotedBallotRecord(UInt64 decreeNo, DecreeBallotInfo ballotInfo)
+        {
+            _decreeNo = decreeNo;
+            _votedBallotInfo = ballotInfo;
+        }
+
+        public UInt64 DecreeNo => _decreeNo;
+
+        public DecreeBallotInfo VotedBallotInfo => _votedBallotInfo;
+
+        public byte[] Serialize()
+        {
+            var votedBallotData = Encoding.UTF8.GetBytes(_votedBallotInfo.Serialize());
+            var decreeNoData = BitConverter.GetBytes(_decreeNo);
+            int recrodSize = votedBallotData.Length + decreeNoData.Length;
+            var buf = new Paxos.Persistence.LogBuffer();
+            buf.AllocateBuffer(recrodSize + sizeof(int));
+            buf.EnQueueData(BitConverter.GetBytes(recrodSize));
+            buf.EnQueueData(decreeNoData);
+            buf.EnQueueData(votedBallotData);
+            return buf.DataBuf;
+        }
+
+        public void DeSerialize(byte[] buf, int len)
+        {
+            var recordSize = BitConverter.ToInt32(buf, 0);
+            _decreeNo = BitConverter.ToUInt64(buf, sizeof(int));
+            var ballotInfoSerializedStr = Encoding.UTF8.GetString(buf, sizeof(UInt64) + sizeof(int), len - sizeof(UInt64) - sizeof(int));
+            var ballotInfo = new DecreeBallotInfo();
+            ballotInfo.DeSerialize(ballotInfoSerializedStr);
+        }
+
+
+    }
     public class VoterNote : IDisposable
     {
         // persistent module
-        private readonly IPaxosVotedBallotLog _logger;
+        private readonly ILogger _logger;
         // voter role
         private readonly ConcurrentDictionary<ulong, DecreeBallotInfo> _ballotInfo = new ConcurrentDictionary<ulong, DecreeBallotInfo>();
 
@@ -132,7 +171,7 @@ namespace Paxos.Notebook
         private bool _isStop = false;
         private Task _positionCheckpointTask;
 
-        public VoterNote(IPaxosVotedBallotLog logger)
+        public VoterNote(ILogger logger)
         {
             _logger = logger;
 
@@ -172,8 +211,12 @@ namespace Paxos.Notebook
             var itEnd = await _logger.End();
             for (; !it.Equals(itEnd); it = await it.Next())
             {
-                _ballotInfo.AddOrUpdate(it.VotedBallot.Item1, it.VotedBallot.Item2,
-                    (key, oldValue) => it.VotedBallot.Item2);
+                var logEntry = it.Log;
+                var ballotRecord = new VotedBallotRecord(0, null);
+                ballotRecord.DeSerialize(logEntry.Data, logEntry.Size);
+
+                _ballotInfo.AddOrUpdate(ballotRecord.DecreeNo, ballotRecord.VotedBallotInfo,
+                    (key, oldValue) => ballotRecord.VotedBallotInfo);
             }
         }
 
@@ -201,7 +244,11 @@ namespace Paxos.Notebook
                 return result;
             }
             decreeBallotInfo.NextBallotNo = nextBallotNo;
-            var appendPosition = await _logger.AppendLog(decreeNo, decreeBallotInfo);
+            var decreeBallotRecord = new VotedBallotRecord(decreeNo, decreeBallotInfo);
+            var logEntry = new LogEntry();
+            logEntry.Data = decreeBallotRecord.Serialize();
+            logEntry.Size = logEntry.Data.Length;
+            var appendPosition = await _logger.AppendLog(logEntry);
             lock(_logger)
             {
                 if (decreeNo > _maxDecreeNo)
@@ -244,7 +291,12 @@ namespace Paxos.Notebook
                 VotedDecree = voteDecree
             };
 
-            var appendPosition = await _logger.AppendLog(decreeNo, decreeBallotInfo);
+            var votedBallotRecord = new VotedBallotRecord(decreeNo, decreeBallotInfo);
+            var logEntry = new LogEntry();
+            logEntry.Data = votedBallotRecord.Serialize();
+            logEntry.Size = logEntry.Data.Length;
+
+            var appendPosition = await _logger.AppendLog(logEntry);
             lock (_logger)
             {
                 if (_lastAppendPosition == null || appendPosition > _lastAppendPosition)
@@ -397,6 +449,42 @@ namespace Paxos.Notebook
         public MetaRecord MetaDataRecord => _metaRecord;
     }
 
+
+    public class CommittedDecreeRecord
+    {
+        private UInt64 _decreeNo = 0;
+        private string _decreeContent = "";
+
+        public CommittedDecreeRecord(UInt64 decreeNo, string decreeContent)
+        {
+            _decreeNo = decreeNo;
+            _decreeContent = decreeContent;
+        }
+        public UInt64 DecreeNo => _decreeNo;
+
+        public string DecreeContent => _decreeContent;
+
+        public byte[] Serialize()
+        {
+            var decreeContentData = Encoding.UTF8.GetBytes(_decreeContent);
+            var decreeNoData = BitConverter.GetBytes(_decreeNo);
+            int recrodSize = decreeContentData.Length + decreeNoData.Length;
+            var buf = new Paxos.Persistence.LogBuffer();
+            buf.AllocateBuffer(recrodSize + sizeof(int));
+            buf.EnQueueData(BitConverter.GetBytes(recrodSize));
+            buf.EnQueueData(decreeNoData);
+            buf.EnQueueData(decreeContentData);
+            return buf.DataBuf;
+        }
+
+        public void DeSerialize(byte[] buf, int len)
+        {
+            var recordSize = BitConverter.ToInt32(buf, 0);
+            _decreeNo = BitConverter.ToUInt64(buf, sizeof(int));
+            _decreeContent = Encoding.UTF8.GetString(buf, sizeof(UInt64) + sizeof(int), len - sizeof(UInt64) - sizeof(int));
+        }
+
+    }
     public class ProposerNote : IDisposable
     {
         private class RequestPositionItemComparer : SlidingWindow.IItemComparer
@@ -417,7 +505,7 @@ namespace Paxos.Notebook
         //private ConcurrentDictionary<ulong, Propose> _decreeState = new ConcurrentDictionary<ulong, Propose>();
         //private Ledger _ledger;
         private readonly ConcurrentDictionary<ulong, PaxosDecree> _committedDecrees = new ConcurrentDictionary<ulong, PaxosDecree>();
-        private IPaxosCommitedDecreeLog _logger;
+        private ILogger _logger;
         private ILogger _metaLogger;
         private SlidingWindow _activePropose = new SlidingWindow(0, new RequestPositionItemComparer());
         private RequestPositionItemComparer _positionComparer = new RequestPositionItemComparer();
@@ -428,7 +516,7 @@ namespace Paxos.Notebook
         private MetaRecord _metaRecord = null;
         private MetaNote _metaNote = null;
 
-        public ProposerNote(IPaxosCommitedDecreeLog logger, ILogger metaLogger = null)
+        public ProposerNote(ILogger logger, ILogger metaLogger = null)
         {
             if (logger == null)
             {
@@ -482,12 +570,17 @@ namespace Paxos.Notebook
             var itEnd = await _logger.End();
             for (; !it.Equals(itEnd); it = await it.Next())
             {
-                if (it.DecreeNo < baseDecreeNo)
+                var entry = it.Log;
+                var tmpRecord = new CommittedDecreeRecord(0, null);
+                tmpRecord.DeSerialize(entry.Data, entry.Size + sizeof(int));
+
+                if (tmpRecord.DecreeNo < baseDecreeNo)
                 {
                     continue;
                 }
-                _committedDecrees.AddOrUpdate(it.DecreeNo, it.Decree,
-                    (key, oldValue) => it.Decree);
+                var decree = new PaxosDecree(tmpRecord.DecreeContent);
+                _committedDecrees.AddOrUpdate(tmpRecord.DecreeNo, decree,
+                    (key, oldValue) => decree);
             }
         }
 
@@ -601,8 +694,12 @@ namespace Paxos.Notebook
         {
             // Paxos protocol already make sure the consistency.
             // So the decree will be idempotent, just write it directly
+            var commitDecreeRecord = new CommittedDecreeRecord(decreeNo, decree.Content);
+            var logEntry = new LogEntry();
+            logEntry.Data = commitDecreeRecord.Serialize();
+            logEntry.Size = logEntry.Data.Length;
 
-            var position = await _logger.AppendLog(decreeNo, decree);
+            var position = await _logger.AppendLog(logEntry);
 
             // add it in cache
             lock (_committedDecrees)
