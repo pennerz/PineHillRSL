@@ -340,25 +340,61 @@ namespace Paxos.Notebook
             var filePathData = Encoding.UTF8.GetBytes(_checkpointFile);
             var decreeNoData = BitConverter.GetBytes(_decreeNo);
             int recrodSize = filePathData.Length + decreeNoData.Length;
-            var sizeData = BitConverter.GetBytes(recrodSize);
-            var buf = new Paxos.Persistence.Buffer();
-            buf.AllocateBuffer(recrodSize + sizeData.Length);
-            buf.EnQueueData(sizeData);
+            var buf = new Paxos.Persistence.LogBuffer();
+            buf.AllocateBuffer(recrodSize + sizeof(int));
+            buf.EnQueueData(BitConverter.GetBytes(recrodSize));
             buf.EnQueueData(decreeNoData);
             buf.EnQueueData(filePathData);
             return buf.DataBuf;
         }
 
-        public void DeSerialize(byte[] buf)
+        public void DeSerialize(byte[] buf, int len)
         {
             var recordSize = BitConverter.ToInt32(buf, 0);
-            if (recordSize < sizeof(int) + sizeof(UInt64))
-            {
-                return;
-            }
             _decreeNo = BitConverter.ToUInt64(buf, sizeof(int));
-            _checkpointFile = Encoding.UTF8.GetString(buf, sizeof(int) + sizeof(UInt64), recordSize - sizeof(UInt64));
+            _checkpointFile = Encoding.UTF8.GetString(buf, sizeof(UInt64) + sizeof(int), len - sizeof(UInt64) - sizeof(int));
         }
+    }
+
+    public class MetaNote
+    {
+        private MetaRecord _metaRecord;
+        private ILogger _metaLogger;
+
+        public MetaNote(ILogger metaLogger)
+        {
+            _metaLogger = metaLogger;
+        }
+
+        public async Task Load()
+        {
+            MetaRecord metaRecord = null;
+            var it = await _metaLogger.Begin();
+            for (; !it.Equals(await _metaLogger.End()); it = await it.Next())
+            {
+                var entry = it.Log;
+                var tmpRecord = new MetaRecord(0, null);
+                tmpRecord.DeSerialize(entry.Data, entry.Size + sizeof(int));
+                metaRecord = tmpRecord;
+            }
+            _metaRecord = metaRecord;
+        }
+
+        public async Task UpdateMeta(MetaRecord metaRecord)
+        {
+            _metaRecord = metaRecord;
+            var logEntry = new LogEntry();
+            logEntry.Data = _metaRecord.Serialize();
+            logEntry.Size = logEntry.Data.Length;
+            var poisition = await _metaLogger.AppendLog(logEntry);
+            if (poisition.OffsetInFragment > 1024 * 1024)
+            {
+                // truncate it
+                await _metaLogger.Truncate(poisition);
+            }
+        }
+
+        public MetaRecord MetaDataRecord => _metaRecord;
     }
 
     public class ProposerNote : IDisposable
@@ -382,6 +418,7 @@ namespace Paxos.Notebook
         //private Ledger _ledger;
         private readonly ConcurrentDictionary<ulong, PaxosDecree> _committedDecrees = new ConcurrentDictionary<ulong, PaxosDecree>();
         private IPaxosCommitedDecreeLog _logger;
+        private ILogger _metaLogger;
         private SlidingWindow _activePropose = new SlidingWindow(0, new RequestPositionItemComparer());
         private RequestPositionItemComparer _positionComparer = new RequestPositionItemComparer();
         private Task _positionCheckpointTask;
@@ -389,14 +426,20 @@ namespace Paxos.Notebook
         private bool _isStop = false;
 
         private MetaRecord _metaRecord = null;
+        private MetaNote _metaNote = null;
 
-        public ProposerNote(IPaxosCommitedDecreeLog logger)
+        public ProposerNote(IPaxosCommitedDecreeLog logger, ILogger metaLogger = null)
         {
             if (logger == null)
             {
                 throw new ArgumentNullException("IPaxosCommitedDecreeLogger");
             }
+            _metaLogger = metaLogger;
             _logger = logger;
+            if (_metaLogger != null)
+            {
+                _metaNote = new MetaNote(_metaLogger);
+            }
             _positionCheckpointTask = Task.Run(async () =>
             {
                 do
@@ -428,57 +471,31 @@ namespace Paxos.Notebook
         public async Task Load()
         {
             // load from meta
-            ulong baseDecreeNo = 0;
-            _activePropose = new SlidingWindow(baseDecreeNo, new RequestPositionItemComparer());
-
-            // write new checkpoint recrod
-            var metaRecord = new MetaRecord(0, "");
-
-            var recordBuff = new byte[1024 * 1024];
-            string fileMetaFilePath = "paxos.meta";
-            var metaStream = new FileStream(fileMetaFilePath, FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite);
-            do
+            if (_metaNote != null)
             {
-                var readlen = await metaStream.ReadAsync(recordBuff, 0, sizeof(int));
-                if (readlen != sizeof(int))
-                {
-                    break;
-                }
-                var recordSize = BitConverter.ToInt32(recordBuff, 0);
-                if (recordSize < 0)
-                {
-                    break;
-                }
-                readlen = await metaStream.ReadAsync(recordBuff, sizeof(int), recordSize);
-                if (readlen != recordSize)
-                {
-                    break;
-                }
-                metaRecord.DeSerialize(recordBuff);
-            } while (true);
-
-            _metaRecord = metaRecord;
-
+                await _metaNote.Load();
+                _metaRecord = _metaNote.MetaDataRecord;
+            }
+            var baseDecreeNo = _metaRecord != null ? (UInt64)_metaRecord.DecreeNo : (UInt64)0;
+            _activePropose = new SlidingWindow(baseDecreeNo, new RequestPositionItemComparer());
             var it = await _logger.Begin();
             var itEnd = await _logger.End();
             for (; !it.Equals(itEnd); it = await it.Next())
             {
-                if (it.DecreeNo < metaRecord.DecreeNo)
+                if (it.DecreeNo < baseDecreeNo)
                 {
                     continue;
                 }
                 _committedDecrees.AddOrUpdate(it.DecreeNo, it.Decree,
                     (key, oldValue) => it.Decree);
             }
-           _activePropose = new SlidingWindow(metaRecord.DecreeNo, new RequestPositionItemComparer());
+        }
 
-    }
-
-    /// <summary>
-    /// Get the maximum committed decree no
-    /// </summary>
-    /// <returns></returns>
-    public ulong GetMaximumCommittedDecreeNo()
+        /// <summary>
+        /// Get the maximum committed decree no
+        /// </summary>
+        /// <returns></returns>
+        public ulong GetMaximumCommittedDecreeNo()
         {
             ulong maximumCommittedDecreeNo = 0;
             lock(_logger)
@@ -540,10 +557,7 @@ namespace Paxos.Notebook
         {
             // write new checkpoint recrod
             var metaRecord = new MetaRecord((UInt64)decreeNo, newCheckpointFile);
-            string fileMetaFilePath = "paxos.meta";
-            var metaStream = new FileStream(fileMetaFilePath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.ReadWrite);
-            var data = metaRecord.Serialize();
-            await metaStream.WriteAsync(data, 0, data.Length);
+            await _metaNote.UpdateMeta(metaRecord);
 
             // try to truncate the logs
             var minOff = GetMinPositionForDecrees(decreeNo + 1);

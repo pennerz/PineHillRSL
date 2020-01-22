@@ -26,6 +26,7 @@ namespace Paxos.Node
         private FilePaxosCommitedDecreeLog _proposeLogger;
         private FilePaxosVotedBallotLog _voterLogger;
 
+        private MetaNote _metaNote;
         private VoterNote _voterNote;
         private ProposerNote _proposerNote;
         private ProposeManager _proposeManager;
@@ -61,11 +62,11 @@ namespace Paxos.Node
             var serverAddr = new NodeAddress(_nodeInfo, 88);
             _rpcServer = new RpcServer(serverAddr);
 
-
-            _proposeLogger = new FilePaxosCommitedDecreeLog(".\\loegger" + _nodeInfo.Name + ".log");
-            _voterLogger = new FilePaxosVotedBallotLog(".\\votedlogger_" + _nodeInfo.Name + ".log");
+            var metaLogger = new FileLogger(".\\" + _nodeInfo.Name + ".meta");
+            _proposeLogger = new FilePaxosCommitedDecreeLog(".\\" + _nodeInfo.Name + ".proposerlog");
+            _voterLogger = new FilePaxosVotedBallotLog(".\\" + _nodeInfo.Name + ".voterlog");
             _voterNote = new VoterNote(_voterLogger);
-            _proposerNote = new ProposerNote(_proposeLogger);
+            _proposerNote = new ProposerNote(_proposeLogger, metaLogger);
             _proposeManager = new ProposeManager(_proposerNote.GetMaximumCommittedDecreeNo());
 
             _voterRole = new VoterRole(_nodeInfo, _cluster, _rpcClient, _voterNote, _proposerNote);
@@ -116,6 +117,50 @@ namespace Paxos.Node
 
             _proposerRole.SubscribeNotification(_notificationSubscriber);
             _voterRole.SubscribeNotification(_notificationSubscriber);
+            await _proposerRole.Load();
+
+            _messager = new PaxosNodeMessageDeliver(_proposerRole, _voterRole);
+            var rpcRequestHandler = new PaxosMessageHandler(_messager, null);
+            _rpcServer.RegisterRequestHandler(rpcRequestHandler);
+            var taask = _rpcServer.Start();
+
+        }
+        public async Task Load(string metaLog)
+        {
+            Dispose();
+
+            var metaLogger = new FileLogger(metaLog);
+
+            //
+            var fileBase = metaLog;
+            var index = metaLog.IndexOf(".meta");
+            if (index > 0)
+            {
+                fileBase = metaLog.Substring(0, index);
+            }
+            var proposerLog = fileBase + ".proposerlog";
+            var voterLog = fileBase + ".voterlog";
+
+            _proposeLogger = new FilePaxosCommitedDecreeLog(proposerLog);
+            _voterLogger = new FilePaxosVotedBallotLog(voterLog);
+
+            _voterNote = new VoterNote(_voterLogger);
+            await _voterNote.Load();
+
+            _proposerNote = new ProposerNote(_proposeLogger, metaLogger);
+            await _proposerNote.Load();
+
+
+
+            _proposeManager = new ProposeManager(_proposerNote.GetMaximumCommittedDecreeNo());
+
+            _voterRole = new VoterRole(_nodeInfo, _cluster, _rpcClient, _voterNote, _proposerNote);
+            _proposerRole = new ProposerRole(
+                _nodeInfo, _cluster, _rpcClient, _proposerNote, _proposeManager);
+
+            _proposerRole.SubscribeNotification(_notificationSubscriber);
+            _voterRole.SubscribeNotification(_notificationSubscriber);
+
             await _proposerRole.Load();
 
             _messager = new PaxosNodeMessageDeliver(_proposerRole, _voterRole);

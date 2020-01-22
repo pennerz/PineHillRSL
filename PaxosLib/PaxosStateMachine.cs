@@ -84,6 +84,11 @@ namespace Paxos.StateMachine
             await _node?.Load(proposerLog, voterLog);
         }
 
+        public Task Load(string metaLog)
+        {
+            return _node?.Load(metaLog);
+        }
+
         public async Task Request(StateMachineRequest request)
         {
             /*

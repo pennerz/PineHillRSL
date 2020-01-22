@@ -196,8 +196,8 @@ namespace Paxos.Tests
                 var node = new NodeInfo("Node" + i.ToString());
                 cluster.Members.Add(node);
 
-                var proposerLogFile = ".\\loegger" + node.Name + ".log";
-                var votedLogFile = ".\\votedlogger_" + node.Name + ".log";
+                var proposerLogFile = ".\\" + node.Name + ".proposerlog";
+                var votedLogFile = ".\\" + node.Name + ".voterlog";
                 File.Delete(proposerLogFile);
                 File.Delete(votedLogFile);
             }
@@ -217,8 +217,8 @@ namespace Paxos.Tests
             {
                 var node = new PaxosNode(cluster, nodeInfo);
                 nodeMap[nodeInfo.Name] = node;
-                var proposerLogFile = ".\\loegger" + nodeInfo.Name + ".log";
-                var votedLogFile = ".\\votedlogger_" + nodeInfo.Name + ".log";
+                var proposerLogFile = ".\\" + nodeInfo.Name + ".proposerlog";
+                var votedLogFile = ".\\" + nodeInfo.Name + ".voterlog";
                 await node.Load(proposerLogFile, votedLogFile);
             }
 
@@ -1187,8 +1187,9 @@ namespace Paxos.Tests
             {
                 var node = new NodeInfo("Node" + i.ToString());
 
-                var proposerLogFile = ".\\loegger" + node.Name + ".log";
-                var votedLogFile = ".\\votedlogger_" + node.Name + ".log";
+                var metaLogFile = ".\\" + node.Name + ".meta";
+                var proposerLogFile = ".\\" + node.Name + ".proposerlog";
+                var votedLogFile = ".\\" + node.Name + ".voterlog";
                 File.Delete(proposerLogFile);
                 File.Delete(votedLogFile);
 
@@ -1221,10 +1222,12 @@ namespace Paxos.Tests
             {
                 var node = new ReplicatedTable.ReplicatedTable(cluster, nodeInfo);
                 tableNodeMap[nodeInfo.Name] = node;
-                var proposerLogFile = ".\\loegger" + nodeInfo.Name + ".log";
-                var votedLogFile = ".\\votedlogger_" + nodeInfo.Name + ".log";
+                var proposerLogFile = ".\\" + nodeInfo.Name + ".proposerlog";
+                var votedLogFile = ".\\" + nodeInfo.Name + ".voterlog";
 
-                await node.Load(proposerLogFile, votedLogFile);
+                var metaLogFile = ".\\" + nodeInfo.Name + ".meta";
+                await node.Load(metaLogFile);
+                //await node.Load(proposerLogFile, votedLogFile);
             }
 
             start = DateTime.Now;
