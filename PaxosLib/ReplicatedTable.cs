@@ -106,7 +106,6 @@ namespace Paxos.ReplicatedTable
     public class ReplicatedTable : StateMachine.PaxosStateMachine
     {
         Dictionary<string, string> _table = new Dictionary<string, string>();
-        int _pendingCount = 0;
         List<ReplicatedTableRequest> _queueRequests = new List<ReplicatedTableRequest>();
         ConcurrentDictionary<object, BatchRplicatedTableRequest> _pendingRequests = new ConcurrentDictionary<object, BatchRplicatedTableRequest>();
         SemaphoreSlim _tableUpdateLock = new SemaphoreSlim(1);

@@ -365,19 +365,30 @@ namespace Paxos.Protocol
             if (_notificationSubscriber != null)
             {
                 // get next checkpoint file
-                FileStream fileStream = null;
-                string filepath;
-                do
+                var checkpointFilePath = _proposerNote.ProposeRoleMetaRecord?.CheckpointFilePath;
+                if (checkpointFilePath == null)
                 {
-                    filepath = "checkpoint.001";
-                    fileStream = new FileStream(filepath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
-                    break;
-                } while (true);
+                    checkpointFilePath = _nodeInfo.Name + "_checkpoint.00000001";
+                }
+                else
+                {
+                    int checkpointFileIndex = 0;
+                    var baseName = _nodeInfo.Name + "_checkpoint";
+                    var separatorIndex = checkpointFilePath.IndexOf(baseName);
+                    if (separatorIndex != -1)
+                    {
+                        Int32.TryParse(checkpointFilePath.Substring(baseName.Length + 1), out checkpointFileIndex);
+                        checkpointFileIndex++;
+                    }
+                    checkpointFilePath = baseName + "." + checkpointFileIndex.ToString("D8");
+                }
+                FileStream fileStream = null;
+                fileStream = new FileStream(checkpointFilePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
 
                 var decreeNo = await _notificationSubscriber.Checkpoint(fileStream);
 
                 // save new metadata
-                await _proposerNote.Checkpoint(filepath, decreeNo);
+                await _proposerNote.Checkpoint(checkpointFilePath, decreeNo);
             }
         }
 
@@ -655,7 +666,7 @@ namespace Paxos.Protocol
                 await _notificationSubscriber.UpdateSuccessfullDecree(msg.DecreeNo, new PaxosDecree(msg.Decree));
 
             // check if need to checkpoint
-            if (position.TotalOffset > 1024)
+            if (position.TotalOffset > Persistence.LogSizeThreshold.CommitLogFileSizeThreshold)
             {
                 await Checkpoint();
             }

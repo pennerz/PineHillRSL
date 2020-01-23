@@ -150,8 +150,6 @@ namespace Paxos.Node
             _proposerNote = new ProposerNote(_proposeLogger, metaLogger);
             await _proposerNote.Load();
 
-
-
             _proposeManager = new ProposeManager(_proposerNote.GetMaximumCommittedDecreeNo());
 
             _voterRole = new VoterRole(_nodeInfo, _cluster, _rpcClient, _voterNote, _proposerNote);

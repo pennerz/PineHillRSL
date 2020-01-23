@@ -376,35 +376,52 @@ namespace Paxos.Notebook
     {
         private UInt64 _decreeNo = 0;
         private string _checkpointFile;
+        private AppendPosition _checkpointPosition;
 
-        public MetaRecord(UInt64 decreeNo, string checkpointFile)
+        public MetaRecord(UInt64 decreeNo, string checkpointFile, AppendPosition checkpointPosition)
         {
             _decreeNo = decreeNo;
             _checkpointFile = checkpointFile;
+            _checkpointPosition = checkpointPosition;
         }
 
         public UInt64 DecreeNo => _decreeNo;
 
         public string CheckpointFilePath => _checkpointFile;
 
+        public AppendPosition CheckpointPosition => _checkpointPosition;
+
         public byte[] Serialize()
         {
+
             var filePathData = Encoding.UTF8.GetBytes(_checkpointFile);
+            var fragmentIndexData = BitConverter.GetBytes((UInt64)_checkpointPosition.FragmentIndex);
+            var offsetInFragmentData = BitConverter.GetBytes((UInt64)_checkpointPosition.OffsetInFragment);
             var decreeNoData = BitConverter.GetBytes(_decreeNo);
-            int recrodSize = filePathData.Length + decreeNoData.Length;
+            int recrodSize = filePathData.Length + decreeNoData.Length + fragmentIndexData.Length + offsetInFragmentData.Length;
             var buf = new Paxos.Persistence.LogBuffer();
             buf.AllocateBuffer(recrodSize + sizeof(int));
             buf.EnQueueData(BitConverter.GetBytes(recrodSize));
             buf.EnQueueData(decreeNoData);
+            buf.EnQueueData(fragmentIndexData);
+            buf.EnQueueData(offsetInFragmentData);
             buf.EnQueueData(filePathData);
             return buf.DataBuf;
         }
 
         public void DeSerialize(byte[] buf, int len)
         {
-            var recordSize = BitConverter.ToInt32(buf, 0);
-            _decreeNo = BitConverter.ToUInt64(buf, sizeof(int));
-            _checkpointFile = Encoding.UTF8.GetString(buf, sizeof(UInt64) + sizeof(int), len - sizeof(UInt64) - sizeof(int));
+            int offInBuf = 0;
+            var recordSize = BitConverter.ToInt32(buf, offInBuf);
+            offInBuf += sizeof(int);
+            _decreeNo = BitConverter.ToUInt64(buf, offInBuf);
+            offInBuf += sizeof(UInt64);
+            var fragmentIndex = BitConverter.ToUInt64(buf, offInBuf);
+            offInBuf += sizeof(UInt64);
+            var offsetInFragment = BitConverter.ToUInt64(buf, offInBuf);
+            offInBuf += sizeof(UInt64);
+            _checkpointFile = Encoding.UTF8.GetString(buf, offInBuf, len - offInBuf);
+            _checkpointPosition = new AppendPosition(fragmentIndex, offsetInFragment, 0);
         }
     }
 
@@ -425,7 +442,7 @@ namespace Paxos.Notebook
             for (; !it.Equals(await _metaLogger.End()); it = await it.Next())
             {
                 var entry = it.Log;
-                var tmpRecord = new MetaRecord(0, null);
+                var tmpRecord = new MetaRecord(0, null, null);
                 tmpRecord.DeSerialize(entry.Data, entry.Size + sizeof(int));
                 metaRecord = tmpRecord;
             }
@@ -439,7 +456,7 @@ namespace Paxos.Notebook
             logEntry.Data = _metaRecord.Serialize();
             logEntry.Size = logEntry.Data.Length;
             var poisition = await _metaLogger.AppendLog(logEntry);
-            if (poisition.OffsetInFragment > 1024 * 1024)
+            if (poisition.OffsetInFragment > LogSizeThreshold.MetaLogTruncateThreshold)
             {
                 // truncate it
                 await _metaLogger.Truncate(poisition);
@@ -512,8 +529,6 @@ namespace Paxos.Notebook
         private Task _positionCheckpointTask;
         private List<Tuple<ulong, AppendPosition>> _checkpointPositionList = new List<Tuple<ulong, AppendPosition>>();
         private bool _isStop = false;
-
-        private MetaRecord _metaRecord = null;
         private MetaNote _metaNote = null;
 
         public ProposerNote(ILogger logger, ILogger metaLogger = null)
@@ -562,10 +577,14 @@ namespace Paxos.Notebook
             if (_metaNote != null)
             {
                 await _metaNote.Load();
-                _metaRecord = _metaNote.MetaDataRecord;
             }
-            var baseDecreeNo = _metaRecord != null ? (UInt64)_metaRecord.DecreeNo : (UInt64)0;
+            var baseDecreeNo = ProposeRoleMetaRecord != null ? (UInt64)ProposeRoleMetaRecord.DecreeNo : (UInt64)0;
             _activePropose = new SlidingWindow(baseDecreeNo, new RequestPositionItemComparer());
+
+            if (ProposeRoleMetaRecord != null)
+            {
+                _logger.SetBeginPosition(ProposeRoleMetaRecord.CheckpointPosition);
+            }
             var it = await _logger.Begin();
             var itEnd = await _logger.End();
             for (; !it.Equals(itEnd); it = await it.Next())
@@ -648,12 +667,13 @@ namespace Paxos.Notebook
 
         public async Task Checkpoint(string newCheckpointFile, ulong decreeNo)
         {
+            var minOff = GetMinPositionForDecrees(decreeNo + 1);
+
             // write new checkpoint recrod
-            var metaRecord = new MetaRecord((UInt64)decreeNo, newCheckpointFile);
+            var metaRecord = new MetaRecord((UInt64)decreeNo, newCheckpointFile, minOff);
             await _metaNote.UpdateMeta(metaRecord);
 
             // try to truncate the logs
-            var minOff = GetMinPositionForDecrees(decreeNo + 1);
             await _logger.Truncate(minOff);
         }
 
@@ -724,7 +744,7 @@ namespace Paxos.Notebook
             return position;
         }
 
-        public MetaRecord ProposeRoleMetaRecord => _metaRecord;
+        public MetaRecord ProposeRoleMetaRecord => _metaNote?.MetaDataRecord;
 
         public IReadOnlyDictionary<ulong, PaxosDecree> CommittedDecrees => _committedDecrees;
     }
