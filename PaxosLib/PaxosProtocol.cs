@@ -368,7 +368,7 @@ namespace Paxos.Protocol
                 var checkpointFilePath = _proposerNote.ProposeRoleMetaRecord?.CheckpointFilePath;
                 if (checkpointFilePath == null)
                 {
-                    checkpointFilePath = _nodeInfo.Name + "_checkpoint.00000001";
+                    checkpointFilePath = _nodeInfo.Name + "_checkpoint.0000000000000001";
                 }
                 else
                 {
@@ -380,7 +380,7 @@ namespace Paxos.Protocol
                         Int32.TryParse(checkpointFilePath.Substring(baseName.Length + 1), out checkpointFileIndex);
                         checkpointFileIndex++;
                     }
-                    checkpointFilePath = baseName + "." + checkpointFileIndex.ToString("D8");
+                    checkpointFilePath = baseName + "." + checkpointFileIndex.ToString("D16");
                 }
                 FileStream fileStream = null;
                 fileStream = new FileStream(checkpointFilePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
@@ -808,7 +808,7 @@ namespace Paxos.Protocol
                 await _notificationSubscriber?.UpdateSuccessfullDecree(decreeNo, propose.GetCommittedDecree());
 
             // check if need to checkpoint
-            if (position.TotalOffset > 1024 )
+            if (position.TotalOffset > Persistence.LogSizeThreshold.CommitLogFileSizeThreshold )
             {
                 await Checkpoint();
             }

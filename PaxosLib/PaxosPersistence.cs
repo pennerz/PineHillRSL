@@ -191,7 +191,7 @@ namespace Paxos.Persistence
                 UInt64 fileIndex = _fileIndex + 1;
                 try
                 {
-                    var dataStream = new FileStream(_filePathPrefix + fileIndex.ToString(), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    var dataStream = new FileStream(_filePathPrefix + fileIndex.ToString("D16"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                     var fileIt = new FileLogEntryIterator(dataStream, _filePathPrefix, fileIndex, null, IteratorType.Default);
                     return await fileIt.Next();
                 }
@@ -403,7 +403,7 @@ namespace Paxos.Persistence
             FileLogEntryIterator fileIt;
             try
             {
-                dataStream = new FileStream(_dataFilePath + fileIndex.ToString(), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                dataStream = new FileStream(_dataFilePath + fileIndex.ToString("D16"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                 fileIt = new FileLogEntryIterator(dataStream, _dataFilePath, fileIndex, null, IteratorType.Default);
                 return fileIt.Next();
             }
@@ -437,8 +437,12 @@ namespace Paxos.Persistence
                     break;
                 }
             }
+            if (fileIndex == _baseFragmentIndex)
+            {
+                return End();
+            }
             _baseFragmentIndex = fileIndex;
-            dataStream = new FileStream(_dataFilePath + fileIndex.ToString(), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            dataStream = new FileStream(_dataFilePath + fileIndex.ToString("D16"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             fileIt = new FileLogEntryIterator(dataStream, _dataFilePath, fileIndex, null, IteratorType.Default);
             return fileIt.Next();
         }
@@ -535,7 +539,7 @@ namespace Paxos.Persistence
             }
             _dataStream?.Close();
             _dataStream?.Dispose();
-            _dataStream = new FileStream(_dataFilePath + _currentFragmentIndex.ToString("D8"), FileMode.OpenOrCreate, FileAccess.Write, FileShare.ReadWrite);
+            _dataStream = new FileStream(_dataFilePath + _currentFragmentIndex.ToString("D16"), FileMode.OpenOrCreate, FileAccess.Write, FileShare.ReadWrite);
         }
 
         private async Task<bool> TruncateInlock(AppendPosition position)
@@ -550,7 +554,7 @@ namespace Paxos.Persistence
             {
                 truncateDataSize += (UInt64)_prevDataStreamLength[0];
                 _prevDataStreamLength.RemoveAt(0);
-                var filePath = _dataFilePath + i.ToString("D8");
+                var filePath = _dataFilePath + i.ToString("D16");
                 File.Delete(filePath);
             }
             _baseFragmentIndex = position.FragmentIndex;
