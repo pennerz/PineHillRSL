@@ -179,7 +179,7 @@ namespace Paxos.Notebook
             {
                 do
                 {
-                    await Task.Delay(1000);
+                    await Task.Delay(100000);
 
                     UInt64 maxDecreeNo = 0;
                     AppendPosition lastAppendPosition;

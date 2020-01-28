@@ -47,7 +47,7 @@ namespace Paxos
             var networkInfr = new TestNetworkInfr();
             NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
 
-            if (true)
+            if (false)
             {
 
                 var tableNodeMap = new Dictionary<string, ReplicatedTable.ReplicatedTable>();
@@ -142,7 +142,7 @@ namespace Paxos
                     taskCreateTime.Accumulate((afterCreateTaskTime - beforeCreateTaskTime).TotalMilliseconds);
 
                     taskList.Add(task);
-                    if (taskList.Count > 2000)
+                    if (taskList.Count > 100)
                     {
                         //await Task.WhenAll(taskList);
                         DateTime firstFinishTime = DateTime.MaxValue;

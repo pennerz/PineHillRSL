@@ -13,7 +13,8 @@ namespace Paxos.Persistence
 {
     public class LogSizeThreshold
     {
-        public const int CommitLogFileSizeThreshold = 10 * 1024;
+        public const int LogFileSizeThreshold = 1024 * 1024;
+        public const int CommitLogFileCheckpointThreshold = 10 * 1024;
         public const int MetaLogTruncateThreshold = 1024;
     }
 
@@ -270,7 +271,7 @@ namespace Paxos.Persistence
         private List<UInt64> _prevDataStreamLength = new List<UInt64>();
         private UInt64 _baseFragmentIndex = 0;
         private UInt64 _currentFragmentIndex = 0;
-        private UInt64 _fragmentSizeLimit = 1024;
+        private UInt64 _fragmentSizeLimit = LogSizeThreshold.LogFileSizeThreshold;
         private UInt64 _fragmentBaseOffset = 0;
 
         private List<LogBuffer> _ringBuffer = new List<LogBuffer>();
@@ -417,7 +418,7 @@ namespace Paxos.Persistence
             var separatorIndex = _dataFilePath.IndexOf("\\");
             if (separatorIndex == -1)
             {
-                dir = ".\\";
+                dir = ".\\storage";
                 baseFileName = _dataFilePath;
             }
             else

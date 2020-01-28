@@ -62,9 +62,9 @@ namespace Paxos.Node
             var serverAddr = new NodeAddress(_nodeInfo, 88);
             _rpcServer = new RpcServer(serverAddr);
 
-            var metaLogger = new FileLogger(".\\" + _nodeInfo.Name + ".meta");
-            _proposeLogger = new FileLogger(".\\" + _nodeInfo.Name + ".proposerlog");
-            _voterLogger = new FileLogger(".\\" + _nodeInfo.Name + ".voterlog");
+            var metaLogger = new FileLogger(".\\storage\\" + _nodeInfo.Name + ".meta");
+            _proposeLogger = new FileLogger(".\\storage\\" + _nodeInfo.Name + ".proposerlog");
+            _voterLogger = new FileLogger(".\\storage\\" + _nodeInfo.Name + ".voterlog");
             _voterNote = new VoterNote(_voterLogger);
             _proposerNote = new ProposerNote(_proposeLogger, metaLogger);
             _proposeManager = new ProposeManager(_proposerNote.GetMaximumCommittedDecreeNo());

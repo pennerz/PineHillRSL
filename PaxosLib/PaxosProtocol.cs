@@ -666,7 +666,7 @@ namespace Paxos.Protocol
                 await _notificationSubscriber.UpdateSuccessfullDecree(msg.DecreeNo, new PaxosDecree(msg.Decree));
 
             // check if need to checkpoint
-            if (position.TotalOffset > Persistence.LogSizeThreshold.CommitLogFileSizeThreshold)
+            if (position.TotalOffset > Persistence.LogSizeThreshold.CommitLogFileCheckpointThreshold)
             {
                 await Checkpoint();
             }
@@ -808,7 +808,7 @@ namespace Paxos.Protocol
                 await _notificationSubscriber?.UpdateSuccessfullDecree(decreeNo, propose.GetCommittedDecree());
 
             // check if need to checkpoint
-            if (position.TotalOffset > Persistence.LogSizeThreshold.CommitLogFileSizeThreshold )
+            if (position.TotalOffset > Persistence.LogSizeThreshold.CommitLogFileCheckpointThreshold)
             {
                 await Checkpoint();
             }

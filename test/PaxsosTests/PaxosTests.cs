@@ -20,50 +20,6 @@ using System.Threading.Tasks;
 
 namespace Paxos.Tests
 {
-    public class Statistic
-    {
-        private double _min = UInt64.MaxValue;
-        private double _max = 0;
-        private double _sum = 0;
-        private UInt64 _count = 0;
-        private List<int> _lock = new List<int>();
-
-        public double Min => _min;
-        public double Max => _max;
-        public double Avg
-        {
-            get
-            {
-                lock(_lock)
-                {
-                    if (_count > 0)
-                    {
-                        return _sum / _count;
-                    }
-                    return _min;
-                }
-            }
-        }
-
-        public UInt64 Count { get; set; }
-
-        public void Accumulate(double val)
-        {
-            lock(_lock)
-            {
-                if (val < _min)
-                {
-                    _min = val;
-                }
-                if (val > _max)
-                {
-                    _max = val;
-                }
-                _sum += val;
-                _count++;
-            }
-        }
-    }
     [TestClass()]
     public class PaxosTests
     {
@@ -157,6 +113,7 @@ namespace Paxos.Tests
             Assert.IsTrue(result.Decree.Content.Equals("test3"));
             Assert.IsTrue(result.DecreeNo == 3);
             await networkInfr.WaitUntillAllReceivedMessageConsumed();
+            await Task.Delay(50); // message received but may not processed
             readReslut = await proposer.ReadDecree(result.DecreeNo);
             if (notifyLearner)
             {
@@ -196,8 +153,8 @@ namespace Paxos.Tests
                 var node = new NodeInfo("Node" + i.ToString());
                 cluster.Members.Add(node);
 
-                var proposerLogFile = ".\\" + node.Name + ".proposerlog";
-                var votedLogFile = ".\\" + node.Name + ".voterlog";
+                var proposerLogFile = ".\\storage\\" + node.Name + ".proposerlog";
+                var votedLogFile = ".\\storage\\" + node.Name + ".voterlog";
                 File.Delete(proposerLogFile);
                 File.Delete(votedLogFile);
             }
@@ -217,8 +174,8 @@ namespace Paxos.Tests
             {
                 var node = new PaxosNode(cluster, nodeInfo);
                 nodeMap[nodeInfo.Name] = node;
-                var proposerLogFile = ".\\" + nodeInfo.Name + ".proposerlog";
-                var votedLogFile = ".\\" + nodeInfo.Name + ".voterlog";
+                var proposerLogFile = ".\\storage\\" + nodeInfo.Name + ".proposerlog";
+                var votedLogFile = ".\\storage\\" + nodeInfo.Name + ".voterlog";
                 await node.Load(proposerLogFile, votedLogFile);
             }
 
@@ -1187,9 +1144,9 @@ namespace Paxos.Tests
             {
                 var node = new NodeInfo("Node" + i.ToString());
 
-                var metaLogFile = ".\\" + node.Name + ".meta";
-                var proposerLogFile = ".\\" + node.Name + ".proposerlog";
-                var votedLogFile = ".\\" + node.Name + ".voterlog";
+                var metaLogFile = ".\\storage\\" + node.Name + ".meta";
+                var proposerLogFile = ".\\storage\\" + node.Name + ".proposerlog";
+                var votedLogFile = ".\\storage\\" + node.Name + ".voterlog";
                 File.Delete(proposerLogFile);
                 File.Delete(votedLogFile);
 
@@ -1222,10 +1179,10 @@ namespace Paxos.Tests
             {
                 var node = new ReplicatedTable.ReplicatedTable(cluster, nodeInfo);
                 tableNodeMap[nodeInfo.Name] = node;
-                var proposerLogFile = ".\\" + nodeInfo.Name + ".proposerlog";
-                var votedLogFile = ".\\" + nodeInfo.Name + ".voterlog";
+                var proposerLogFile = ".\\storage\\" + nodeInfo.Name + ".proposerlog";
+                var votedLogFile = ".\\storage\\" + nodeInfo.Name + ".voterlog";
 
-                var metaLogFile = ".\\" + nodeInfo.Name + ".meta";
+                var metaLogFile = ".\\storage\\" + nodeInfo.Name + ".meta";
                 await node.Load(metaLogFile);
                 //await node.Load(proposerLogFile, votedLogFile);
             }

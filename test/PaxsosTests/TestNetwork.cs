@@ -29,6 +29,17 @@ namespace Paxos.Tests
 
         private List<NetworkMessage> _receivedMessages = new List<NetworkMessage>();
         private SemaphoreSlim _receivedMessageSemaphore = new SemaphoreSlim(0);
+
+        static Statistic _receivedLockWaitTime = new Statistic();
+        static Statistic _lockOccupiedTime = new Statistic();
+        static Statistic _receivedMessageUpdateTime = new Statistic();
+        static Statistic _delevieryLockWaitTime = new Statistic();
+        static Statistic _delevieryOccupiedTime = new Statistic();
+        static Statistic _semaphoreReleaseTime = new Statistic();
+        static Statistic _delevieryTime = new Statistic();
+        static Statistic _sendDelayedTime = new Statistic();
+
+
         //private SemaphoreSlim _lock = new SemaphoreSlim(1);
         private List<int> _lock = new List<int>();
 
@@ -54,14 +65,17 @@ namespace Paxos.Tests
                 var delayMs = _random.Next(3, 5);
                 await Task.Delay(delayMs);
                 var delayedTime = DateTime.Now - begin;
+                _sendDelayedTime.Accumulate(delayedTime.TotalMilliseconds);
                 _remoteConnection.DeliverMessage(msg);
                 var sentTime = DateTime.Now - begin;
-                if (sentTime.TotalMilliseconds > 200)
+                _delevieryTime.Accumulate(sentTime.TotalMilliseconds);
+                if (sentTime.TotalMilliseconds > 1000)
                 {
-                    //Console.WriteLine("send cost too much time");
+                    Console.WriteLine("connection deliver message cost too much time[{0}ms]", sentTime.TotalMilliseconds);
                 }
             }
         }
+
 
         public async Task<List<NetworkMessage>> ReceiveMessage()
         {
@@ -70,8 +84,12 @@ namespace Paxos.Tests
             do
             {
                 await _receivedMessageSemaphore.WaitAsync();
+
+                DateTime beforeLock = DateTime.Now;
                 lock (_lock)
                 {
+                    DateTime afterLock = DateTime.Now;
+                    _receivedLockWaitTime.Accumulate((afterLock - beforeLock).TotalMilliseconds);
                     if (_receivedMessages.Count > 0)
                     {
                         //var message = _receivedMessages[0];
@@ -79,8 +97,10 @@ namespace Paxos.Tests
                         // return message;
                          result = _receivedMessages;
                         _receivedMessages = newMsgList;
+                        _lockOccupiedTime.Accumulate((DateTime.Now - afterLock).TotalMilliseconds);
                         break;
                     }
+                    _lockOccupiedTime.Accumulate((DateTime.Now - afterLock).TotalMilliseconds);
                 }
             } while (true);
 
@@ -89,6 +109,7 @@ namespace Paxos.Tests
             {
                 msg.ReceivedTime = now;
             }
+            _receivedMessageUpdateTime.Accumulate((DateTime.Now - now).TotalMilliseconds);
             return result;
         }
 
@@ -119,12 +140,18 @@ namespace Paxos.Tests
         /// <param name="message"></param>
         public void DeliverMessage(NetworkMessage message)
         {
+            DateTime beforeLock = DateTime.Now;
             lock (_lock)
             {
+                var afterLock = DateTime.Now;
+                _delevieryLockWaitTime.Accumulate((afterLock - beforeLock).TotalMilliseconds);
                 message.DeliveredTime = DateTime.Now;
                 _receivedMessages.Add(message);
+                _delevieryOccupiedTime.Accumulate((DateTime.Now - afterLock).TotalMilliseconds);
             }
+            DateTime beforeSemaphore = DateTime.Now;
             _receivedMessageSemaphore.Release();
+            _semaphoreReleaseTime.Accumulate((DateTime.Now - beforeSemaphore).TotalMilliseconds);
         }
 
     public NodeAddress LocalAddress => _localAddress;
@@ -257,6 +284,11 @@ namespace Paxos.Tests
             foreach (var connection in _connections)
             {
                 await connection.WaitUntillAllReceivedMessageConsumed();
+            }
+
+            foreach(var connectionItm in _connectionIndex)
+            {
+                await connectionItm.Value.WaitUntillAllReceivedMessageConsumed();
             }
         }
     }

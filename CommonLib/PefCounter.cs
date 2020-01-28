@@ -133,4 +133,50 @@ namespace Paxos.Common
         }
     }
 
+    public class Statistic
+    {
+        private double _min = UInt64.MaxValue;
+        private double _max = 0;
+        private double _sum = 0;
+        private UInt64 _count = 0;
+        private ConcurrentDictionary<int, int> _lock = new ConcurrentDictionary<int, int>();
+
+        public double Min => _min;
+        public double Max => _max;
+        public double Avg
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    if (_count > 0)
+                    {
+                        return _sum / _count;
+                    }
+                    return _min;
+                }
+            }
+        }
+
+        public UInt64 Count { get; set; }
+
+        public void Accumulate(double val)
+        {
+            lock (_lock)
+            {
+                if (val < _min)
+                {
+                    _min = val;
+                }
+                if (val > _max)
+                {
+                    _max = val;
+                }
+                _sum += val;
+                _count++;
+            }
+        }
+    }
+
+
 }
