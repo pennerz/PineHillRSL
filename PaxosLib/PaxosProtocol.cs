@@ -143,8 +143,8 @@ namespace Paxos.Protocol
                         BallotNo = msg.BallotNo,
                         DecreeNo = msg.DecreeNo,
                         VoteBallotNo = 0, // not applicable
-                        VoteDecree = commitedDecree.Content,
-                        CommittedDecrees = _ledger.GetFollowingCommittedDecress(msg.DecreeNo)
+                        VoteDecree = commitedDecree.Data,
+                        CommittedDecrees = await _ledger.GetFollowingCommittedDecress(msg.DecreeNo)
                     };
                 }
 
@@ -179,7 +179,7 @@ namespace Paxos.Protocol
                     BallotNo = msg.BallotNo,
                     DecreeNo = msg.DecreeNo,
                     VoteBallotNo = lastVote != null ? lastVote.VotedBallotNo : 0,
-                    VoteDecree = lastVote?.VotedDecree.Content
+                    VoteDecree = lastVote?.VotedDecree.Data
                 };
             }
         }
@@ -198,8 +198,8 @@ namespace Paxos.Protocol
                         DecreeNo = msg.DecreeNo,
                         BallotNo = msg.BallotNo,
                         Commited = true,
-                        VoteDecree = commitedDecree.Content,
-                        CommittedDecrees = _ledger.GetFollowingCommittedDecress(msg.DecreeNo)
+                        VoteDecree = commitedDecree.Data,
+                        CommittedDecrees = await _ledger.GetFollowingCommittedDecress(msg.DecreeNo)
                     };
                 }
 
@@ -1027,7 +1027,7 @@ namespace Paxos.Protocol
                     beginBallotMessage.DecreeNo = decreeNo;
                     beginBallotMessage.BallotNo = ballotNo;
                     beginBallotMessage.TargetNode = node.Name;
-                    beginBallotMessage.Decree = newBallotDecree.Content;
+                    beginBallotMessage.Decree = newBallotDecree.Data;
                     var task = SendPaxosMessage(beginBallotMessage);
                 //});
 
@@ -1056,7 +1056,7 @@ namespace Paxos.Protocol
                     successMessage.TargetNode = node.Name;
                     successMessage.DecreeNo = decreeNo;
                     successMessage.BallotNo = ballotNo;
-                    successMessage.Decree = decree.Content;
+                    successMessage.Decree = decree.Data;
 
                     var task = SendPaxosMessage(successMessage);
                 //});

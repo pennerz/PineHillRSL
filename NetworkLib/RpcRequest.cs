@@ -32,7 +32,7 @@ namespace Paxos.Rpc
     {
         private Task _messageHandlerTask;
         private List<KeyValuePair<NodeAddress, IConnection>> _connections = new List<KeyValuePair<NodeAddress, IConnection>>();
-        private Dictionary<NodeAddress, IConnection> _connectionsTable = new Dictionary<NodeAddress, IConnection>();
+        private ConcurrentDictionary<NodeAddress, IConnection> _connectionsTable = new ConcurrentDictionary<NodeAddress, IConnection>();
         private List<NodeInfo> _pendingDeletionConnections = new List<NodeInfo>();
         private List<KeyValuePair<NodeAddress, IConnection>> _pendingAddConnections = new List<KeyValuePair<NodeAddress, IConnection>>();
         private TaskCompletionSource<List<NetworkMessage>> _signalTask = new TaskCompletionSource<List<NetworkMessage>>();
@@ -43,8 +43,8 @@ namespace Paxos.Rpc
         private SemaphoreSlim _receivedMessageSemaphore = new SemaphoreSlim(0);
         private List<Task> _networkMessageProcessTask = new List<Task>();
         private bool _usePreallocateTaskPool = false;
-        //private SemaphoreSlim _lock = new SemaphoreSlim(1);
-        private List<int> _lock = new List<int>();
+        private SemaphoreSlim _lock = new SemaphoreSlim(1);
+        //private List<int> _lock = new List<int>();
 
         public RpcNode(NodeAddress localAddrr, IRpcNodeEventHandler rpcNodeEventHandler)
         {
@@ -139,7 +139,6 @@ namespace Paxos.Rpc
                 {
                     return connection;
                 }
-
             }
 
             connection = await NetworkFactory.CreateNetworkClient(_localAddr, remoteAddress);
@@ -152,6 +151,7 @@ namespace Paxos.Rpc
                 if (oldconnection == null)
                 {
                     _pendingAddConnections.Add(pendingConnection);
+                    _connectionsTable.TryAdd(remoteAddress, connection);
                     _connectionsTable[remoteAddress] = connection;
                     var oldSignalTask = _signalTask;
                     _signalTask = newSignalTask;
@@ -381,11 +381,13 @@ namespace Paxos.Rpc
         /// <returns></returns>
         private IConnection GetConnectionInLock(NodeAddress serverAddress)
         {
-            if (!_connectionsTable.ContainsKey(serverAddress))
+            IConnection connection = null;
+            if (!_connectionsTable.TryGetValue(serverAddress, out connection))
             {
                 return null;
             }
-            return _connectionsTable[serverAddress];
+            return connection;
+            //return _connectionsTable[serverAddress];
 
             var connectionEntry = _connections.Where(connection => connection.Key.Node.Name.Equals(serverAddress.Node.Name)).FirstOrDefault();
             if (connectionEntry.Key != null && connectionEntry.Key.Node != null && !string.IsNullOrEmpty(connectionEntry.Key.Node.Name))
@@ -573,7 +575,7 @@ namespace Paxos.Rpc
                 if (rpcResp == null)
                 {
                     rpcResp = new RpcMessage()
-                    { IsRequest = false, RequestId = rpcRequest.RequestId, RequestContent = "" };
+                    { IsRequest = false, RequestId = rpcRequest.RequestId, RequestContent = null };
                 }
 
                 await connection.SendMessage(RpcMessageHelper.CreateNetworkMessage(rpcResp));

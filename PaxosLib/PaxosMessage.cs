@@ -2,6 +2,7 @@
 using Paxos.Request;
 using System;
 using System.Collections.Generic;
+using System.Text;
 
 namespace Paxos.Message
 {
@@ -27,17 +28,73 @@ namespace Paxos.Message
         public UInt64 DecreeNo { get; set; }
         public UInt64 BallotNo { get; set; }
 
-        public string Serialize()
+        public byte[] Serialize()
         {
-            return "MessageType:" + MessageType.ToString() + "_" +
-            "SourceNode:" + SourceNode + "_" +
-            "TargetNode:" + TargetNode + "_" +
-            "DecreeNo:" + DecreeNo.ToString() + "_" +
-            "BallotNo:" + BallotNo.ToString() + "_";
+            var messageTypeData = BitConverter.GetBytes((int)MessageType);
+            var sourceNodeData = Encoding.UTF8.GetBytes(SourceNode);
+            var targetNodeData = Encoding.UTF8.GetBytes(TargetNode);
+            var decreeNoData = BitConverter.GetBytes(DecreeNo);
+            var ballotNoData = BitConverter.GetBytes(BallotNo);
+            var dataList = new List<byte[]>();
+            dataList.Add(messageTypeData);
+            dataList.Add(sourceNodeData);
+            dataList.Add(targetNodeData);
+            dataList.Add(decreeNoData);
+            dataList.Add(ballotNoData);
+            var serializeBuffer = new SerializeBuffer();
+            serializeBuffer.AppendBlocks(dataList);
+            return serializeBuffer.DataBuf;
+
+            //return "MessageType:" + MessageType.ToString() + "_" +
+            //"SourceNode:" + SourceNode + "_" +
+            //"TargetNode:" + TargetNode + "_" +
+            //"DecreeNo:" + DecreeNo.ToString() + "_" +
+            //"BallotNo:" + BallotNo.ToString() + "_";
         }
 
-        public void DeSerialize(string str)
+        public void DeSerialize(byte[] data)
         {
+            var serializeBuffer = new SerializeBuffer();
+            serializeBuffer.ConcatenateBuff(data);
+
+            var itEnd = serializeBuffer.End();
+            var it = serializeBuffer.Begin();
+            if (it.Equals(itEnd))
+            {
+                return;
+            }
+            int messageType = BitConverter.ToInt32(it.DataBuff, it.RecordOff);
+            MessageType = (PaxosMessageType)messageType;
+
+            it = it.Next();
+            if (it.Equals(itEnd))
+            {
+                return;
+            }
+            SourceNode = Encoding.UTF8.GetString(it.DataBuff, it.RecordOff, it.RecordSize);
+
+            it = it.Next();
+            if (it.Equals(itEnd))
+            {
+                return;
+            }
+            TargetNode = Encoding.UTF8.GetString(it.DataBuff, it.RecordOff, it.RecordSize);
+
+            it = it.Next();
+            if (it.Equals(itEnd))
+            {
+                return;
+            }
+            DecreeNo = BitConverter.ToUInt64(it.DataBuff, it.RecordOff);
+
+            it = it.Next();
+            if (it.Equals(itEnd))
+            {
+                return;
+            }
+            BallotNo = BitConverter.ToUInt64(it.DataBuff, it.RecordOff);
+
+            /*
             while (str != null)
             {
                 var index = str.IndexOf('_');
@@ -81,8 +138,9 @@ namespace Paxos.Message
                     UInt64 result = 0;
                     UInt64.TryParse(value, out result);
                     BallotNo = result;
+                    break;
                 }
-            }
+            }*/
         }
 
     }
@@ -110,18 +168,81 @@ namespace Paxos.Message
         public List<KeyValuePair<ulong, PaxosDecree>> CommittedDecrees { get; set; }
 
         public bool Commited { get; set; }
-        public ulong VoteBallotNo { get; set; }
-        public string VoteDecree { get; set; }
-
-        public new string Serialize()
+        public UInt64 VoteBallotNo { get; set; }
+        public byte[] VoteDecree { get; set; }
+        public string VoteDecreeContent
         {
-            return base.Serialize() + "Commited:" + Commited.ToString() + "_" +
-            "VoteBallotNo:" + VoteBallotNo.ToString() + "_" +
-            "VoteDecree:" + VoteDecree + "_";
+            get
+            {
+                return VoteDecree != null ? Encoding.UTF8.GetString(VoteDecree) : null;
+            }
+            set
+            {
+                VoteDecree = value != null ? Encoding.UTF8.GetBytes(value) : null;
+            }
         }
 
-        public new void DeSerialize(string str)
+        public new byte[] Serialize()
         {
+            var serializeBuf = new SerializeBuffer();
+            var baseSerializedData = base.Serialize();
+            var isCommitedData = BitConverter.GetBytes(Commited);
+            var votedBallotNoData = BitConverter.GetBytes(VoteBallotNo);
+            var voteDecreeData = VoteDecree;
+            var dataList = new List<byte[]>();
+            dataList.Add(baseSerializedData);
+            dataList.Add(isCommitedData);
+            dataList.Add(votedBallotNoData);
+            if (voteDecreeData != null)
+            {
+                dataList.Add(voteDecreeData);
+            }
+
+            serializeBuf.AppendBlocks(dataList);
+            return serializeBuf.DataBuf;
+            /*
+            return base.Serialize() + "Commited:" + Commited.ToString() + "_" +
+            "VoteBallotNo:" + VoteBallotNo.ToString() + "_" +
+            "VoteDecree:" + "_" + VoteDecree;*/
+        }
+
+        public new void DeSerialize(byte[] data)
+        {
+            var serializeBuf = new SerializeBuffer();
+            serializeBuf.ConcatenateBuff(data);
+            var endIt = serializeBuf.End();
+            var it = serializeBuf.Begin();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            var baseSerializeData = new byte[it.RecordSize];
+            Buffer.BlockCopy(it.DataBuff, it.RecordOff, baseSerializeData, 0, it.RecordSize);
+            base.DeSerialize(baseSerializeData);
+
+            it = it.Next();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            Commited = BitConverter.ToBoolean(it.DataBuff, it.RecordOff);
+
+            it = it.Next();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            VoteBallotNo = BitConverter.ToUInt64(it.DataBuff, it.RecordOff);
+
+            it = it.Next();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            VoteDecree = new byte[it.RecordSize];
+            Buffer.BlockCopy(it.DataBuff, it.RecordOff, VoteDecree, 0, it.RecordSize);
+
+            /*
             base.DeSerialize(str);
             while(str != null)
             {
@@ -155,9 +276,11 @@ namespace Paxos.Message
                 }
                 else if (name.Equals("VoteDecree"))
                 {
-                    VoteDecree = value;
+                    VoteDecree = str;
+                    break;
                 }
             }
+        }*/
         }
     }
 
@@ -168,14 +291,56 @@ namespace Paxos.Message
         {
             MessageType = PaxosMessageType.BEGINBALLOT;
         }
-        public string Decree { get; set; }
-        public new string Serialize()
+        public byte[] Decree { get; set; }
+        public string DecreeContent
         {
-            return base.Serialize() + "Decree:" + Decree + "_";
+            get
+            {
+                return Encoding.UTF8.GetString(Decree);
+            }
+            set
+            {
+                Decree = Encoding.UTF8.GetBytes(value);
+            }
+        }
+        public new byte[] Serialize()
+        {
+            var serializeBuf = new SerializeBuffer();
+            var baseSerializedData = base.Serialize();
+            var decreeData = Decree;
+            var dataList = new List<byte[]>();
+            dataList.Add(baseSerializedData);
+            dataList.Add(decreeData);
+
+            serializeBuf.AppendBlocks(dataList);
+            return serializeBuf.DataBuf;
+
+            //return base.Serialize() + "Decree:" + "_" + Decree;
         }
 
-        public new void DeSerialize(string str)
+        public new void DeSerialize(byte[] data)
         {
+            var serializeBuf = new SerializeBuffer();
+            serializeBuf.ConcatenateBuff(data);
+            var endIt = serializeBuf.End();
+            var it = serializeBuf.Begin();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            var baseSerializeData = new byte[it.RecordSize];
+            Buffer.BlockCopy(it.DataBuff, it.RecordOff, baseSerializeData, 0, it.RecordSize);
+            base.DeSerialize(baseSerializeData);
+
+            it = it.Next();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            Decree = new byte[it.RecordSize];
+            Buffer.BlockCopy(it.DataBuff, it.RecordOff, Decree, 0, it.RecordSize);
+
+            /*
             base.DeSerialize(str);
             while (str != null)
             {
@@ -197,9 +362,10 @@ namespace Paxos.Message
                 var value = subStr.Substring(index + 1);
                 if (name.Equals("Decree"))
                 {
-                    Decree = value;
+                    Decree = str;
+                    break;
                 }
-            }
+            }*/
         }
     }
 
@@ -219,14 +385,46 @@ namespace Paxos.Message
         {
             MessageType = PaxosMessageType.SUCCESS;
         }
-        public string Decree { get; set; }
-        public new string Serialize()
+        public byte[] Decree { get; set; }
+        public new byte[] Serialize()
         {
-            return base.Serialize() + "Decree:" + Decree + "_";
+            var serializeBuf = new SerializeBuffer();
+            var baseSerializedData = base.Serialize();
+            var decreeData = Decree;
+            var dataList = new List<byte[]>();
+            dataList.Add(baseSerializedData);
+            dataList.Add(decreeData);
+
+            serializeBuf.AppendBlocks(dataList);
+            return serializeBuf.DataBuf;
+
+            //return base.Serialize() + "Decree:" + "_" + Decree;
         }
 
-        public new void DeSerialize(string str)
+        public new void DeSerialize(byte[] data)
         {
+            var serializeBuf = new SerializeBuffer();
+            serializeBuf.ConcatenateBuff(data);
+            var endIt = serializeBuf.End();
+            var it = serializeBuf.Begin();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            var baseSerializeData = new byte[it.RecordSize];
+            Buffer.BlockCopy(it.DataBuff, it.RecordOff, baseSerializeData, 0, it.RecordSize);
+            base.DeSerialize(baseSerializeData);
+
+            it = it.Next();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            Decree = new byte[it.RecordSize];
+            Buffer.BlockCopy(it.DataBuff, it.RecordOff, Decree, 0, it.RecordSize);
+
+
+            /*
             base.DeSerialize(str);
             while (str != null)
             {
@@ -248,9 +446,10 @@ namespace Paxos.Message
                 var value = subStr.Substring(index + 1);
                 if (name.Equals("Decree"))
                 {
-                    Decree = value;
+                    Decree = str;
+                    break;
                 }
-            }
+            }*/
         }
     }
 
@@ -263,13 +462,42 @@ namespace Paxos.Message
         }
 
         public ulong NextBallotNo { get; set; }
-        public new string Serialize()
+        public new byte[] Serialize()
         {
-            return base.Serialize() + "NextBallotNo:" + NextBallotNo.ToString() + "_";
+            var serializeBuf = new SerializeBuffer();
+            var baseSerializedData = base.Serialize();
+            var nextBallotNoData = BitConverter.GetBytes(NextBallotNo);
+            var dataList = new List<byte[]>();
+            dataList.Add(baseSerializedData);
+            dataList.Add(nextBallotNoData);
+
+            serializeBuf.AppendBlocks(dataList);
+            return serializeBuf.DataBuf;
+            //return base.Serialize() + "NextBallotNo:" + NextBallotNo.ToString() + "_";
         }
 
-        public new void DeSerialize(string str)
+        public new void DeSerialize(byte[] data)
         {
+            var serializeBuf = new SerializeBuffer();
+            serializeBuf.ConcatenateBuff(data);
+            var endIt = serializeBuf.End();
+            var it = serializeBuf.Begin();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            var baseSerializeData = new byte[it.RecordSize];
+            Buffer.BlockCopy(it.DataBuff, it.RecordOff, baseSerializeData, 0, it.RecordSize);
+            base.DeSerialize(baseSerializeData);
+
+            it = it.Next();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            NextBallotNo = BitConverter.ToUInt64(it.DataBuff, it.RecordOff);
+
+            /*
             base.DeSerialize(str);
             while (str != null)
             {
@@ -295,7 +523,7 @@ namespace Paxos.Message
                     ulong.TryParse(value, out result);
                     NextBallotNo = result ;
                 }
-            }
+            }*/
         }
     }
 }

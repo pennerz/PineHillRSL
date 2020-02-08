@@ -21,7 +21,7 @@ namespace Paxos.Rpc
     public class PaxosRpcMessage
     {
         public PaxosRpcMessageType MessageType { get; set; }
-        public string MessageContent { get; set; }
+        public byte[] MessageContent { get; set; }
     }
 
     /// <summary>

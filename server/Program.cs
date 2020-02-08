@@ -22,10 +22,19 @@ namespace Paxos
 {
     class Program
     {
+        static void LogStat(string name, Statistic stat)
+        {
+            Console.WriteLine("{0}: avg={1}, min={2}, max={3}", name, stat.Avg, stat.Min, stat.Max);
+        }
+
         static async Task Main(string[] args)
         {
             int maxWorker = 0;
             int maxIocp = 0;
+
+            string randomstr = new string('t', 1024 * 5);
+            var randomData = Encoding.UTF8.GetBytes(randomstr);
+            var prefixData = Encoding.UTF8.GetBytes("test");
 
             ThreadPool.GetAvailableThreads(out maxWorker, out maxIocp);
             ThreadPool.GetMinThreads(out maxWorker, out maxIocp);
@@ -115,26 +124,30 @@ namespace Paxos
                 DateTime beginWait = DateTime.Now;
                 var taskList = new List<Task>();
                 var reqList = new List<int>();
-                for (int i = 0; i < 50000; i++)
+                for (UInt64 i = 0; i < 1000000000; i++)
                 {
+                    //var data = new byte[prefixData.Length + sizeof(int) + randomData.Length];
+                    //Buffer.BlockCopy(prefixData, 0, data, 0, prefixData.Length);
+                    //Buffer.BlockCopy(BitConverter.GetBytes(i), 0, data, prefixData.Length, sizeof(int));
                     var decree = new PaxosDecree()
                     {
-                        Content = "test" + i.ToString()
+                        Data = randomData//data
+                        //Content = "test" + i.ToString() + randomstr
                     };
                     var beforeCreateTaskTime = DateTime.Now;
                     var task = Task.Run(async () =>
                     {
                         var begin = DateTime.Now;
                         var result = await proposer.ProposeDecree(decree, 0/*nextDecreNo*/);
-                        var proposeTime = DateTime.Now - begin;
-                        proposeDecreeTime.Accumulate(proposeTime.TotalMilliseconds);
-                        collectLastVoteTime.Accumulate(result.CollectLastVoteTimeInMs.TotalMilliseconds);
-                        voteTime.Accumulate(result.VoteTimeInMs.TotalMilliseconds);
-                        commitTime.Accumulate(result.CommitTimeInMs.TotalMilliseconds);
-                        getProposeTime.Accumulate(result.GetProposeCostTime.TotalMilliseconds);
-                        getProposeLockTime.Accumulate(result.GetProposeLockCostTime.TotalMilliseconds);
-                        prepareNewBallotTime.Accumulate(result.PrepareNewBallotCostTime.TotalMilliseconds);
-                        broadcaseQueryLastVoteTime.Accumulate(result.BroadcastQueryLastVoteCostTime.TotalMilliseconds);
+                        //var proposeTime = DateTime.Now - begin;
+                        //proposeDecreeTime.Accumulate(proposeTime.TotalMilliseconds);
+                        //collectLastVoteTime.Accumulate(result.CollectLastVoteTimeInMs.TotalMilliseconds);
+                        //voteTime.Accumulate(result.VoteTimeInMs.TotalMilliseconds);
+                        //commitTime.Accumulate(result.CommitTimeInMs.TotalMilliseconds);
+                        //getProposeTime.Accumulate(result.GetProposeCostTime.TotalMilliseconds);
+                        //getProposeLockTime.Accumulate(result.GetProposeLockCostTime.TotalMilliseconds);
+                        //prepareNewBallotTime.Accumulate(result.PrepareNewBallotCostTime.TotalMilliseconds);
+                        //broadcaseQueryLastVoteTime.Accumulate(result.BroadcastQueryLastVoteCostTime.TotalMilliseconds);
 
 
                     });
@@ -144,8 +157,11 @@ namespace Paxos
                     taskList.Add(task);
                     if (taskList.Count > 100)
                     {
-                        //await Task.WhenAll(taskList);
-                        DateTime firstFinishTime = DateTime.MaxValue;
+                        await Task.WhenAll(taskList);
+                        //var finishedTask = await Task.WhenAny(taskList);
+                        //taskList.Remove(finishedTask);
+
+                        /*DateTime firstFinishTime = DateTime.MaxValue;
                         while (taskList.Count > 0)
                         {
                             var finishedIndex = Task.WaitAny(taskList.ToArray());
@@ -157,10 +173,26 @@ namespace Paxos
                         }
                         var firstWaitTime = firstFinishTime - beginWait;
                         var waitTime = DateTime.Now - beginWait;
+                        */
                         taskList.Clear();
                         var end = DateTime.Now;
                         var costTime = (end - start).TotalMilliseconds;
-                        Console.WriteLine("Request {0}, TPS: {1}", i, i * 1000 / costTime);
+                        var finishedCount = i /*- (UInt64)taskList.Count*/;
+                        //if (finishedCount % 10 == 0)
+                        {
+                            Console.WriteLine("Request {0}, TPS: {1}", finishedCount, finishedCount * 1000 / costTime);
+                            if (finishedCount % 2000 == 0)
+                            {
+                                LogStat("proposeDecreeTime", proposeDecreeTime);
+                                LogStat("collectLastVoteTime", collectLastVoteTime);
+                                LogStat("voteTime", voteTime);
+                                LogStat("commitTime", commitTime);
+                                LogStat("getProposeTime", getProposeTime);
+                                LogStat("getProposeLockTime", getProposeLockTime);
+                                LogStat("prepareNewBallotTime", prepareNewBallotTime);
+                                LogStat("broadcaseQueryLastVoteTime", broadcaseQueryLastVoteTime);
+                            }
+                        }
 
                         beginWait = DateTime.Now;
                     }

@@ -11,21 +11,53 @@ namespace Paxos.Request
     [Serializable()]
     public class PaxosDecree : ISer
     {
+        private byte[] _data = null;
         public PaxosDecree() { }
+        public PaxosDecree(byte[] decree)
+        {
+            _data = decree;
+        }
         public PaxosDecree(string decree)
         {
-            Content = decree;
-        }
-        public string Content;
-
-        public string Serialize()
-        {
-            return Content;
+            _data = Encoding.UTF8.GetBytes(decree);
         }
 
-        public void DeSerialize(string str)
+        public string Content 
         {
-            Content = str;
+            get
+            {
+                if (_data == null)
+                {
+                    return "";
+                }
+                return Encoding.UTF8.GetString(_data);
+            }
+            set
+            {
+                _data = Encoding.UTF8.GetBytes(value);
+            }
+        }
+
+        public byte[] Data
+        {
+            get
+            {
+                return _data;
+            }
+            set
+            {
+                _data = value;
+            }
+        }
+
+        public byte[] Serialize()
+        {
+            return _data;
+        }
+
+        public void DeSerialize(byte[] str)
+        {
+            _data = str;
         }
     }
 

@@ -4,20 +4,175 @@ using System.Xml.Serialization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Collections.Generic;
 
 namespace Paxos.Common
 {
+    public class SerializeBufferIterator : IEquatable<SerializeBufferIterator>
+    {
+        public enum IteratorType
+        {
+            Normal,
+            End
+        };
+
+        private IteratorType _itType;
+        private byte[] _data = null;
+        private int _recordOff = 0;
+        private int _recordSize = 0;
+
+        public SerializeBufferIterator(IteratorType type, byte[] dataBuf, int off)
+        {
+            _itType = type;
+            if (_itType != IteratorType.End)
+            {
+                _data = dataBuf;
+                _recordOff = off;
+                _recordSize = BitConverter.ToInt32(dataBuf, _recordOff);
+            }
+        }
+
+        public SerializeBufferIterator Next()
+        {
+            int blockSize = BitConverter.ToInt32(_data, _recordOff);
+            int nextOff = _recordOff + sizeof(int) + blockSize;
+            if (nextOff >= _data.Length)
+            {
+                return new SerializeBufferIterator(IteratorType.End, null, 0);
+            }
+            return new SerializeBufferIterator(IteratorType.Normal, _data, nextOff);
+        }
+
+        public bool Equals(SerializeBufferIterator rhs)
+        {
+            if (rhs == null)
+            {
+                return false;
+            }
+            if (_itType == rhs._itType && _itType == IteratorType.End)
+            {
+                return true;
+            }
+            if (_itType != rhs._itType)
+            {
+                return false;
+            }
+            if (_data != rhs._data)
+            {
+                return false;
+            }
+            if (_recordOff != rhs._recordOff)
+            {
+                return false;
+            }
+
+
+            return true;
+        }
+
+        public override bool Equals(object obj)
+        {
+            var rhs = obj as SerializeBufferIterator;
+            return Equals(rhs);
+        }
+
+        public override int GetHashCode()
+        {
+            return 1;
+        }
+
+        public byte[] DataBuff => _data;
+        public int RecordOff => _recordOff + sizeof(int);
+        public int RecordSize => _recordSize;
+    }
+
+    public class SerializeBuffer
+    {
+        private byte[] _dataBuf = null;
+
+        public SerializeBuffer()
+        {
+
+        }
+
+        public void AppendBlocks(List<byte[]> scatteredData)
+        {
+            int dataSize = 0;
+            foreach(var dataBuf in scatteredData)
+            {
+                dataSize += dataBuf.Length + sizeof(int);
+            }
+            if (_dataBuf != null)
+            {
+                dataSize += _dataBuf.Length;
+            }
+            var data = new byte[dataSize];
+            if (_dataBuf != null)
+            {
+                Buffer.BlockCopy(_dataBuf, 0, data, 0,  _dataBuf.Length);
+            }
+            int off = 0;
+            if (_dataBuf != null)
+            {
+                off = _dataBuf.Length;
+            }
+            _dataBuf = data;
+
+
+            int blockSize = 0;
+            foreach(var dataBuf in scatteredData)
+            {
+                blockSize = dataBuf.Length;
+                Buffer.BlockCopy(BitConverter.GetBytes(blockSize), 0, data, off, sizeof(int));
+                off += sizeof(int);
+                Buffer.BlockCopy(dataBuf, 0, data, off, dataBuf.Length);
+                off += dataBuf.Length;
+            }
+        }
+
+        public void ConcatenateBuff(byte[] buf)
+        {
+            if (_dataBuf != null)
+            {
+                byte[] newDataBuf = new byte[buf.Length + _dataBuf.Length];
+                Buffer.BlockCopy(_dataBuf, 0, newDataBuf, 0, _dataBuf.Length);
+                Buffer.BlockCopy(buf, 0, newDataBuf, _dataBuf.Length, buf.Length);
+                _dataBuf = newDataBuf;
+            }
+            else
+            {
+                _dataBuf = buf;
+            }
+        }
+
+        public SerializeBufferIterator Begin()
+        {
+            if (_dataBuf == null)
+            {
+                return End();
+            }
+
+            return new SerializeBufferIterator(SerializeBufferIterator.IteratorType.Normal, _dataBuf, 0);
+        }
+
+        public SerializeBufferIterator End()
+        {
+            return new SerializeBufferIterator(SerializeBufferIterator.IteratorType.End, null, 0);
+        }
+
+        public byte[] DataBuf => _dataBuf;
+    }
 
     public interface ISer
     {
-        string Serialize();
-        void DeSerialize(string str);
+        byte[] Serialize();
+        void DeSerialize(byte[] data);
     }
     public class Serializer<T>
         where T : class, ISer, new()
     {
         //static XmlSerializer _xmlSerializer = new XmlSerializer(typeof(T));
-        public static string Serialize(T val)
+        public static byte[] Serialize(T val)
         {
             var begin = DateTime.Now;
             //var xmlSerializer = _xmlSerializer;
@@ -39,7 +194,7 @@ namespace Paxos.Common
             return str;
         }
 
-        public static T Deserialize(string str)
+        public static T Deserialize(byte[] str)
         {
             //var data = Base64Decode(str);
             //str = Encoding.ASCII.GetString(data);

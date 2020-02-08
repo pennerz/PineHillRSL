@@ -209,7 +209,7 @@ namespace Paxos.Persistence
                 databuf = newBuf;
             }
 
-            readlen = await _dataStream.ReadAsync(databuf, sizeof(int), dataSize);
+            readlen = await _dataStream.ReadAsync(databuf, 0/*sizeof(int)*/, dataSize);
             if (readlen != dataSize)
             {
                 // not enough data
@@ -473,6 +473,7 @@ namespace Paxos.Persistence
                     // increase the buffer size
                     curBuffer.AllocateBuffer(curBuffer.BufLen * 2);
                 }
+                curBuffer.EnQueueData(BitConverter.GetBytes(logEntry.Size));
                 curBuffer.EnQueueData(logEntry.Data);
                 _off += blockLength;
                 request.Offset = _off;

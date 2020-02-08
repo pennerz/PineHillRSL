@@ -38,12 +38,29 @@ namespace Paxos.Notebook
         {
             _lock.Release();
         }
-        public ulong DecreeNo { get; set; }
-        public ulong NextBallotNo { get; set; }
+        public UInt64 DecreeNo { get; set; }
+        public UInt64 NextBallotNo { get; set; }
         public VoteInfo Vote{ get; set; }
 
-        public string Serialize()
+        public byte[] Serialize()
         {
+            var decreeNoData = BitConverter.GetBytes(DecreeNo);
+            var nextBallotData = BitConverter.GetBytes(NextBallotNo);
+            var dataList = new List<byte[]>();
+            dataList.Add(decreeNoData);
+            dataList.Add(nextBallotData);
+            if (Vote != null)
+            {
+                var votedBalltNoData = BitConverter.GetBytes(Vote.VotedBallotNo);
+                var votedDecreeData = Vote.VotedDecree.Data;
+                dataList.Add(votedBalltNoData);
+                dataList.Add(votedDecreeData);
+            }
+            var serializeBuf = new SerializeBuffer();
+            serializeBuf.AppendBlocks(dataList);
+            return serializeBuf.DataBuf;
+
+            /*
             if (Vote != null)
             {
                 return "DecreeNo:" + DecreeNo.ToString() + "_" +
@@ -55,11 +72,46 @@ namespace Paxos.Notebook
             {
                 return "DecreeNo:" + DecreeNo.ToString() + "_" +
                     "NextBallotNo:" + NextBallotNo.ToString() + "_" ;
-            }
+            }*/
         }
 
-        public void DeSerialize(string str)
+        public void DeSerialize(byte[] data)
         {
+            var serializeBuffer = new SerializeBuffer();
+            serializeBuffer.ConcatenateBuff(data);
+
+            var itEnd = serializeBuffer.End();
+            var it = serializeBuffer.Begin();
+            if (it.Equals(itEnd))
+            {
+                return;
+            }
+            DecreeNo = BitConverter.ToUInt64(it.DataBuff, it.RecordOff);
+
+            it = it.Next();
+            if (it.Equals(itEnd))
+            {
+                return;
+            }
+            NextBallotNo = BitConverter.ToUInt64(it.DataBuff, it.RecordOff);
+
+            it = it.Next();
+            if (it.Equals(itEnd))
+            {
+                return;
+            }
+            Vote = new VoteInfo();
+            Vote.VotedBallotNo = BitConverter.ToUInt64(it.DataBuff, it.RecordOff);
+
+            it = it.Next();
+            if (it.Equals(itEnd))
+            {
+                return;
+            }
+            Vote.VotedDecree = new PaxosDecree();
+            Vote.VotedDecree.Data = new byte[it.RecordSize];
+            Buffer.BlockCopy(it.DataBuff, it.RecordOff, Vote.VotedDecree.Data, 0, it.RecordSize);
+            /*
             while (str != null)
             {
                 var index = str.IndexOf('_');
@@ -113,7 +165,7 @@ namespace Paxos.Notebook
                     Vote.VotedDecree.Content = value;
                 }
 
-            }
+            }*/
         }
     }
 
@@ -134,7 +186,7 @@ namespace Paxos.Notebook
 
         public byte[] Serialize()
         {
-            var votedBallotData = Encoding.UTF8.GetBytes(_votedBallotInfo.Serialize());
+            var votedBallotData = _votedBallotInfo.Serialize();
             var decreeNoData = BitConverter.GetBytes(_decreeNo);
             int recrodSize = votedBallotData.Length + decreeNoData.Length;
             var buf = new Paxos.Persistence.LogBuffer();
@@ -149,9 +201,12 @@ namespace Paxos.Notebook
         {
             var recordSize = BitConverter.ToInt32(buf, 0);
             _decreeNo = BitConverter.ToUInt64(buf, sizeof(int));
-            var ballotInfoSerializedStr = Encoding.UTF8.GetString(buf, sizeof(UInt64) + sizeof(int), len - sizeof(UInt64) - sizeof(int));
+            //var ballotInfoSerializedStr = Encoding.UTF8.GetString(buf, sizeof(UInt64) + sizeof(int), len - sizeof(UInt64) - sizeof(int));
+            var decreeBallotInfoBuf = new byte[len - sizeof(UInt64) - sizeof(int)];
+            Buffer.BlockCopy(buf, sizeof(UInt64) + sizeof(int), decreeBallotInfoBuf, 0, len - sizeof(UInt64) - sizeof(int));
             var ballotInfo = new DecreeBallotInfo();
-            ballotInfo.DeSerialize(ballotInfoSerializedStr);
+            //ballotInfo.DeSerialize(ballotInfoSerializedStr);
+            ballotInfo.DeSerialize(decreeBallotInfoBuf);
         }
 
 
@@ -160,6 +215,8 @@ namespace Paxos.Notebook
     {
         // persistent module
         private readonly ILogger _logger;
+        private SemaphoreSlim _lock = new SemaphoreSlim(1);
+
         // voter role
         private readonly ConcurrentDictionary<ulong, DecreeBallotInfo> _ballotInfo = new ConcurrentDictionary<ulong, DecreeBallotInfo>();
 
@@ -230,6 +287,12 @@ namespace Paxos.Notebook
             return 0;
         }
 
+        public void RemoveBallotInfo(ulong decreeNo)
+        {
+            DecreeBallotInfo ballotInfo;
+            while(!_ballotInfo.TryRemove(decreeNo, out ballotInfo));
+        }
+
         public async Task<Tuple<ulong, VoteInfo>> UpdateNextBallotNo(ulong decreeNo, ulong nextBallotNo)
         {
             DecreeBallotInfo decreeBallotInfo = AddDecreeBallotInfo(decreeNo);
@@ -263,6 +326,9 @@ namespace Paxos.Notebook
             }
 
             decreeBallotInfo.ReleaseLock();
+
+            // for test
+            //RemoveBallotInfo(decreeNo);
             return result;
         }
 
@@ -306,6 +372,10 @@ namespace Paxos.Notebook
             }
 
             decreeBallotInfo.ReleaseLock();
+
+            // test
+            //RemoveBallotInfo(decreeNo);
+
             return oldNextBallotNo;
         }
 
@@ -470,20 +540,20 @@ namespace Paxos.Notebook
     public class CommittedDecreeRecord
     {
         private UInt64 _decreeNo = 0;
-        private string _decreeContent = "";
+        private byte[] _decreeContent;
 
-        public CommittedDecreeRecord(UInt64 decreeNo, string decreeContent)
+        public CommittedDecreeRecord(UInt64 decreeNo, byte[] decreeContent)
         {
             _decreeNo = decreeNo;
             _decreeContent = decreeContent;
         }
         public UInt64 DecreeNo => _decreeNo;
 
-        public string DecreeContent => _decreeContent;
+        public byte[] DecreeContent => _decreeContent;
 
         public byte[] Serialize()
         {
-            var decreeContentData = Encoding.UTF8.GetBytes(_decreeContent);
+            var decreeContentData = _decreeContent; // Encoding.UTF8.GetBytes(_decreeContent);
             var decreeNoData = BitConverter.GetBytes(_decreeNo);
             int recrodSize = decreeContentData.Length + decreeNoData.Length;
             var buf = new Paxos.Persistence.LogBuffer();
@@ -498,7 +568,9 @@ namespace Paxos.Notebook
         {
             var recordSize = BitConverter.ToInt32(buf, 0);
             _decreeNo = BitConverter.ToUInt64(buf, sizeof(int));
-            _decreeContent = Encoding.UTF8.GetString(buf, sizeof(UInt64) + sizeof(int), len - sizeof(UInt64) - sizeof(int));
+            _decreeContent = new byte[len - sizeof(UInt64) - sizeof(int)];
+            Buffer.BlockCopy(buf, sizeof(UInt64) + sizeof(int), _decreeContent, 0, _decreeContent.Length);
+            //_decreeContent = Encoding.UTF8.GetString(buf, sizeof(UInt64) + sizeof(int), len - sizeof(UInt64) - sizeof(int));
         }
 
     }
@@ -521,6 +593,7 @@ namespace Paxos.Notebook
         // proposer role
         //private ConcurrentDictionary<ulong, Propose> _decreeState = new ConcurrentDictionary<ulong, Propose>();
         //private Ledger _ledger;
+        private SemaphoreSlim _lock = new SemaphoreSlim(1);
         private readonly ConcurrentDictionary<ulong, PaxosDecree> _committedDecrees = new ConcurrentDictionary<ulong, PaxosDecree>();
         private ILogger _logger;
         private ILogger _metaLogger;
@@ -548,9 +621,9 @@ namespace Paxos.Notebook
                 do
                 {
                     await Task.Delay(1000);
+
                     UInt64 minDecreeNo = 0;
                     object minValue = null;
-
                     _activePropose.GetSmallestItem(out minDecreeNo, out minValue);
                     var position = minValue as AppendPosition;
                     if (position != null)
@@ -591,13 +664,13 @@ namespace Paxos.Notebook
             {
                 var entry = it.Log;
                 var tmpRecord = new CommittedDecreeRecord(0, null);
-                tmpRecord.DeSerialize(entry.Data, entry.Size + sizeof(int));
+                tmpRecord.DeSerialize(entry.Data, entry.Size);
 
                 if (tmpRecord.DecreeNo < baseDecreeNo)
                 {
                     continue;
                 }
-                var decree = new PaxosDecree(tmpRecord.DecreeContent);
+                var decree = new PaxosDecree(Encoding.UTF8.GetString(tmpRecord.DecreeContent));
                 _committedDecrees.AddOrUpdate(tmpRecord.DecreeNo, decree,
                     (key, oldValue) => decree);
             }
@@ -639,7 +712,7 @@ namespace Paxos.Notebook
             return CommitDecreeInternal(decreeNo, commitedDecree);
         }
 
-        public List<KeyValuePair<ulong, PaxosDecree>> GetFollowingCommittedDecress(ulong beginDecreeNo)
+        public async Task<List<KeyValuePair<ulong, PaxosDecree>>> GetFollowingCommittedDecress(ulong beginDecreeNo)
         {
             var committedDecrees = new List<KeyValuePair<ulong, PaxosDecree>>();
             lock (_logger)
@@ -667,7 +740,7 @@ namespace Paxos.Notebook
 
         public async Task Checkpoint(string newCheckpointFile, ulong decreeNo)
         {
-            var minOff = GetMinPositionForDecrees(decreeNo + 1);
+            var minOff = await GetMinPositionForDecrees(decreeNo + 1);
 
             // write new checkpoint recrod
             var metaRecord = new MetaRecord((UInt64)decreeNo, newCheckpointFile, minOff);
@@ -677,7 +750,7 @@ namespace Paxos.Notebook
             await _logger.Truncate(minOff);
         }
 
-        private AppendPosition GetMinPositionForDecrees(ulong beginDecreeNo)
+        private async Task<AppendPosition> GetMinPositionForDecrees(ulong beginDecreeNo)
         {
             AppendPosition minPos = null;
             Tuple<ulong, AppendPosition> lastSmallerDecree = null;
@@ -692,6 +765,7 @@ namespace Paxos.Notebook
                     lastSmallerDecree = item;
                 }
             }
+
             if (lastSmallerDecree != null)
             {
                 minPos = lastSmallerDecree.Item2;
@@ -714,7 +788,7 @@ namespace Paxos.Notebook
         {
             // Paxos protocol already make sure the consistency.
             // So the decree will be idempotent, just write it directly
-            var commitDecreeRecord = new CommittedDecreeRecord(decreeNo, decree.Content);
+            var commitDecreeRecord = new CommittedDecreeRecord(decreeNo, Encoding.UTF8.GetBytes(decree.Content));
             var logEntry = new LogEntry();
             logEntry.Data = commitDecreeRecord.Serialize();
             logEntry.Size = logEntry.Data.Length;
@@ -722,8 +796,10 @@ namespace Paxos.Notebook
             var position = await _logger.AppendLog(logEntry);
 
             // add it in cache
-            lock (_committedDecrees)
+            //lock (_committedDecrees)
+            try
             {
+                //await _lock.WaitAsync();
                 do
                 {
                     if (_committedDecrees.ContainsKey(decreeNo))
@@ -737,9 +813,13 @@ namespace Paxos.Notebook
                     //throw new Exception("decree already committed");
                 } while (true);
             }
+            finally
+            {
+                //_lock.Release();
+            }
 
             _activePropose.Add(decreeNo, position);
-            while (_activePropose.Pop() != null) ;
+            while ((_activePropose.Pop()) != null) ;
 
             return position;
         }

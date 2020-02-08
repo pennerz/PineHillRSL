@@ -82,7 +82,7 @@ namespace Paxos.Network
         public Guid ActivityId { get; set; }
         public DateTime DeliveredTime { get; set; }
         public DateTime ReceivedTime { get; set; }
-        public string Data { get; set; }
+        public byte[] Data { get; set; }
     }
 
     /// <summary>

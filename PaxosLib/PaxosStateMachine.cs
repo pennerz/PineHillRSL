@@ -115,7 +115,7 @@ namespace Paxos.StateMachine
             await request.Result.Task;
         }
 
-        public virtual Task UpdateSuccessfullDecree(UInt64 decreeNo, PaxosDecree decree)
+        public virtual async Task UpdateSuccessfullDecree(UInt64 decreeNo, PaxosDecree decree)
         {
             var internalRequest = new InternalRequest()
             {
@@ -154,8 +154,6 @@ namespace Paxos.StateMachine
                     request.Result?.SetResult(true);
                 }
             });
-
-            return Task.CompletedTask;
         }
 
         public Task<UInt64> Checkpoint(Stream checkpointStream)

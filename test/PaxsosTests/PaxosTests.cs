@@ -66,7 +66,6 @@ namespace Paxos.Tests
                 nodeMap[nodeInfo.Name] = node;
             }
 
-
             var proposer = nodeMap[cluster.Members[0].Name];
             proposer.NotifyLearner = notifyLearner;
             var decree = new PaxosDecree()
@@ -264,7 +263,7 @@ namespace Paxos.Tests
                 Assert.AreEqual(lastVoteMsg.DecreeNo, (ulong)1);
                 Assert.AreEqual(lastVoteMsg.BallotNo, (ulong)1);
                 Assert.AreEqual(lastVoteMsg.VoteBallotNo, (ulong)0);
-                Assert.AreEqual(lastVoteMsg.VoteDecree, "");
+                Assert.AreEqual(lastVoteMsg.VoteDecreeContent, null);
                 Assert.AreEqual(voterNote.GetNextBallotNo(nextBallotMsg.DecreeNo), (ulong)1);
                 Assert.IsFalse(lastVoteMsg.Commited);
                 msgList.Clear();
@@ -279,7 +278,7 @@ namespace Paxos.Tests
                 Assert.AreEqual(lastVoteMsg.DecreeNo, (ulong)1);
                 Assert.AreEqual(lastVoteMsg.BallotNo, (ulong)2);
                 Assert.AreEqual(lastVoteMsg.VoteBallotNo, (ulong)0);
-                Assert.AreEqual(lastVoteMsg.VoteDecree, "");
+                Assert.AreEqual(lastVoteMsg.VoteDecreeContent, null);
                 Assert.AreEqual(voterNote.GetNextBallotNo(nextBallotMsg.DecreeNo), (ulong)2);
                 Assert.IsFalse(lastVoteMsg.Commited);
                 msgList.Clear();
@@ -326,12 +325,12 @@ namespace Paxos.Tests
                 Assert.AreEqual(lastVoteMsg.DecreeNo, (ulong)1);
                 Assert.AreEqual(lastVoteMsg.BallotNo, (ulong)3);
                 Assert.AreEqual(lastVoteMsg.VoteBallotNo, (ulong)2);
-                Assert.AreEqual(lastVoteMsg.VoteDecree, voteContent);
+                Assert.AreEqual(lastVoteMsg.VoteDecreeContent, voteContent);
                 Assert.IsFalse(lastVoteMsg.Commited);
                 msgList.Clear();
 
                 //1.5 decree has been committed in ledger
-                await proposerNote.CommitDecree(1, new PaxosDecree(lastVoteMsg.VoteDecree));
+                await proposerNote.CommitDecree(1, new PaxosDecree(lastVoteMsg.VoteDecreeContent));
                 nextBallotMsg.BallotNo = 2; // do not care about the ballot no for committed decree
 
                 await voter.DeliverNextBallotMessage(nextBallotMsg);
@@ -341,7 +340,7 @@ namespace Paxos.Tests
                 Assert.AreEqual(lastVoteMsg.DecreeNo, (ulong)1);
                 Assert.AreEqual(lastVoteMsg.BallotNo, (ulong)2);
                 //Assert.AreEqual(lastVoteMsg.VoteBallotNo, (ulong)2);
-                Assert.AreEqual(lastVoteMsg.VoteDecree, voteContent);
+                Assert.AreEqual(lastVoteMsg.VoteDecreeContent, voteContent);
                 Assert.IsTrue(lastVoteMsg.Commited);
                 msgList.Clear();
 
@@ -374,7 +373,7 @@ namespace Paxos.Tests
                 beginBallotMsg.BallotNo = 1;
                 beginBallotMsg.SourceNode = sourceNode;
                 beginBallotMsg.TargetNode = targetNode;
-                beginBallotMsg.Decree = voteContent;
+                beginBallotMsg.DecreeContent = voteContent;
                 await voter.DeliverBeginBallotMessage(beginBallotMsg);    // no response
                 Assert.AreEqual(msgList.Count, 0);
 
@@ -1241,11 +1240,14 @@ namespace Paxos.Tests
             Statistic proposeDecreeTime = new Statistic();
             Statistic taskCreateTime = new Statistic();
 
+            string randomstr = new string('t', 1024 * 50);
+            var randomData = Encoding.UTF8.GetBytes(randomstr);
+            var prefixData = Encoding.UTF8.GetBytes("test");
 
             DateTime beginWait = DateTime.Now;
             var taskList = new List<Task>();
             var reqList = new List<int>();
-            for (int i = 0; i < 50000; i++)
+            for (int i = 0; i < 5000; i++)
             {
                 if (false)
                 {
@@ -1283,9 +1285,13 @@ namespace Paxos.Tests
                 }
                 else
                 {
+                    var data = new byte[prefixData.Length + sizeof(int) + randomData.Length];
+                    Buffer.BlockCopy(prefixData, 0, data, 0, prefixData.Length);
+                    Buffer.BlockCopy(BitConverter.GetBytes(i), 0, data, prefixData.Length, sizeof(int));
                     var decree = new PaxosDecree()
                     {
-                        Content = "test" + i.ToString()
+                        Data = data
+                        //Content = "test" + i.ToString() + randomstr
                     };
                     var beforeCreateTaskTime = DateTime.Now;
                     var task = Task.Run(async () =>
@@ -1540,7 +1546,7 @@ namespace Paxos.Tests
             lastVote.DecreeNo = decreeNo;
             lastVote.BallotNo = ballotNo;
             lastVote.VoteBallotNo = votedBallotNo; // never vote
-            lastVote.VoteDecree = votedDecree;
+            lastVote.VoteDecreeContent = votedDecree;
 
             return lastVote;
 
@@ -1576,12 +1582,12 @@ namespace Paxos.Tests
             Assert.AreEqual(lastVoteMsg.VoteBallotNo, voteBallotNo);
             if (votedDecreeContent == null)
             {
-                Assert.IsNull(lastVoteMsg.VoteDecree);
+                Assert.IsNull(lastVoteMsg.VoteDecreeContent);
             }
             else
             {
-                Assert.IsNotNull(lastVoteMsg.VoteDecree);
-                Assert.AreEqual(lastVoteMsg.VoteDecree, votedDecreeContent);
+                Assert.IsNotNull(lastVoteMsg.VoteDecreeContent);
+                Assert.AreEqual(lastVoteMsg.VoteDecreeContent, votedDecreeContent);
             }
         }
 

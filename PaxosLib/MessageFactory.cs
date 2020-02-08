@@ -2,6 +2,7 @@
 using Paxos.Rpc;
 using Paxos.Common;
 using System;
+using System.Collections.Generic;
 
 namespace Paxos.Network
 {
@@ -10,13 +11,34 @@ namespace Paxos.Network
     {
         public static PaxosRpcMessage CreatePaxosRpcMessage(RpcMessage rpcRequest)
         {
+            var paxosRpcMessage = new PaxosRpcMessage();
+            var serializeBuf = new SerializeBuffer();
+            serializeBuf.ConcatenateBuff(rpcRequest.RequestContent);
+            var itEnd = serializeBuf.End();
+            var it = serializeBuf.Begin();
+            if (it.Equals(itEnd))
+            {
+                return null;
+            }
+            paxosRpcMessage.MessageType = (PaxosRpcMessageType)BitConverter.ToInt32(it.DataBuff, it.RecordOff);
+
+            it = it.Next();
+            if (it.Equals(itEnd))
+            {
+                return paxosRpcMessage;
+            }
+            var messageContent = new byte[it.RecordSize];
+            Buffer.BlockCopy(it.DataBuff, it.RecordOff, messageContent, 0, it.RecordSize);
+            paxosRpcMessage.MessageContent = messageContent;
+
+            /*
             var index = rpcRequest.RequestContent.IndexOf('_');
             var typestr = rpcRequest.RequestContent.Substring(0, index);
             var content = rpcRequest.RequestContent.Substring(index + 1);
 
-            var paxosRpcMessage = new PaxosRpcMessage();
             paxosRpcMessage.MessageType = (PaxosRpcMessageType)Enum.Parse(typeof(PaxosRpcMessageType), typestr);
             paxosRpcMessage.MessageContent = content;
+            */
 
             return paxosRpcMessage;
         }
@@ -24,8 +46,17 @@ namespace Paxos.Network
         public static RpcMessage CreateRpcRequest(PaxosRpcMessage paxosRpcMessage)
         {
             var rpcRequest = new RpcMessage();
+            var serializeBuf = new SerializeBuffer();
+            var messageTypeData = BitConverter.GetBytes((int)paxosRpcMessage.MessageType);
+            var messageContentData = paxosRpcMessage.MessageContent;
+            var dataList = new List<byte[]>();
+            dataList.Add(messageTypeData);
+            dataList.Add(messageContentData);
+            serializeBuf.AppendBlocks(dataList);
+            rpcRequest.RequestContent = serializeBuf.DataBuf;
+            /*
             var msgTypeStr = paxosRpcMessage.MessageType.ToString();
-            rpcRequest.RequestContent =  msgTypeStr + "_" + paxosRpcMessage.MessageContent;
+            rpcRequest.RequestContent =  msgTypeStr + "_" + paxosRpcMessage.MessageContent;*/
             return rpcRequest;
         }
     }
