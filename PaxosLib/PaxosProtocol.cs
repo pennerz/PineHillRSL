@@ -39,6 +39,45 @@ namespace Paxos.Protocol
         }
     }
 
+    public class PaxosRole : IDisposable
+    {
+        private readonly RpcClient _rpcClient;
+        private readonly NodeInfo _nodeInfo;
+
+        public PaxosRole(
+            NodeInfo nodeInfo,
+            RpcClient rpcClient)
+        {
+            if (nodeInfo == null) throw new ArgumentNullException("nodeInfo");
+            if (rpcClient == null) throw new ArgumentNullException("rpcClient");
+
+            _nodeInfo = nodeInfo;
+            _rpcClient = rpcClient;
+        }
+
+        public void Dispose()
+        {
+
+        }
+        public bool WaitRpcResp { get; set; }
+
+        protected async Task SendPaxosMessage(PaxosMessage paxosMessage)
+        {
+            if (paxosMessage == null)
+            {
+                return;
+            }
+            paxosMessage.SourceNode = _nodeInfo.Name;
+            var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(paxosMessage);
+            var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
+            rpcMsg.NeedResp = WaitRpcResp;
+            var remoteAddr = new NodeAddress(new NodeInfo(paxosMessage.TargetNode), 88);
+
+            await _rpcClient.SendRequest(remoteAddr, rpcMsg);
+        }
+    }
+
+
     /// <summary>
     /// Event Received          Action
     /// LastVote                Return last vote if the new ballot no bigger than NextBallotNo recorded
@@ -47,12 +86,9 @@ namespace Paxos.Protocol
     /// CommitDecree            Save the decree
     /// </summary>
     ///
-    public class VoterRole : IDisposable
+    public class VoterRole : PaxosRole, IDisposable
     {
-        private readonly RpcClient _rpcClient;
-
         private readonly NodeInfo _nodeInfo;
-        private readonly PaxosCluster _cluster;
         private readonly VoterNote _note;
         private readonly ProposerNote _ledger;
         IPaxosNotification _notificationSubscriber;
@@ -63,16 +99,12 @@ namespace Paxos.Protocol
             RpcClient rpcClient,
             VoterNote voterNote,
             ProposerNote ledger)
+            : base(nodeInfo, rpcClient)
         {
-            if (cluster == null) throw new ArgumentNullException("cluster");
-            if (nodeInfo == null) throw new ArgumentNullException("nodeInfo");
-            if (rpcClient == null) throw new ArgumentNullException("rpcClient");
             if (voterNote == null) throw new ArgumentNullException("no note book");
             if (ledger == null) throw new ArgumentNullException("ledger");
 
             _nodeInfo = nodeInfo;
-            _cluster = cluster;
-            _rpcClient = rpcClient;
             _note = voterNote;
             _ledger = ledger;
 
@@ -90,9 +122,9 @@ namespace Paxos.Protocol
             });
         }
 
-        public virtual void Dispose()
+        public new void Dispose()
         {
-
+            base.Dispose();
         }
 
         public void SubscribeNotification(IPaxosNotification listener)
@@ -121,13 +153,14 @@ namespace Paxos.Protocol
         public async Task DeliverSuccessMessage(SuccessMessage msg)
         {
             // commit in logs
-            await _ledger.CommitDecree(msg.DecreeNo, new PaxosDecree(msg.Decree));
+            //await _ledger.CommitDecree(msg.DecreeNo, new PaxosDecree(msg.Decree));
 
-            if (_notificationSubscriber != null)
-                await _notificationSubscriber.UpdateSuccessfullDecree(msg.DecreeNo, new PaxosDecree(msg.Decree));
+            //if (_notificationSubscriber != null)
+            //    await _notificationSubscriber.UpdateSuccessfullDecree(msg.DecreeNo, new PaxosDecree(msg.Decree));
+
+            // for test, control memory comsumtion
+            _note.RemoveBallotInfo(msg.DecreeNo);
         }
-
-        public bool WaitRpcResp { get; set; }
 
         private async Task<PaxosMessage> ProcessNextBallotMessageInternal(NextBallotMessage msg)
         {
@@ -236,21 +269,6 @@ namespace Paxos.Protocol
                 return voteMsg;
             }
         }
-
-        private async Task SendPaxosMessage(PaxosMessage paxosMessage)
-        {
-            if (paxosMessage == null)
-            {
-                return;
-            }
-            paxosMessage.SourceNode = _nodeInfo.Name;
-            var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(paxosMessage);
-            var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
-            rpcMsg.NeedResp = WaitRpcResp;
-            var remoteAddr = new NodeAddress(new NodeInfo(paxosMessage.TargetNode), 88);
-
-            await _rpcClient.SendRequest(remoteAddr, rpcMsg);
-        }
     }
 
     /// <summary>
@@ -274,7 +292,7 @@ namespace Paxos.Protocol
     ///     
     /// </summary>
 
-    public class ProposerRole : IDisposable
+    public class ProposerRole : PaxosRole, IDisposable
     {
         private class LastVoteMessageResult
         {
@@ -299,7 +317,6 @@ namespace Paxos.Protocol
         };
 
 
-        private readonly RpcClient _rpcClient;
         private readonly NodeInfo _nodeInfo;
         private readonly PaxosCluster _cluster;
 
@@ -314,6 +331,7 @@ namespace Paxos.Protocol
             RpcClient rpcClient,
             ProposerNote proposerNote,
             ProposeManager proposerManager)
+            : base(nodeInfo, rpcClient)
         {
             if (cluster == null) throw new ArgumentNullException("cluster");
             if (nodeInfo == null) throw new ArgumentNullException("nodeInfo");
@@ -322,7 +340,6 @@ namespace Paxos.Protocol
 
             _nodeInfo = nodeInfo;
             _cluster = cluster;
-            _rpcClient = rpcClient;
             _proposerNote = proposerNote;
             _proposeManager = proposerManager;
             Stop = false;
@@ -998,14 +1015,14 @@ namespace Paxos.Protocol
                 {
                     continue;
                 }
-                //var task = Task.Run(async () =>
-                //{
+                var task = Task.Run(async () =>
+                {
                     var nextBallotMessage = new NextBallotMessage();
                     nextBallotMessage.TargetNode = node.Name;
                     nextBallotMessage.DecreeNo = decreeNo;
                     nextBallotMessage.BallotNo = nextBallotNo;
-                    var task =  SendPaxosMessage(nextBallotMessage);
-                //});
+                    return  SendPaxosMessage(nextBallotMessage);
+                });
 
                 tasks.Add(task);
             }
@@ -1021,15 +1038,15 @@ namespace Paxos.Protocol
                 {
                     continue;
                 }
-                //var task = Task.Run(async () =>
-                //{
+                var task = Task.Run(async () =>
+                {
                     var beginBallotMessage = new BeginBallotMessage();
                     beginBallotMessage.DecreeNo = decreeNo;
                     beginBallotMessage.BallotNo = ballotNo;
                     beginBallotMessage.TargetNode = node.Name;
                     beginBallotMessage.Decree = newBallotDecree.Data;
-                    var task = SendPaxosMessage(beginBallotMessage);
-                //});
+                    return SendPaxosMessage(beginBallotMessage);
+                });
 
                 tasks.Add(task);
             }
@@ -1050,37 +1067,20 @@ namespace Paxos.Protocol
                 {
                     continue;
                 }
-                //var task = Task.Run(async () =>
-                //{
+                var task = Task.Run(async () =>
+                {
                     var successMessage = new SuccessMessage();
                     successMessage.TargetNode = node.Name;
                     successMessage.DecreeNo = decreeNo;
                     successMessage.BallotNo = ballotNo;
                     successMessage.Decree = decree.Data;
 
-                    var task = SendPaxosMessage(successMessage);
-                //});
+                    return SendPaxosMessage(successMessage);
+                });
 
                 tasks.Add(task);
             }
             await Task.WhenAll(tasks);
-        }
-
-        private async Task SendPaxosMessage(PaxosMessage paxosMessage)
-        {
-            paxosMessage.SourceNode = _nodeInfo.Name;
-            DateTime begin = DateTime.Now;
-            var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(paxosMessage);
-            var paxosRpcMsgCostTime = DateTime.Now - begin;
-            var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
-            var remoteAddr = new NodeAddress(new NodeInfo(paxosMessage.TargetNode), 88);
-            rpcMsg.NeedResp = false;
-            var serializeCostTime = DateTime.Now - begin;
-            if (serializeCostTime.TotalMilliseconds > 100)
-            {
-                //Console.WriteLine("serialize/deserialize cost too much time");
-            }
-            await _rpcClient.SendRequest(remoteAddr, rpcMsg);
         }
     }
 
