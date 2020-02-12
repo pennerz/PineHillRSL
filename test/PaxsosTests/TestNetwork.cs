@@ -63,7 +63,7 @@ namespace Paxos.Tests
                 }
                 var begin = DateTime.Now;
                 var delayMs = _random.Next(3, 5);
-                await Task.Delay(delayMs);
+                //await Task.Delay(delayMs);
                 var delayedTime = DateTime.Now - begin;
                 _sendDelayedTime.Accumulate(delayedTime.TotalMilliseconds);
                 _remoteConnection.DeliverMessage(msg);
@@ -290,6 +290,7 @@ namespace Paxos.Tests
             {
                 await connectionItm.Value.WaitUntillAllReceivedMessageConsumed();
             }
+            await Task.Delay(100);
         }
     }
 

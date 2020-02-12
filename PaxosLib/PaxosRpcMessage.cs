@@ -1,5 +1,6 @@
 ﻿using Paxos.Network;
 using Paxos.Message;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace Paxos.Rpc
@@ -12,7 +13,8 @@ namespace Paxos.Rpc
         BeginNewBallot,
         Vote,
         Successfull,
-        StaleBallot
+        StaleBallot,
+        Aggregated,
     }
 
     /// <summary>
@@ -66,6 +68,29 @@ namespace Paxos.Rpc
                         else
                         {
                             paxosMessage = null;
+                        }
+                    }
+                    break;
+                case PaxosRpcMessageType.Aggregated:
+                    if (_messageDeliver != null)
+                    {
+                        var aggregatedMsg = PaxosMessageFactory.CreatePaxosMessage(paxosRpcMessage) as AggregatedPaxosMessage;
+                        if (aggregatedMsg != null)
+                        {
+                            var taskList = new List<Task>();
+                            foreach(var paxosMessage in aggregatedMsg.PaxosMessages)
+                            {
+                                var task = _messageDeliver?.DeliverMessage(paxosMessage);
+                                if (task != null)
+                                {
+                                    taskList.Add(task);
+                                }
+                            }
+                            await Task.WhenAll(taskList);
+                        }
+                        else
+                        {
+                            aggregatedMsg = null;
                         }
                     }
                     break;

@@ -90,6 +90,10 @@ namespace Paxos.Network
                     {
                         return Serializer<StaleBallotMessage>.Deserialize(rpcMessage.MessageContent);
                     }
+                case PaxosRpcMessageType.Aggregated:
+                    {
+                        return Serializer<AggregatedPaxosMessage>.Deserialize(rpcMessage.MessageContent);
+                    }
             }
             return null;
         }
@@ -139,6 +143,12 @@ namespace Paxos.Network
                     {
                         rpcMessage.MessageType = PaxosRpcMessageType.StaleBallot;
                         rpcMessage.MessageContent = Serializer<StaleBallotMessage>.Serialize(paxosMessage as StaleBallotMessage);
+                        return rpcMessage;
+                    }
+                case PaxosMessageType.AGGREGATED:
+                    {
+                        rpcMessage.MessageType = PaxosRpcMessageType.Aggregated;
+                        rpcMessage.MessageContent = Serializer<AggregatedPaxosMessage>.Serialize(paxosMessage as AggregatedPaxosMessage);
                         return rpcMessage;
                     }
             }

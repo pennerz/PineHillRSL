@@ -41,8 +41,97 @@ namespace Paxos.Protocol
 
     public class PaxosRole : IDisposable
     {
+        private class PaxosMessageQeuue
+        {
+            private SemaphoreSlim _lock = new SemaphoreSlim(3);
+            private readonly RpcClient _rpcClient;
+            private readonly NodeInfo _nodeInfo;
+            private List<PaxosMessage> _messageQueue = new List<PaxosMessage>();
+
+            public PaxosMessageQeuue(NodeInfo nodeInfo, RpcClient rpcClient)
+            {
+                _nodeInfo = nodeInfo;
+                _rpcClient = rpcClient;
+            }
+
+            public void AddPaxosMessage(PaxosMessage paxosMessage)
+            {
+                paxosMessage.SourceNode = _nodeInfo.Name;
+                lock (_lock)
+                {
+                    _messageQueue.Add(paxosMessage);
+                }
+
+                if (_lock.CurrentCount > 0)
+                {
+                    var task = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await _lock.WaitAsync();
+                            do
+                            {
+                                var paxosMsg = PopMessage();
+                                if (paxosMsg == null)
+                                {
+                                    return;
+                                }
+                                paxosMsg.SourceNode = _nodeInfo.Name;
+                                var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(paxosMsg);
+                                var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
+                                rpcMsg.NeedResp = false;
+                                var remoteAddr = new NodeAddress(new NodeInfo(paxosMessage.TargetNode), 88);
+
+                                var task = _rpcClient.SendRequest(remoteAddr, rpcMsg);
+
+                            } while (true);
+                        }
+                        finally
+                        {
+                            _lock.Release();
+                        }
+                    });
+
+                }
+            }
+
+            public PaxosMessage PopMessage()
+            {
+                var msgQueue = new List<PaxosMessage>();
+                List<PaxosMessage> consumedMessages = null;
+                lock(_lock)
+                {
+                    consumedMessages = _messageQueue;
+                    _messageQueue = msgQueue;
+                }
+                if (consumedMessages.Count == 1)
+                {
+                    return consumedMessages[0];
+                }
+                else if (consumedMessages.Count == 0)
+                {
+                    return null;
+                }
+                else
+                {
+                    var aggregatedMsg = new AggregatedPaxosMessage();
+                    aggregatedMsg.TargetNode = consumedMessages[0].TargetNode;
+                    foreach (var msg in consumedMessages)
+                    {
+                        aggregatedMsg.AddPaxosMessage(msg);
+                    }
+                    return aggregatedMsg;
+                }
+            }
+
+            public int MessageCount => _messageQueue.Count;
+        }
+
         private readonly RpcClient _rpcClient;
         private readonly NodeInfo _nodeInfo;
+        private ConcurrentDictionary<string, PaxosMessageQeuue> _paxosMessageList =
+            new ConcurrentDictionary<string, PaxosMessageQeuue>();
+        private SemaphoreSlim _lock = new SemaphoreSlim(1);
 
         public PaxosRole(
             NodeInfo nodeInfo,
@@ -67,13 +156,44 @@ namespace Paxos.Protocol
             {
                 return;
             }
+            /*
             paxosMessage.SourceNode = _nodeInfo.Name;
+            var remoteAddr = new NodeAddress(new NodeInfo(paxosMessage.TargetNode), 88);
             var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(paxosMessage);
             var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
-            rpcMsg.NeedResp = WaitRpcResp;
-            var remoteAddr = new NodeAddress(new NodeInfo(paxosMessage.TargetNode), 88);
-
+            rpcMsg.NeedResp = false;
             await _rpcClient.SendRequest(remoteAddr, rpcMsg);
+            return;
+            */
+
+            var messageQueue = GetMessageQueue(paxosMessage.TargetNode);
+            messageQueue.AddPaxosMessage(paxosMessage);
+        }
+
+        public async Task WaitForAllMessageSent()
+        {
+            foreach(var messageList in _paxosMessageList)
+            {
+                while(messageList.Value.MessageCount > 0)
+                {
+                    await Task.Delay(100);
+                }
+            }
+            await Task.Delay(100);
+        }
+
+        private PaxosMessageQeuue GetMessageQueue(string targetNode)
+        {
+            PaxosMessageQeuue messageQueue = null;
+            do
+            {
+                if (_paxosMessageList.TryGetValue(targetNode, out messageQueue))
+                {
+                    return messageQueue;
+                }
+                messageQueue = new PaxosMessageQeuue(_nodeInfo, _rpcClient);
+                _paxosMessageList.TryAdd(targetNode, messageQueue);
+            } while (true);
         }
     }
 
@@ -461,6 +581,14 @@ namespace Paxos.Protocol
                 }
 
                 var lastVoteResult = await CollectLastVote(decree, nextDecreeNo);
+                /*
+                _proposeManager.RemovePropose(nextDecreeNo);
+                return new ProposeResult()
+                {
+                    DecreeNo = nextDecreeNo,
+                };*/
+
+
                 DateTime collectLastVoteTime = DateTime.Now;
                 collectLastVoteCostTimeInMs += collectLastVoteTime - start;
                 var propose = _proposeManager.GetOngoingPropose(nextDecreeNo);

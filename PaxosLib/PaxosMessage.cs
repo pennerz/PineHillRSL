@@ -13,7 +13,8 @@ namespace Paxos.Message
         BEGINBALLOT,
         VOTE,
         SUCCESS,
-        STALEBALLOT
+        STALEBALLOT,
+        AGGREGATED,
     }
 
     /// <summary>
@@ -28,7 +29,7 @@ namespace Paxos.Message
         public UInt64 DecreeNo { get; set; }
         public UInt64 BallotNo { get; set; }
 
-        public byte[] Serialize()
+        public virtual byte[] Serialize()
         {
             var messageTypeData = BitConverter.GetBytes((int)MessageType);
             var sourceNodeData = Encoding.UTF8.GetBytes(SourceNode);
@@ -52,7 +53,7 @@ namespace Paxos.Message
             //"BallotNo:" + BallotNo.ToString() + "_";
         }
 
-        public void DeSerialize(byte[] data)
+        public virtual void DeSerialize(byte[] data)
         {
             var serializeBuffer = new SerializeBuffer();
             serializeBuffer.ConcatenateBuff(data);
@@ -182,7 +183,7 @@ namespace Paxos.Message
             }
         }
 
-        public new byte[] Serialize()
+        public override byte[] Serialize()
         {
             var serializeBuf = new SerializeBuffer();
             var baseSerializedData = base.Serialize();
@@ -206,7 +207,7 @@ namespace Paxos.Message
             "VoteDecree:" + "_" + VoteDecree;*/
         }
 
-        public new void DeSerialize(byte[] data)
+        public override void DeSerialize(byte[] data)
         {
             var serializeBuf = new SerializeBuffer();
             serializeBuf.ConcatenateBuff(data);
@@ -303,7 +304,7 @@ namespace Paxos.Message
                 Decree = Encoding.UTF8.GetBytes(value);
             }
         }
-        public new byte[] Serialize()
+        public override byte[] Serialize()
         {
             var serializeBuf = new SerializeBuffer();
             var baseSerializedData = base.Serialize();
@@ -318,7 +319,7 @@ namespace Paxos.Message
             //return base.Serialize() + "Decree:" + "_" + Decree;
         }
 
-        public new void DeSerialize(byte[] data)
+        public override void DeSerialize(byte[] data)
         {
             var serializeBuf = new SerializeBuffer();
             serializeBuf.ConcatenateBuff(data);
@@ -386,7 +387,7 @@ namespace Paxos.Message
             MessageType = PaxosMessageType.SUCCESS;
         }
         public byte[] Decree { get; set; }
-        public new byte[] Serialize()
+        public override byte[] Serialize()
         {
             var serializeBuf = new SerializeBuffer();
             var baseSerializedData = base.Serialize();
@@ -401,7 +402,7 @@ namespace Paxos.Message
             //return base.Serialize() + "Decree:" + "_" + Decree;
         }
 
-        public new void DeSerialize(byte[] data)
+        public override void DeSerialize(byte[] data)
         {
             var serializeBuf = new SerializeBuffer();
             serializeBuf.ConcatenateBuff(data);
@@ -462,7 +463,8 @@ namespace Paxos.Message
         }
 
         public ulong NextBallotNo { get; set; }
-        public new byte[] Serialize()
+
+        public override byte[] Serialize()
         {
             var serializeBuf = new SerializeBuffer();
             var baseSerializedData = base.Serialize();
@@ -476,7 +478,7 @@ namespace Paxos.Message
             //return base.Serialize() + "NextBallotNo:" + NextBallotNo.ToString() + "_";
         }
 
-        public new void DeSerialize(byte[] data)
+        public override void DeSerialize(byte[] data)
         {
             var serializeBuf = new SerializeBuffer();
             serializeBuf.ConcatenateBuff(data);
@@ -526,4 +528,103 @@ namespace Paxos.Message
             }*/
         }
     }
+
+    public class AggregatedPaxosMessage : PaxosMessage, ISer
+    {
+        private List<PaxosMessage> _paxosMessageList = new List<PaxosMessage>();
+        public AggregatedPaxosMessage()
+        {
+            MessageType = PaxosMessageType.AGGREGATED;
+        }
+
+        public void AddPaxosMessage(PaxosMessage paxosMessage)
+        {
+            _paxosMessageList.Add(paxosMessage);
+        }
+
+        public List<PaxosMessage> PaxosMessages => _paxosMessageList;
+
+        public override byte[] Serialize()
+        {
+            var serializeBuf = new SerializeBuffer();
+            var baseSerializedData = base.Serialize();
+            var dataList = new List<byte[]>();
+            dataList.Add(baseSerializedData);
+            foreach(var paxosMsg in _paxosMessageList)
+            {
+                dataList.Add(BitConverter.GetBytes((int)paxosMsg.MessageType));
+                dataList.Add(paxosMsg.Serialize());
+            }
+            serializeBuf.AppendBlocks(dataList);
+            return serializeBuf.DataBuf;
+            //return base.Serialize() + "NextBallotNo:" + NextBallotNo.ToString() + "_";
+        }
+
+        public override void DeSerialize(byte[] data)
+        {
+            var serializeBuf = new SerializeBuffer();
+            serializeBuf.ConcatenateBuff(data);
+            var endIt = serializeBuf.End();
+            var it = serializeBuf.Begin();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            var baseSerializeData = new byte[it.RecordSize];
+            Buffer.BlockCopy(it.DataBuff, it.RecordOff, baseSerializeData, 0, it.RecordSize);
+            base.DeSerialize(baseSerializeData);
+
+            for (it = it.Next(); !it.Equals(endIt); it = it.Next())
+            {
+                var msgType = (PaxosMessageType)BitConverter.ToInt32(it.DataBuff, it.RecordOff);
+
+                it = it.Next();
+                if (it.Equals(endIt))
+                {
+                    return;
+                }
+                var serializeData = new byte[it.RecordSize];
+                Buffer.BlockCopy(it.DataBuff, it.RecordOff, serializeData, 0, it.RecordSize);
+                var paxosMsg = MessageFactory.CreatePaxosMessage(msgType, serializeData);
+                _paxosMessageList.Add(paxosMsg);
+            }
+        }
+
+    }
+
+    public class MessageFactory
+    {
+        public static PaxosMessage CreatePaxosMessage(PaxosMessageType messageType, byte[] serializedData)
+        {
+            switch (messageType)
+            {
+                case PaxosMessageType.NEXTBALLOT:
+                    {
+                        return Serializer<NextBallotMessage>.Deserialize(serializedData);
+                    }
+                case PaxosMessageType.LASTVOTE:
+                    {
+                        return Serializer<LastVoteMessage>.Deserialize(serializedData);
+                    }
+                case PaxosMessageType.BEGINBALLOT:
+                    {
+                        return Serializer<BeginBallotMessage>.Deserialize(serializedData);
+                    }
+                case PaxosMessageType.VOTE:
+                    {
+                        return Serializer<VoteMessage>.Deserialize(serializedData);
+                    }
+                case PaxosMessageType.SUCCESS:
+                    {
+                        return Serializer<SuccessMessage>.Deserialize(serializedData);
+                    }
+                case PaxosMessageType.STALEBALLOT:
+                    {
+                        return Serializer<StaleBallotMessage>.Deserialize(serializedData);
+                    }
+            }
+            return null;
+        }
+    }
+
 }

@@ -513,7 +513,7 @@ namespace Paxos.Notebook
             {
                 var entry = it.Log;
                 var tmpRecord = new MetaRecord(0, null, null);
-                tmpRecord.DeSerialize(entry.Data, entry.Size + sizeof(int));
+                tmpRecord.DeSerialize(entry.Data, entry.Size);
                 metaRecord = tmpRecord;
             }
             _metaRecord = metaRecord;
@@ -794,6 +794,7 @@ namespace Paxos.Notebook
             logEntry.Size = logEntry.Data.Length;
 
             var position = await _logger.AppendLog(logEntry);
+            //return position;
 
             // add it in cache
             //lock (_committedDecrees)
