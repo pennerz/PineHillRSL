@@ -68,6 +68,7 @@ namespace Paxos.Request
     {
         public bool IsFound { get; set; }
         public ulong MaxDecreeNo { get; set; }
+        public ulong CheckpointedDecreeNo { get; set; }
         public PaxosDecree Decree { get; set; }
     }
 
@@ -78,6 +79,8 @@ namespace Paxos.Request
     {
         public ulong DecreeNo { get; set; }
         public PaxosDecree Decree { get; set; }
+        public ulong CheckpointedDecreeNo { get; set; }
+
         public TimeSpan CollectLastVoteTimeInMs { get; set; }
         public TimeSpan VoteTimeInMs { get; set; }
         public TimeSpan CommitTimeInMs { get; set; }

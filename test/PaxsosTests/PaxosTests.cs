@@ -939,6 +939,7 @@ namespace Paxos.Tests
                     }
                     else
                     {
+                        await Task.Delay(500);
                         Assert.IsTrue(beginBallotTask.IsCompleted);
                     }
                 }

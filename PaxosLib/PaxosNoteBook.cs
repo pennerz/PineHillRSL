@@ -567,6 +567,11 @@ namespace Paxos.Notebook
         public void DeSerialize(byte[] buf, int len)
         {
             var recordSize = BitConverter.ToInt32(buf, 0);
+            if (recordSize != len - sizeof(int))
+            {
+                return;
+            }
+
             _decreeNo = BitConverter.ToUInt64(buf, sizeof(int));
             _decreeContent = new byte[len - sizeof(UInt64) - sizeof(int)];
             Buffer.BlockCopy(buf, sizeof(UInt64) + sizeof(int), _decreeContent, 0, _decreeContent.Length);
@@ -576,6 +581,11 @@ namespace Paxos.Notebook
     }
     public class ProposerNote : IDisposable
     {
+        public class CommittedDecreeInfo
+        {
+            public UInt64 CheckpointedDecreeNo { get; set; }
+            public PaxosDecree CommittedDecree { get; set; }
+        }
         private class RequestPositionItemComparer : SlidingWindow.IItemComparer
         {
             public bool IsSmaller(object left, object right)
@@ -665,6 +675,10 @@ namespace Paxos.Notebook
                 var entry = it.Log;
                 var tmpRecord = new CommittedDecreeRecord(0, null);
                 tmpRecord.DeSerialize(entry.Data, entry.Size);
+                if (tmpRecord.DecreeContent == null)
+                {
+                    continue;
+                }
 
                 if (tmpRecord.DecreeNo < baseDecreeNo)
                 {
@@ -683,7 +697,7 @@ namespace Paxos.Notebook
         public ulong GetMaximumCommittedDecreeNo()
         {
             ulong maximumCommittedDecreeNo = 0;
-            lock(_logger)
+            lock(_lock)
             {
                 maximumCommittedDecreeNo = GetMaximumCommittedDecreeNoNeedLock();
             }
@@ -696,15 +710,27 @@ namespace Paxos.Notebook
         /// </summary>
         /// <param name="decreeNo"></param>
         /// <returns></returns>
-        public Task<PaxosDecree> GetCommittedDecree(ulong decreeNo)
+        public Task<CommittedDecreeInfo> GetCommittedDecree(ulong decreeNo)
         {
             // committed dcree can never be changed
             PaxosDecree committedDecree = null;
-            if (!_committedDecrees.TryGetValue(decreeNo, out committedDecree))
+            var committedDecreeInfo = new CommittedDecreeInfo();
+            lock (_lock)
             {
-                committedDecree = null;
+                if (ProposeRoleMetaRecord != null && ProposeRoleMetaRecord.DecreeNo > decreeNo)
+                {
+                    committedDecreeInfo.CheckpointedDecreeNo = ProposeRoleMetaRecord.DecreeNo;
+                }
+
+                if (decreeNo > committedDecreeInfo.CheckpointedDecreeNo)
+                {
+                    if (_committedDecrees.TryGetValue(decreeNo, out committedDecree))
+                    {
+                        committedDecreeInfo.CommittedDecree = committedDecree;
+                    }
+                }
             }
-            return Task.FromResult(committedDecree);
+            return Task.FromResult(committedDecreeInfo);
         }
 
         public Task<AppendPosition> CommitDecree(ulong decreeNo, PaxosDecree commitedDecree)
@@ -715,7 +741,7 @@ namespace Paxos.Notebook
         public async Task<List<KeyValuePair<ulong, PaxosDecree>>> GetFollowingCommittedDecress(ulong beginDecreeNo)
         {
             var committedDecrees = new List<KeyValuePair<ulong, PaxosDecree>>();
-            lock (_logger)
+            lock (_lock)
             {
                 for (ulong decreeNo = beginDecreeNo; decreeNo <= GetMaximumCommittedDecreeNo(); decreeNo++)
                 {
@@ -730,21 +756,50 @@ namespace Paxos.Notebook
         }
         public ulong GetCommittedDecreeCount()
         {
-            return (ulong)_committedDecrees.Count;
+            lock(_lock)
+            {
+                return (ulong)_committedDecrees.Count;
+            }
         }
 
         public void Clear()
         {
-            _committedDecrees.Clear();
+            lock(_lock)
+            {
+                _committedDecrees.Clear();
+            }
         }
 
         public async Task Checkpoint(string newCheckpointFile, ulong decreeNo)
         {
             var minOff = await GetMinPositionForDecrees(decreeNo + 1);
 
+            ulong baseDecreeNo = 0;
+            if (ProposeRoleMetaRecord != null)
+            {
+                baseDecreeNo = ProposeRoleMetaRecord.DecreeNo;
+            }
             // write new checkpoint recrod
             var metaRecord = new MetaRecord((UInt64)decreeNo, newCheckpointFile, minOff);
             await _metaNote.UpdateMeta(metaRecord);
+
+            // release checkpointed decrees
+            ulong newBaseDecreNo = 0;
+            if (ProposeRoleMetaRecord != null)
+            {
+                newBaseDecreNo = ProposeRoleMetaRecord.DecreeNo;
+            }
+            if (newBaseDecreNo > baseDecreeNo)
+            {
+                for(var itDecreeNo = baseDecreeNo; decreeNo < newBaseDecreNo; itDecreeNo++)
+                {
+                    lock(_lock)
+                    {
+                        PaxosDecree paxosDecree = null;
+                        _committedDecrees.TryRemove(itDecreeNo, out paxosDecree);
+                    }
+                }
+            }
 
             // try to truncate the logs
             await _logger.Truncate(minOff);
@@ -780,7 +835,10 @@ namespace Paxos.Notebook
 
         private ulong GetMaximumCommittedDecreeNoNeedLock()
         {
-            return _committedDecrees.LastOrDefault().Key;
+            lock(_lock)
+            {
+                return _committedDecrees.LastOrDefault().Key;
+            }
         }
         
 
@@ -797,8 +855,8 @@ namespace Paxos.Notebook
             //return position;
 
             // add it in cache
-            //lock (_committedDecrees)
-            try
+            lock (_lock)
+            //try
             {
                 //await _lock.WaitAsync();
                 do
@@ -814,7 +872,7 @@ namespace Paxos.Notebook
                     //throw new Exception("decree already committed");
                 } while (true);
             }
-            finally
+            //finally
             {
                 //_lock.Release();
             }

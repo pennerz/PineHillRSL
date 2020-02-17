@@ -163,12 +163,14 @@ namespace Paxos.Message
         {
             MessageType = PaxosMessageType.LASTVOTE;
             CommittedDecrees = new List<KeyValuePair<ulong, PaxosDecree>>();
+            CheckpointedDecreNo = 0;
         }
 
         // all committed messages, whose decreee no > DecreeNo in this message
         public List<KeyValuePair<ulong, PaxosDecree>> CommittedDecrees { get; set; }
 
         public bool Commited { get; set; }
+        public UInt64 CheckpointedDecreNo { get; set; }
         public UInt64 VoteBallotNo { get; set; }
         public byte[] VoteDecree { get; set; }
         public string VoteDecreeContent
@@ -188,11 +190,13 @@ namespace Paxos.Message
             var serializeBuf = new SerializeBuffer();
             var baseSerializedData = base.Serialize();
             var isCommitedData = BitConverter.GetBytes(Commited);
+            var checkpointedDecreeNoData = BitConverter.GetBytes(CheckpointedDecreNo);
             var votedBallotNoData = BitConverter.GetBytes(VoteBallotNo);
             var voteDecreeData = VoteDecree;
             var dataList = new List<byte[]>();
             dataList.Add(baseSerializedData);
             dataList.Add(isCommitedData);
+            dataList.Add(checkpointedDecreeNoData);
             dataList.Add(votedBallotNoData);
             if (voteDecreeData != null)
             {
@@ -227,6 +231,12 @@ namespace Paxos.Message
                 return;
             }
             Commited = BitConverter.ToBoolean(it.DataBuff, it.RecordOff);
+            it = it.Next();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            CheckpointedDecreNo = BitConverter.ToUInt64(it.DataBuff, it.RecordOff);
 
             it = it.Next();
             if (it.Equals(endIt))

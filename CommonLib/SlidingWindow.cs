@@ -85,7 +85,7 @@ namespace Paxos.Common
         {
             lock(_itemList)
             {
-                smallestKey = _lastPopSeq;
+                smallestKey = _lastPopSeq + 1;
                 smallestValue = _lastSmallestVaule;
             }
         }

@@ -286,19 +286,41 @@ namespace Paxos.Protocol
         {
             {
                 // check if committed
-                var commitedDecree = await _ledger.GetCommittedDecree(msg.DecreeNo);
-                if (commitedDecree != null)
+                var commitedDecreeInfo = await _ledger.GetCommittedDecree(msg.DecreeNo);
+                if (commitedDecreeInfo != null)
                 {
-                    return new LastVoteMessage()
+                    if (msg.DecreeNo < commitedDecreeInfo.CheckpointedDecreeNo)
                     {
-                        TargetNode = msg.SourceNode,
-                        Commited = true,
-                        BallotNo = msg.BallotNo,
-                        DecreeNo = msg.DecreeNo,
-                        VoteBallotNo = 0, // not applicable
-                        VoteDecree = commitedDecree.Data,
-                        CommittedDecrees = await _ledger.GetFollowingCommittedDecress(msg.DecreeNo)
-                    };
+                        // decree already checkpointed
+                        return new LastVoteMessage()
+                        {
+                            TargetNode = msg.SourceNode,
+                            Commited = true,
+                            BallotNo = msg.BallotNo,
+                            DecreeNo = msg.DecreeNo,
+                            CheckpointedDecreNo = commitedDecreeInfo.CheckpointedDecreeNo,
+                            VoteBallotNo = 0, // not applicable
+                            VoteDecree = null,
+                            CommittedDecrees = null
+                        };
+                    }
+                    else
+                    {
+                        if (commitedDecreeInfo.CommittedDecree != null)
+                        {
+                            return new LastVoteMessage()
+                            {
+                                TargetNode = msg.SourceNode,
+                                Commited = true,
+                                BallotNo = msg.BallotNo,
+                                DecreeNo = msg.DecreeNo,
+                                CheckpointedDecreNo = commitedDecreeInfo.CheckpointedDecreeNo,
+                                VoteBallotNo = 0, // not applicable
+                                VoteDecree = commitedDecreeInfo.CommittedDecree.Data,
+                                CommittedDecrees = await _ledger.GetFollowingCommittedDecress(msg.DecreeNo)
+                            };
+                        }
+                    }
                 }
 
                 // udpate next ballot no
@@ -341,19 +363,41 @@ namespace Paxos.Protocol
         {
             {
                 // check if committed
-                var commitedDecree = await _ledger.GetCommittedDecree(msg.DecreeNo);
-                if (commitedDecree != null)
+                var commitedDecreeInfo = await _ledger.GetCommittedDecree(msg.DecreeNo);
+                if (commitedDecreeInfo != null)
                 {
-                    // TODO send back a message to accelerate the process
-                    return new LastVoteMessage()
+                    if (msg.DecreeNo < commitedDecreeInfo.CheckpointedDecreeNo)
                     {
-                        TargetNode = msg.SourceNode,
-                        DecreeNo = msg.DecreeNo,
-                        BallotNo = msg.BallotNo,
-                        Commited = true,
-                        VoteDecree = commitedDecree.Data,
-                        CommittedDecrees = await _ledger.GetFollowingCommittedDecress(msg.DecreeNo)
-                    };
+                        // decree already checkpointed
+                        return new LastVoteMessage()
+                        {
+                            TargetNode = msg.SourceNode,
+                            Commited = true,
+                            BallotNo = msg.BallotNo,
+                            DecreeNo = msg.DecreeNo,
+                            CheckpointedDecreNo = commitedDecreeInfo.CheckpointedDecreeNo,
+                            VoteBallotNo = 0, // not applicable
+                            VoteDecree = null,
+                            CommittedDecrees = null
+                        };
+                    }
+                    else
+                    {
+                        if (commitedDecreeInfo.CommittedDecree != null)
+                        {
+                            return new LastVoteMessage()
+                            {
+                                TargetNode = msg.SourceNode,
+                                Commited = true,
+                                BallotNo = msg.BallotNo,
+                                DecreeNo = msg.DecreeNo,
+                                CheckpointedDecreNo = commitedDecreeInfo.CheckpointedDecreeNo,
+                                VoteBallotNo = 0, // not applicable
+                                VoteDecree = commitedDecreeInfo.CommittedDecree.Data,
+                                CommittedDecrees = await _ledger.GetFollowingCommittedDecress(msg.DecreeNo)
+                            };
+                        }
+                    }
                 }
 
                 var oldNextBallotNo = _note.GetNextBallotNo(msg.DecreeNo);
@@ -466,7 +510,7 @@ namespace Paxos.Protocol
             NotifyLearners = true;
         }
 
-        public virtual void Dispose()
+        public new void Dispose()
         { }
 
         public async Task Load()
@@ -505,12 +549,12 @@ namespace Paxos.Protocol
                 var checkpointFilePath = _proposerNote.ProposeRoleMetaRecord?.CheckpointFilePath;
                 if (checkpointFilePath == null)
                 {
-                    checkpointFilePath = _nodeInfo.Name + "_checkpoint.0000000000000001";
+                    checkpointFilePath = ".\\storage\\" + _nodeInfo.Name + "_checkpoint.0000000000000001";
                 }
                 else
                 {
                     int checkpointFileIndex = 0;
-                    var baseName = _nodeInfo.Name + "_checkpoint";
+                    var baseName = ".\\storage\\" + _nodeInfo.Name + "_checkpoint";
                     var separatorIndex = checkpointFilePath.IndexOf(baseName);
                     if (separatorIndex != -1)
                     {
@@ -539,18 +583,20 @@ namespace Paxos.Protocol
                 {
                     IsFound = false,
                     MaxDecreeNo = maximumCommittedDecreeNo,
+                    CheckpointedDecreeNo = 0,
                     Decree = null
                 };
                 return result;
             }
 
             // committed decree can never be changed, no need to lock the decree no
-            var decree = await _proposerNote.GetCommittedDecree(decreeNo);
+            var committedDecreeInfo = await _proposerNote.GetCommittedDecree(decreeNo);
             result = new DecreeReadResult()
             {
-                IsFound = true,
+                IsFound = committedDecreeInfo.CommittedDecree != null,
                 MaxDecreeNo = maximumCommittedDecreeNo,
-                Decree = decree
+                CheckpointedDecreeNo = committedDecreeInfo.CheckpointedDecreeNo,
+                Decree = committedDecreeInfo.CommittedDecree
             };
 
             return result;
@@ -859,6 +905,7 @@ namespace Paxos.Protocol
                     return new ProposePhaseResult()
                     {
                         DecreeNo = nextDecreeNo,
+                        CheckpointedDecreeNo = proposeResult.CheckpointedDecreeNo,
                         OngoingPropose = propose,
                         IsCommitted = true,
                         CommittedDecree = proposeResult.Decree
@@ -1119,15 +1166,20 @@ namespace Paxos.Protocol
 
         private async Task<ProposeResult> GetProposeResult(ulong decreeNo)
         {
-            var committedDecree = await _proposerNote.GetCommittedDecree(decreeNo);
-            if (committedDecree != null)
+            var committedDecreeInfo = await _proposerNote.GetCommittedDecree(decreeNo);
+            if (committedDecreeInfo != null)
             {
                 // already committed, return directly
-                return new ProposeResult()
+                if (committedDecreeInfo.CommittedDecree != null ||
+                    committedDecreeInfo.CheckpointedDecreeNo >= decreeNo)
                 {
-                    DecreeNo = decreeNo,
-                    Decree = committedDecree
-                };
+                    return new ProposeResult()
+                    {
+                        DecreeNo = decreeNo,
+                        Decree = committedDecreeInfo.CommittedDecree,
+                        CheckpointedDecreeNo = committedDecreeInfo.CheckpointedDecreeNo
+                    };
+                }
             }
 
             return null;

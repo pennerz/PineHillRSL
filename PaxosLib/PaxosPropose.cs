@@ -23,6 +23,7 @@ namespace Paxos.Protocol
         public ulong DecreeNo { get; set; }
         public Propose OngoingPropose { get; set; }
         public bool IsCommitted { get; set; }
+        public ulong CheckpointedDecreeNo { get; set; }
         public PaxosDecree CommittedDecree { get; set; }
     }
 
