@@ -171,6 +171,7 @@ namespace Paxos.Notebook
 
     public class VotedBallotRecord
     {
+        private byte[] _magic = new byte[] { (byte)'V', (byte)'o', (byte)'t', (byte)'b' };
         private UInt64 _decreeNo;
         private DecreeBallotInfo _votedBallotInfo;
 
@@ -188,10 +189,11 @@ namespace Paxos.Notebook
         {
             var votedBallotData = _votedBallotInfo.Serialize();
             var decreeNoData = BitConverter.GetBytes(_decreeNo);
-            int recrodSize = votedBallotData.Length + decreeNoData.Length;
+            int recrodSize = _magic.Length + votedBallotData.Length + decreeNoData.Length;
             var buf = new Paxos.Persistence.LogBuffer();
             buf.AllocateBuffer(recrodSize + sizeof(int));
             buf.EnQueueData(BitConverter.GetBytes(recrodSize));
+            buf.EnQueueData(_magic);
             buf.EnQueueData(decreeNoData);
             buf.EnQueueData(votedBallotData);
             return buf.DataBuf;
@@ -199,11 +201,18 @@ namespace Paxos.Notebook
 
         public void DeSerialize(byte[] buf, int len)
         {
+            int offInBuf = 0;
             var recordSize = BitConverter.ToInt32(buf, 0);
+            offInBuf += sizeof(int);
+            var magic = new byte[_magic.Length];
+            Array.Copy(buf, offInBuf, magic, 0, magic.Length);
+            _magic.SequenceEqual(magic);
+            offInBuf += _magic.Length;
             _decreeNo = BitConverter.ToUInt64(buf, sizeof(int));
+            offInBuf += sizeof(UInt64);
             //var ballotInfoSerializedStr = Encoding.UTF8.GetString(buf, sizeof(UInt64) + sizeof(int), len - sizeof(UInt64) - sizeof(int));
-            var decreeBallotInfoBuf = new byte[len - sizeof(UInt64) - sizeof(int)];
-            Buffer.BlockCopy(buf, sizeof(UInt64) + sizeof(int), decreeBallotInfoBuf, 0, len - sizeof(UInt64) - sizeof(int));
+            var decreeBallotInfoBuf = new byte[len - offInBuf];
+            Buffer.BlockCopy(buf, offInBuf, decreeBallotInfoBuf, 0, len - offInBuf);
             var ballotInfo = new DecreeBallotInfo();
             //ballotInfo.DeSerialize(ballotInfoSerializedStr);
             ballotInfo.DeSerialize(decreeBallotInfoBuf);
@@ -270,7 +279,15 @@ namespace Paxos.Notebook
             {
                 var logEntry = it.Log;
                 var ballotRecord = new VotedBallotRecord(0, null);
-                ballotRecord.DeSerialize(logEntry.Data, logEntry.Size);
+                try
+                {
+                    ballotRecord.DeSerialize(logEntry.Data, logEntry.Size);
+                }
+                catch(Exception)
+                {
+                    return;
+                }
+                Logger.Log("Load VotedBallotRecord, decreeNo:{0}", ballotRecord.DecreeNo);
 
                 _ballotInfo.AddOrUpdate(ballotRecord.DecreeNo, ballotRecord.VotedBallotInfo,
                     (key, oldValue) => ballotRecord.VotedBallotInfo);
@@ -444,6 +461,7 @@ namespace Paxos.Notebook
 
     public class MetaRecord
     {
+        private byte[] _magic = new byte[] { (byte)'M', (byte)'e', (byte)'t', (byte)'a' };
         private UInt64 _decreeNo = 0;
         private string _checkpointFile;
         private AppendPosition _checkpointPosition;
@@ -463,15 +481,15 @@ namespace Paxos.Notebook
 
         public byte[] Serialize()
         {
-
             var filePathData = Encoding.UTF8.GetBytes(_checkpointFile);
             var fragmentIndexData = BitConverter.GetBytes((UInt64)_checkpointPosition.FragmentIndex);
             var offsetInFragmentData = BitConverter.GetBytes((UInt64)_checkpointPosition.OffsetInFragment);
             var decreeNoData = BitConverter.GetBytes(_decreeNo);
-            int recrodSize = filePathData.Length + decreeNoData.Length + fragmentIndexData.Length + offsetInFragmentData.Length;
+            int recrodSize = _magic.Length + filePathData.Length + decreeNoData.Length + fragmentIndexData.Length + offsetInFragmentData.Length;
             var buf = new Paxos.Persistence.LogBuffer();
             buf.AllocateBuffer(recrodSize + sizeof(int));
             buf.EnQueueData(BitConverter.GetBytes(recrodSize));
+            buf.EnQueueData(_magic);
             buf.EnQueueData(decreeNoData);
             buf.EnQueueData(fragmentIndexData);
             buf.EnQueueData(offsetInFragmentData);
@@ -484,6 +502,10 @@ namespace Paxos.Notebook
             int offInBuf = 0;
             var recordSize = BitConverter.ToInt32(buf, offInBuf);
             offInBuf += sizeof(int);
+            var magic = new byte[_magic.Length];
+            Array.Copy(buf, offInBuf, magic, 0, magic.Length);
+            _magic.SequenceEqual(magic);
+            offInBuf += _magic.Length;
             _decreeNo = BitConverter.ToUInt64(buf, offInBuf);
             offInBuf += sizeof(UInt64);
             var fragmentIndex = BitConverter.ToUInt64(buf, offInBuf);
@@ -539,6 +561,7 @@ namespace Paxos.Notebook
 
     public class CommittedDecreeRecord
     {
+        private byte[] _magic = new byte[] { (byte)'C', (byte)'o', (byte)'m', (byte)'t' };
         private UInt64 _decreeNo = 0;
         private byte[] _decreeContent;
 
@@ -555,10 +578,11 @@ namespace Paxos.Notebook
         {
             var decreeContentData = _decreeContent; // Encoding.UTF8.GetBytes(_decreeContent);
             var decreeNoData = BitConverter.GetBytes(_decreeNo);
-            int recrodSize = decreeContentData.Length + decreeNoData.Length;
+            int recrodSize = _magic.Length + decreeContentData.Length + decreeNoData.Length;
             var buf = new Paxos.Persistence.LogBuffer();
             buf.AllocateBuffer(recrodSize + sizeof(int));
             buf.EnQueueData(BitConverter.GetBytes(recrodSize));
+            buf.EnQueueData(_magic);
             buf.EnQueueData(decreeNoData);
             buf.EnQueueData(decreeContentData);
             return buf.DataBuf;
@@ -566,15 +590,21 @@ namespace Paxos.Notebook
 
         public void DeSerialize(byte[] buf, int len)
         {
+            int offInBuf = 0;
             var recordSize = BitConverter.ToInt32(buf, 0);
             if (recordSize != len - sizeof(int))
             {
                 return;
             }
-
-            _decreeNo = BitConverter.ToUInt64(buf, sizeof(int));
-            _decreeContent = new byte[len - sizeof(UInt64) - sizeof(int)];
-            Buffer.BlockCopy(buf, sizeof(UInt64) + sizeof(int), _decreeContent, 0, _decreeContent.Length);
+            offInBuf += sizeof(int);
+            var magic = new byte[_magic.Length];
+            Array.Copy(buf, offInBuf, magic, 0, magic.Length);
+            _magic.SequenceEqual(magic);
+            offInBuf += _magic.Length;
+            _decreeNo = BitConverter.ToUInt64(buf, offInBuf);
+            offInBuf += sizeof(UInt64);
+            _decreeContent = new byte[len - offInBuf];
+            Buffer.BlockCopy(buf, offInBuf, _decreeContent, 0, _decreeContent.Length);
             //_decreeContent = Encoding.UTF8.GetString(buf, sizeof(UInt64) + sizeof(int), len - sizeof(UInt64) - sizeof(int));
         }
 
@@ -675,13 +705,16 @@ namespace Paxos.Notebook
                 var entry = it.Log;
                 var tmpRecord = new CommittedDecreeRecord(0, null);
                 tmpRecord.DeSerialize(entry.Data, entry.Size);
+                Logger.Log("Load committed decree record: DecreeNo:{0}", tmpRecord.DecreeNo);
                 if (tmpRecord.DecreeContent == null)
                 {
+                    Logger.Log("Load committed decree record: with empty decree, skip it");
                     continue;
                 }
 
                 if (tmpRecord.DecreeNo < baseDecreeNo)
                 {
+                    Logger.Log("Load committed decree record is smaller than baseDecreeNo{0}, skip it", baseDecreeNo);
                     continue;
                 }
                 var decree = new PaxosDecree(Encoding.UTF8.GetString(tmpRecord.DecreeContent));

@@ -625,8 +625,10 @@ namespace Paxos.Protocol
                     nextDecreeNo = _proposeManager.GetNextDecreeNo();
                     _proposeManager.AddPropose(nextDecreeNo, (ulong)_cluster.Members.Count);
                 }
+                Logger.Log("Propose a new propose, decreNo{0}", nextDecreeNo);
 
                 var lastVoteResult = await CollectLastVote(decree, nextDecreeNo);
+                Logger.Log("Got last vote result: isCommitted{0}, checkpointDecreeNo{1}", lastVoteResult.IsCommitted, lastVoteResult.CheckpointedDecreeNo);
                 /*
                 _proposeManager.RemovePropose(nextDecreeNo);
                 return new ProposeResult()
@@ -665,6 +667,7 @@ namespace Paxos.Protocol
                 var nextBallotNo = propose.GetNextBallot();
                 // check if stale message received
                 var nextAction = await propose.GetNextAction();
+                Logger.Log("Next propose action {0}", nextAction);
                 if (nextAction == Protocol.Propose.NextAction.CollectLastVote)
                 {
                     continue;
@@ -675,9 +678,11 @@ namespace Paxos.Protocol
                     commitCostTimeInMs += DateTime.Now - collectLastVoteTime;
                     if (decreeNo == 0)
                     {
+                        Logger.Log("Commit decree{0} return from last vote, propose again", lastVoteResult.DecreeNo);
                         continue;
                     }
 
+                    Logger.Log("Commit decree{0} committed", lastVoteResult.DecreeNo);
                     return new ProposeResult()
                     {
                         Decree = propose.GetCommittedDecree(),
@@ -693,14 +698,17 @@ namespace Paxos.Protocol
                 }
 
                 // begin new ballot
+                Logger.Log("Prepre a new ballot");
                 var newBallotResult = await BeginNewBallot(lastVoteResult.DecreeNo, nextBallotNo);
                 var voteTime = DateTime.Now;
                 voteCostTimeInMs += voteTime - collectLastVoteTime;
                 propose = newBallotResult.OngoingPropose;
                 nextBallotNo = propose.GetNextBallot();
                 nextAction = await propose.GetNextAction();
+                Logger.Log("Prepre a new ballot got result, next action:{0}", nextAction);
                 if (nextAction == Protocol.Propose.NextAction.CollectLastVote)
                 {
+                    Logger.Log("Prepre a new ballot result indicate need to recollect lastvote");
                     continue;
                 }
                 else if (nextAction == Protocol.Propose.NextAction.Commit)
@@ -708,6 +716,7 @@ namespace Paxos.Protocol
                     var beforeCommit = DateTime.Now;
                     await CommitPropose(lastVoteResult.DecreeNo, nextBallotNo);
                     commitCostTimeInMs += DateTime.Now - beforeCommit;
+                    Logger.Log("Decree committed");
 
                     return new ProposeResult()
                     {

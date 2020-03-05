@@ -176,14 +176,19 @@ namespace Paxos.Node
             // 2. prepare commit decree
             // 3. commit decree
             //
-
-            return _proposerRole.Propose(decree, decreeNo);
+            using (var activity = Common.ActivityControl.NewActivity())
+            {
+                return _proposerRole.Propose(decree, decreeNo);
+            }
         }
 
         public async Task<DecreeReadResult> ReadDecree(ulong decreeNo)
         {
-            var result = await _proposerRole.ReadDecree(decreeNo);
-            return result;
+            using (var activity = Common.ActivityControl.NewActivity())
+            {
+                var result = await _proposerRole.ReadDecree(decreeNo);
+                return result;
+            }
         }
 
         public bool NotifyLearner

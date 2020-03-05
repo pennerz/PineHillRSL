@@ -23,6 +23,14 @@ namespace Paxos.Tests
     [TestClass()]
     public class PaxosTests
     {
+        private void InitLog()
+        {
+
+            var logFilePath = "logger." + DateTime.Now.Ticks.ToString() + ".log";
+            var fielLogger = new FileLog(logFilePath);
+            Logger.Init(fielLogger);
+
+        }
         [TestInitialize()]
         public void TestIntialize()
         {
@@ -38,6 +46,8 @@ namespace Paxos.Tests
                 ThreadPool.GetAvailableThreads(out maxWorker, out maxIocp);
                 currentThreadCount = ThreadPool.ThreadCount;
             }
+
+            InitLog();
         }
 
         [TestMethod()]

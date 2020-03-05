@@ -130,6 +130,29 @@ namespace Paxos.Common
             }
         }
 
+        public void AppendBlock(byte[] block)
+        {
+            int dataSize = block.Length;
+            if (_dataBuf != null)
+            {
+                dataSize += _dataBuf.Length;
+            }
+            var data = new byte[dataSize];
+            if (_dataBuf != null)
+            {
+                Buffer.BlockCopy(_dataBuf, 0, data, 0, _dataBuf.Length);
+            }
+            int off = 0;
+            if (_dataBuf != null)
+            {
+                off = _dataBuf.Length;
+            }
+            _dataBuf = data;
+
+            int blockSize = block.Length;
+            Buffer.BlockCopy(BitConverter.GetBytes(blockSize), 0, data, off, sizeof(int));
+        }
+
         public void ConcatenateBuff(byte[] buf)
         {
             if (_dataBuf != null)
