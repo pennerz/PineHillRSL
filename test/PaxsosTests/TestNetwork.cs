@@ -402,6 +402,10 @@ namespace Paxos.Tests
                 }
                 clientConnection = new TestConnection(localAddrr, serverAddr, _networkInfr);
                 var server = _networkInfr.GetServer(serverAddr);
+                if (server == null)
+                {
+                    return null;
+                }
                 if (!server.BuildNewConnection(localAddrr))
                 {
                     return Task.FromResult((IConnection)null);

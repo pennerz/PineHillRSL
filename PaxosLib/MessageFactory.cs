@@ -94,6 +94,22 @@ namespace Paxos.Network
                     {
                         return Serializer<AggregatedPaxosMessage>.Deserialize(rpcMessage.MessageContent);
                     }
+                case PaxosRpcMessageType.CheckpointSummaryRequest:
+                    {
+                        return Serializer<CheckpointSummaryRequest>.Deserialize(rpcMessage.MessageContent);
+                    }
+                case PaxosRpcMessageType.CheckpointSummaryResp:
+                    {
+                        return Serializer<CheckpointSummaryResp>.Deserialize(rpcMessage.MessageContent);
+                    }
+                case PaxosRpcMessageType.CheckpointDataRequest:
+                    {
+                        return Serializer<ReadCheckpointDataRequest>.Deserialize(rpcMessage.MessageContent);
+                    }
+                case PaxosRpcMessageType.CheckpointDataResp:
+                    {
+                        return Serializer<ReadCheckpointDataResp>.Deserialize(rpcMessage.MessageContent);
+                    }
             }
             return null;
         }
@@ -150,6 +166,32 @@ namespace Paxos.Network
                         rpcMessage.MessageType = PaxosRpcMessageType.Aggregated;
                         rpcMessage.MessageContent = Serializer<AggregatedPaxosMessage>.Serialize(paxosMessage as AggregatedPaxosMessage);
                         return rpcMessage;
+                    }
+                case PaxosMessageType.CheckpointSummaryReq:
+                    {
+                        rpcMessage.MessageType = PaxosRpcMessageType.CheckpointSummaryRequest;
+                        rpcMessage.MessageContent = Serializer<CheckpointSummaryRequest>.Serialize(paxosMessage as CheckpointSummaryRequest);
+                        return rpcMessage;
+
+                    }
+                case PaxosMessageType.CheckpointSummaryResp:
+                    {
+                        rpcMessage.MessageType = PaxosRpcMessageType.CheckpointSummaryResp;
+                        rpcMessage.MessageContent = Serializer<CheckpointSummaryResp>.Serialize(paxosMessage as CheckpointSummaryResp);
+                        return rpcMessage;
+                    }
+                case PaxosMessageType.CheckpointDataReq:
+                    {
+                        rpcMessage.MessageType = PaxosRpcMessageType.CheckpointDataRequest;
+                        rpcMessage.MessageContent = Serializer<ReadCheckpointDataRequest>.Serialize(paxosMessage as ReadCheckpointDataRequest);
+                        return rpcMessage;
+                    }
+                case PaxosMessageType.CheckpointDataResp:
+                    {
+                        rpcMessage.MessageType = PaxosRpcMessageType.CheckpointDataResp;
+                        rpcMessage.MessageContent = Serializer<ReadCheckpointDataResp>.Serialize(paxosMessage as ReadCheckpointDataResp);
+                        return rpcMessage;
+
                     }
             }
 

@@ -130,6 +130,23 @@ namespace Paxos.ReplicatedTable
 
         }
 
+        public async Task<string> ReadTable(string key)
+        {
+            await _tableUpdateLock.WaitAsync();
+            var autoLock = new AutoLock(_tableUpdateLock);
+            using (autoLock)
+            {
+                if (_table.ContainsKey(key))
+                {
+                    return _table[key];
+                }
+                else
+                {
+                    return null;
+                }
+            }
+        }
+
         protected Task ProcessRequest()
         {
             if (_pendingRequests.Count > 200)

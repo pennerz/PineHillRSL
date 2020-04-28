@@ -12,6 +12,7 @@ namespace Paxos.Node
 {
     public class PaxosNode : IDisposable
     {
+        private bool _inLoading = false;
         private VoterRole _voterRole;
         private ProposerRole _proposerRole;
 
@@ -23,6 +24,7 @@ namespace Paxos.Node
         private RpcClient _rpcClient;
         private RpcServer _rpcServer;
 
+        private ILogger _metaLogger;
         private ILogger _proposeLogger;
         private ILogger _voterLogger;
 
@@ -62,11 +64,11 @@ namespace Paxos.Node
             var serverAddr = new NodeAddress(_nodeInfo, 88);
             _rpcServer = new RpcServer(serverAddr);
 
-            var metaLogger = new FileLogger(".\\storage\\" + _nodeInfo.Name + ".meta");
+            _metaLogger = new FileLogger(".\\storage\\" + _nodeInfo.Name + ".meta");
             _proposeLogger = new FileLogger(".\\storage\\" + _nodeInfo.Name + ".proposerlog");
             _voterLogger = new FileLogger(".\\storage\\" + _nodeInfo.Name + ".voterlog");
             _voterNote = new VoterNote(_voterLogger);
-            _proposerNote = new ProposerNote(_proposeLogger, metaLogger);
+            _proposerNote = new ProposerNote(_proposeLogger, _metaLogger);
             _proposeManager = new ProposeManager(_proposerNote.GetMaximumCommittedDecreeNo());
 
             _voterRole = new VoterRole(_nodeInfo, _cluster, _rpcClient, _voterNote, _proposerNote);
@@ -87,6 +89,7 @@ namespace Paxos.Node
             _proposeManager?.Dispose();
             _voterNote?.Dispose();
             _proposerNote?.Dispose();
+            _metaLogger?.Dispose();
             _proposeLogger?.Dispose();
             _voterLogger?.Dispose();
         }
@@ -166,9 +169,12 @@ namespace Paxos.Node
             _rpcServer.RegisterRequestHandler(rpcRequestHandler);
             var taask = _rpcServer.Start();
 
+            // request checkpoint from remote nodes
+
+
         }
 
-        public Task<ProposeResult> ProposeDecree(PaxosDecree decree, ulong decreeNo)
+        public async Task<ProposeResult> ProposeDecree(PaxosDecree decree, ulong decreeNo)
         {
             //
             // three phase commit
@@ -178,7 +184,33 @@ namespace Paxos.Node
             //
             using (var activity = Common.ActivityControl.NewActivity())
             {
-                return _proposerRole.Propose(decree, decreeNo);
+                // wait for checkpoint
+                //do
+                //{
+                //    while (_inLoading)
+                    {
+                //        await Task.Delay(1000);
+                    }
+
+                    bool loadCheckpointFromRemote = false;
+                    ProposeResult result = null;
+                    // propose
+                    try
+                    {
+                        result = await _proposerRole.Propose(decree, decreeNo);
+                    }
+                    catch (Exception)
+                    {
+                        // need to load exceptions from remote node
+                    //    loadCheckpointFromRemote = true;
+                    }
+                  //  if (!loadCheckpointFromRemote)
+                    {
+                        return result;
+                    }
+
+                  //  await LoadCheckpointFromRemoteNode();
+                //} while (true);
             }
         }
 
@@ -201,6 +233,20 @@ namespace Paxos.Node
             {
                 _proposerRole.NotifyLearners = value;
             }
+        }
+
+        private async Task LoadCheckpointFromRemoteNode()
+        {
+            _inLoading = true;
+
+            // clear current instances
+
+            // build new
+
+            //
+            await _proposerRole.Load();
+
+            _inLoading = false;
         }
     }
 }

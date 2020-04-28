@@ -393,6 +393,7 @@ namespace Paxos.Persistence
 
         public void Dispose()
         {
+            IsStop = true;
             _dataStream?.Close();
             _dataStream?.Dispose();
         }

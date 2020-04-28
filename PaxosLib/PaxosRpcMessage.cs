@@ -15,6 +15,10 @@ namespace Paxos.Rpc
         Successfull,
         StaleBallot,
         Aggregated,
+        CheckpointSummaryRequest,
+        CheckpointSummaryResp,
+        CheckpointDataRequest,
+        CheckpointDataResp
     }
 
     /// <summary>
@@ -78,7 +82,8 @@ namespace Paxos.Rpc
                         if (aggregatedMsg != null)
                         {
                             var taskList = new List<Task>();
-                            foreach(var paxosMessage in aggregatedMsg.PaxosMessages)
+                            var taskWithRespList = new List<Task<PaxosMessage>>();
+                            foreach (var paxosMessage in aggregatedMsg.PaxosMessages)
                             {
                                 var task = _messageDeliver?.DeliverMessage(paxosMessage);
                                 if (task != null)
@@ -94,6 +99,19 @@ namespace Paxos.Rpc
                         }
                     }
                     break;
+                case PaxosRpcMessageType.CheckpointSummaryRequest:
+                case PaxosRpcMessageType.CheckpointDataRequest:
+                    {
+                        var paxosMessage = PaxosMessageFactory.CreatePaxosMessage(paxosRpcMessage);
+                        if (paxosMessage != null)
+                        {
+                            var resp = await _messageDeliver?.Request(paxosMessage);
+                            var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(resp);
+                            var rpcResp = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
+                            return rpcResp;
+                        }
+                        return null;
+                    }
                 default:
                     if (_rpcRequestHandler != null)
                     {

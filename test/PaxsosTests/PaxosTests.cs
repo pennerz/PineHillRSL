@@ -160,7 +160,7 @@ namespace Paxos.Tests
             for (int i = 0; i < 5; i++)
             {
                 var node = new NodeInfo("Node" + i.ToString());
-                cluster.Members.Add(node);
+                //cluster.Members.Add(node);
 
                 var proposerLogFile = ".\\storage\\" + node.Name + ".proposerlog";
                 var votedLogFile = ".\\storage\\" + node.Name + ".voterlog";
@@ -1162,6 +1162,9 @@ namespace Paxos.Tests
             end = DateTime.Now;
 
 
+            networkInfr = new TestNetworkInfr();
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
+
             foreach (var nodeInfo in cluster.Members)
             {
                 var node = new ReplicatedTable.ReplicatedTable(cluster, nodeInfo);
@@ -1185,6 +1188,111 @@ namespace Paxos.Tests
             {
                 node.Value.Dispose();
             }
+        }
+
+        [TestMethod()]
+        public async Task StateMachineCheckpointRequestTest()
+        {
+            Dictionary<string, string> _table = new Dictionary<string, string>();
+            var start = DateTime.Now;
+            var end = DateTime.Now;
+            var costTime = (end - start).TotalMilliseconds;
+
+            var cluster = new PaxosCluster();
+            for (int i = 0; i < 5; i++)
+            {
+                var node = new NodeInfo("Node" + i.ToString());
+
+                var metaLogFile = ".\\storage\\" + node.Name + ".meta";
+                var proposerLogFile = ".\\storage\\" + node.Name + ".proposerlog";
+                var votedLogFile = ".\\storage\\" + node.Name + ".voterlog";
+                File.Delete(proposerLogFile);
+                File.Delete(votedLogFile);
+
+                cluster.Members.Add(node);
+            }
+
+            var networkInfr = new TestNetworkInfr();
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
+
+            int unHealthyNodeIndex = 2;
+            var tableNodeMap = new Dictionary<string, ReplicatedTable.ReplicatedTable>();
+            for (int i = 0; i < cluster.Members.Count; ++i)
+            {
+                if (i == unHealthyNodeIndex)
+                {
+                    //continue;
+                }
+                var nodeInfo = cluster.Members[i];
+                var node = new ReplicatedTable.ReplicatedTable(cluster, nodeInfo);
+                tableNodeMap[nodeInfo.Name] = node;
+            }
+
+            start = DateTime.Now;
+
+            var master = tableNodeMap[cluster.Members[0].Name];
+            for (int i = 0; i < 500; i++)
+            {
+                var task = master.InstertTable(new ReplicatedTableRequest() { Key = i.ToString(), Value = "test" + i.ToString() });
+                await task;
+            }
+
+            foreach(var node in tableNodeMap)
+            {
+                node.Value.Dispose();
+            }
+
+            var unHealthyNodeInfo = cluster.Members[unHealthyNodeIndex];
+            var unHealthyNodeMetaLogFile = ".\\storage\\" + unHealthyNodeInfo.Name + ".meta";
+            var unHealthyNodeProposerLogFile = ".\\storage\\" + unHealthyNodeInfo.Name + ".proposerlog";
+            var unHealthyVotedLogFile = ".\\storage\\" + unHealthyNodeInfo.Name + ".voterlog";
+
+            List<string> dirs = new List<string>(Directory.EnumerateFiles(".\\storage"));
+            foreach (var dir in dirs)
+            {
+                if (dir.IndexOf(unHealthyNodeInfo.Name) != -1)
+                {
+                    File.Delete(dir);
+                }
+            }
+
+            networkInfr = new TestNetworkInfr();
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
+            ReplicatedTable.ReplicatedTable unHealthyNode = null;
+            for (int i = 0; i < cluster.Members.Count; ++i)
+            {
+                var nodeInfo = cluster.Members[i];
+                var node = new ReplicatedTable.ReplicatedTable(cluster, nodeInfo);
+                tableNodeMap[nodeInfo.Name] = node;
+            }
+
+            for (int i = 0; i < cluster.Members.Count; ++i)
+            {
+                var nodeInfo = cluster.Members[i];
+                var node = tableNodeMap[nodeInfo.Name];
+                var proposerLogFile = ".\\storage\\" + nodeInfo.Name + ".proposerlog";
+                var votedLogFile = ".\\storage\\" + nodeInfo.Name + ".voterlog";
+
+                var metaLogFile = ".\\storage\\" + nodeInfo.Name + ".meta";
+                if (i == unHealthyNodeIndex)
+                {
+                    unHealthyNode = node;
+                }
+                else
+                {
+                    await node.Load(metaLogFile);
+                }
+            }
+
+            await unHealthyNode.Load(unHealthyNodeMetaLogFile);
+
+            for(int i = 0; i < 500; i++)
+            {
+                var key = i.ToString();
+                var value = await unHealthyNode.ReadTable(key);
+                Assert.AreEqual(value, "test" + i.ToString());
+            }
+
         }
 
         private PaxosMessage CreatePaxosMessage(RpcMessage rpcMessage)

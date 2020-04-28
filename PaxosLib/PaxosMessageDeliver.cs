@@ -68,5 +68,29 @@ namespace Paxos.Message
             }
         }
 
+        public async Task<PaxosMessage> Request(PaxosMessage request)
+        {
+            PaxosMessage resp = null;
+            switch (request.MessageType)
+            {
+                case PaxosMessageType.CheckpointSummaryReq:
+                    {
+                        resp = await _proposerRole.RequestCheckpointSummary();
+                        break;
+                    }
+                case PaxosMessageType.CheckpointDataReq:
+                    {
+                        resp = await _proposerRole.RequestCheckpointData(request as ReadCheckpointDataRequest);
+                        break;
+                    }
+            }
+            if (resp != null)
+            {
+                resp.SourceNode = request.TargetNode;
+                resp.TargetNode = request.SourceNode;
+            }
+            return resp;
+        }
+
     }
 }

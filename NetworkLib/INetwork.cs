@@ -152,8 +152,14 @@ namespace Paxos.Network
         {
             if (_creator != null)
             {
-                var connection = await _creator.CreateNetworkClient(localAddr, serverAddr);
-                return connection;
+                try
+                {
+                    var connection = await _creator.CreateNetworkClient(localAddr, serverAddr);
+                    return connection;
+                }
+                catch(Exception)
+                {
+                }
             }
             return null;
         }

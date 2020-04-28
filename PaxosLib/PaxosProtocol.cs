@@ -150,6 +150,8 @@ namespace Paxos.Protocol
         }
         public bool WaitRpcResp { get; set; }
 
+        public NodeInfo Node => _nodeInfo;
+
         protected async Task SendPaxosMessage(PaxosMessage paxosMessage)
         {
             if (paxosMessage == null)
@@ -168,6 +170,24 @@ namespace Paxos.Protocol
 
             var messageQueue = GetMessageQueue(paxosMessage.TargetNode);
             messageQueue.AddPaxosMessage(paxosMessage);
+        }
+
+        protected async Task<PaxosMessage> Request(PaxosMessage request)
+        {
+            request.SourceNode = _nodeInfo.Name;
+            var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(request);
+            var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
+            rpcMsg.NeedResp = true;
+            var remoteAddr = new NodeAddress(new NodeInfo(request.TargetNode), 88);
+
+            var rpcResp = await _rpcClient.SendRequest(remoteAddr, rpcMsg);
+            if (rpcResp == null)
+            {
+                return null;
+            }
+            var paxosRpcMsgResp = PaxosRpcMessageFactory.CreatePaxosRpcMessage(rpcResp);
+            var resp = PaxosMessageFactory.CreatePaxosMessage(paxosRpcMsgResp);
+            return resp;
         }
 
         public async Task WaitForAllMessageSent()
@@ -516,20 +536,119 @@ namespace Paxos.Protocol
         public async Task Load()
         {
             await _proposerNote.Load();
-            if (_notificationSubscriber != null)
+            do
             {
-                var metaRecord = _proposerNote.ProposeRoleMetaRecord;
-                if (!string.IsNullOrEmpty(metaRecord.CheckpointFilePath))
+                if (_notificationSubscriber != null)
                 {
-                    var checkpointStream = new FileStream(metaRecord.CheckpointFilePath, FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite);
-                    await _notificationSubscriber.LoadCheckpoint(metaRecord.DecreeNo, checkpointStream);
+                    var metaRecord = _proposerNote.ProposeRoleMetaRecord;
+                    if (metaRecord != null && !string.IsNullOrEmpty(metaRecord.CheckpointFilePath))
+                    {
+                        using (var checkpointStream = new FileStream(metaRecord.CheckpointFilePath, FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite))
+                        {
+                            await _notificationSubscriber.LoadCheckpoint(metaRecord.DecreeNo, checkpointStream);
+                        }
+                    }
+
+                    foreach (var committedDecree in _proposerNote.CommittedDecrees)
+                    {
+                        await _notificationSubscriber.UpdateSuccessfullDecree(committedDecree.Key, committedDecree.Value);
+                    }
                 }
 
-                foreach(var committedDecree in _proposerNote.CommittedDecrees)
+                // request remote node's checkpoints
+                bool needLoadNewCheckpoint = await LoadCheckpointFromRemoteNodes();
+                if (!needLoadNewCheckpoint)
                 {
-                    await _notificationSubscriber.UpdateSuccessfullDecree(committedDecree.Key, committedDecree.Value);
+                    break;
+                }
+
+                // check if need to continue
+            } while (true);
+
+            // catchup 
+        }
+
+        private async Task<bool> LoadCheckpointFromRemoteNodes()
+        {
+            var summaryRequestTaskList = new List<Task<PaxosMessage>>();
+            foreach (var node in _cluster.Members)
+            {
+                if (node.Name == _nodeInfo.Name)
+                {
+                    continue;
+                }
+                var checkpointSummaryRequest = new CheckpointSummaryRequest();
+                checkpointSummaryRequest.TargetNode = node.Name;
+                var task = Request(checkpointSummaryRequest);
+                summaryRequestTaskList.Add(task);
+            }
+            await Task.WhenAll(summaryRequestTaskList);
+            CheckpointSummaryResp latestCheckpoint = null;
+            foreach (var reqTask in summaryRequestTaskList)
+            {
+                var resp = reqTask.Result as CheckpointSummaryResp;
+                if (resp == null)
+                {
+                    continue;
+                }
+                if (latestCheckpoint == null ||
+                    resp.CheckpointDecreeNo > latestCheckpoint.CheckpointDecreeNo)
+                {
+                    latestCheckpoint = resp;
                 }
             }
+
+            if (latestCheckpoint != null && latestCheckpoint.CheckpointDecreeNo > this._proposerNote.GetMaximumCommittedDecreeNo() &&
+                !string.IsNullOrEmpty(latestCheckpoint.CheckpointFile))
+            {
+                // get checkpoint from rmote node
+
+                // get next checkpoint file
+                var checkpointFilePath = _proposerNote.ProposeRoleMetaRecord?.CheckpointFilePath;
+                if (checkpointFilePath == null)
+                {
+                    checkpointFilePath = ".\\storage\\" + _nodeInfo.Name + "_checkpoint.0000000000000001";
+                }
+                else
+                {
+                    int checkpointFileIndex = 0;
+                    var baseName = ".\\storage\\" + _nodeInfo.Name + "_checkpoint";
+                    var separatorIndex = checkpointFilePath.IndexOf(baseName);
+                    if (separatorIndex != -1)
+                    {
+                        Int32.TryParse(checkpointFilePath.Substring(baseName.Length + 1), out checkpointFileIndex);
+                        checkpointFileIndex++;
+                    }
+                    checkpointFilePath = baseName + "." + checkpointFileIndex.ToString("D16");
+                }
+                using (var fileStream = new FileStream(checkpointFilePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+                {
+                    UInt32 chunkSize = 4 * 1024 * 1024;
+                    for (UInt64 off = 0; off < latestCheckpoint.CheckpointFileLength; off += chunkSize)
+                    {
+                        if (chunkSize > latestCheckpoint.CheckpointFileLength - off)
+                        {
+                            chunkSize = (UInt32)(latestCheckpoint.CheckpointFileLength - off);
+                        }
+                        var checkpointDataRequest = new ReadCheckpointDataRequest(
+                            latestCheckpoint.CheckpointFile, off, chunkSize);
+                        checkpointDataRequest.TargetNode = latestCheckpoint.SourceNode;
+                        var checkpointDataResp = await Request(checkpointDataRequest) as ReadCheckpointDataResp;
+
+                        // write the data to new checkpoint stream
+                        fileStream.Write(checkpointDataResp.Data, 0, (int)checkpointDataResp.DataLength);
+                    }
+
+                }
+
+                // update the checkpoint record
+                // save new metadata
+                await _proposerNote.Checkpoint(checkpointFilePath, latestCheckpoint.CheckpointDecreeNo);
+
+                return true;
+            }
+
+            return false;
         }
 
         public void SubscribeNotification(IPaxosNotification listener)
@@ -563,13 +682,15 @@ namespace Paxos.Protocol
                     }
                     checkpointFilePath = baseName + "." + checkpointFileIndex.ToString("D16");
                 }
-                FileStream fileStream = null;
-                fileStream = new FileStream(checkpointFilePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
+                using (var fileStream = new FileStream(checkpointFilePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+                {
+                    var decreeNo = await _notificationSubscriber.Checkpoint(fileStream);
 
-                var decreeNo = await _notificationSubscriber.Checkpoint(fileStream);
+                    // save new metadata
+                    await _proposerNote.Checkpoint(checkpointFilePath, decreeNo);
 
-                // save new metadata
-                await _proposerNote.Checkpoint(checkpointFilePath, decreeNo);
+                }
+
             }
         }
 
@@ -872,6 +993,37 @@ namespace Paxos.Protocol
             }
         }
 
+        public Task<CheckpointSummaryResp> RequestCheckpointSummary()
+        {
+            var filePath = _proposerNote.ProposeRoleMetaRecord?.CheckpointFilePath;
+            if (string.IsNullOrEmpty(filePath))
+            {
+                return Task.FromResult(new CheckpointSummaryResp());
+            }
+            using (var checkpointFileStream = new FileStream(
+                filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                var resp = new CheckpointSummaryResp(filePath,
+                    _proposerNote.ProposeRoleMetaRecord.DecreeNo, (UInt64)checkpointFileStream.Length);
+                return Task.FromResult(resp);
+            }
+        }
+
+        public async Task<ReadCheckpointDataResp> RequestCheckpointData(ReadCheckpointDataRequest req)
+        {
+            using (var checkpointFileStream = new FileStream(
+                req.CheckpointFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                var off = checkpointFileStream.Seek((long)req.CheckpointFileOff, SeekOrigin.Begin);
+                if (off != (long)req.CheckpointFileOff)
+                {
+                    return new ReadCheckpointDataResp(req.CheckpointFile, (UInt64)off, 0, null);
+                }
+                var dataBuf = new byte[req.DataLength];
+                var dataLen = await checkpointFileStream.ReadAsync(dataBuf, 0, (int)req.DataLength);
+                return new ReadCheckpointDataResp(req.CheckpointFile, (UInt64)off, (UInt32)dataLen, dataBuf);
+            }
+        }
 
         public async Task<ProposePhaseResult> CollectLastVote(
             PaxosDecree decree,

@@ -870,7 +870,12 @@ namespace Paxos.Notebook
         {
             lock(_lock)
             {
-                return _committedDecrees.LastOrDefault().Key;
+                var maxDecreeNo = _committedDecrees.LastOrDefault().Key;
+                if (ProposeRoleMetaRecord != null && ProposeRoleMetaRecord.DecreeNo > maxDecreeNo)
+                {
+                    maxDecreeNo = ProposeRoleMetaRecord.DecreeNo;
+                }
+                return maxDecreeNo;
             }
         }
         

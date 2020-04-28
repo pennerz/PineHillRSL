@@ -15,6 +15,10 @@ namespace Paxos.Message
         SUCCESS,
         STALEBALLOT,
         AGGREGATED,
+        CheckpointSummaryReq,
+        CheckpointSummaryResp,
+        CheckpointDataReq,
+        CheckpointDataResp,
     }
 
     /// <summary>
@@ -538,6 +542,279 @@ namespace Paxos.Message
             }*/
         }
     }
+
+    [Serializable()]
+    public class CheckpointSummaryRequest : PaxosMessage, ISer
+    {
+        public CheckpointSummaryRequest()
+        {
+            MessageType = PaxosMessageType.CheckpointSummaryReq;
+        }
+    }
+
+    [Serializable()]
+    public class CheckpointSummaryResp : PaxosMessage, ISer
+    {
+        private String _checkpointFile;
+        private UInt64 _checkpointDecreeNo;
+        private UInt64 _checkpointDataLength;
+
+        public CheckpointSummaryResp()
+        {
+            MessageType = PaxosMessageType.CheckpointSummaryResp;
+            _checkpointFile = "";
+            _checkpointDecreeNo = 0;
+            _checkpointDataLength = 0;
+        }
+
+        public CheckpointSummaryResp(String chekcpointFile, UInt64 checkpointDecreeNo, UInt64 checkpointFileLength)
+        {
+            MessageType = PaxosMessageType.CheckpointSummaryResp;
+            _checkpointFile = chekcpointFile;
+            _checkpointDecreeNo = checkpointDecreeNo;
+            _checkpointDataLength = checkpointFileLength;
+        }
+
+        public String CheckpointFile => _checkpointFile;
+        public UInt64 CheckpointFileLength => _checkpointDataLength;
+        public UInt64 CheckpointDecreeNo => _checkpointDecreeNo;
+
+        public override byte[] Serialize()
+        {
+            var serializeBuf = new SerializeBuffer();
+            var baseSerializedData = base.Serialize();
+
+            var checkpointFileData = Encoding.UTF8.GetBytes(_checkpointFile);
+            var checkpointFileLengthData = BitConverter.GetBytes(_checkpointDataLength);
+            var checkpointDecreeNoData = BitConverter.GetBytes(_checkpointDecreeNo);
+            var dataList = new List<byte[]>();
+            dataList.Add(baseSerializedData);
+            dataList.Add(checkpointFileData);
+            dataList.Add(checkpointFileLengthData);
+            dataList.Add(checkpointDecreeNoData);
+
+            serializeBuf.AppendBlocks(dataList);
+            return serializeBuf.DataBuf;
+        }
+
+        public override void DeSerialize(byte[] data)
+        {
+            var serializeBuf = new SerializeBuffer();
+            serializeBuf.ConcatenateBuff(data);
+            var endIt = serializeBuf.End();
+            var it = serializeBuf.Begin();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            var baseSerializeData = new byte[it.RecordSize];
+            Buffer.BlockCopy(it.DataBuff, it.RecordOff, baseSerializeData, 0, it.RecordSize);
+            base.DeSerialize(baseSerializeData);
+
+            it = it.Next();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            _checkpointFile = Encoding.UTF8.GetString(it.DataBuff, it.RecordOff, it.RecordSize);
+            it = it.Next();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            _checkpointDataLength = BitConverter.ToUInt64(it.DataBuff, it.RecordOff);
+            it = it.Next();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            _checkpointDecreeNo = BitConverter.ToUInt64(it.DataBuff, it.RecordOff);
+            it = it.Next();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+        }
+    }
+
+
+    [Serializable()]
+    public class ReadCheckpointDataRequest : PaxosMessage, ISer
+    {
+        private String _checkpointFile;
+        private UInt64 _offset;
+        private UInt32 _length;
+
+        public ReadCheckpointDataRequest()
+        {
+            MessageType = PaxosMessageType.CheckpointDataReq;
+            _checkpointFile = "";
+            _offset = 0;
+            _length = 0;
+        }
+
+        public ReadCheckpointDataRequest(String chekcpointFile, UInt64 offset, UInt32 blockSize)
+        {
+            MessageType = PaxosMessageType.CheckpointDataReq;
+            _checkpointFile = chekcpointFile;
+            _offset = offset;
+            _length = blockSize;
+        }
+
+        public string CheckpointFile => _checkpointFile;
+
+        public UInt64 CheckpointFileOff => _offset;
+
+        public UInt32 DataLength => _length;
+
+        public override byte[] Serialize()
+        {
+            var serializeBuf = new SerializeBuffer();
+            var baseSerializedData = base.Serialize();
+
+            var checkpointFileData = Encoding.UTF8.GetBytes(_checkpointFile);
+            var offsetData = BitConverter.GetBytes(_offset);
+            var lengthData = BitConverter.GetBytes(_length);
+            var dataList = new List<byte[]>();
+            dataList.Add(baseSerializedData);
+            dataList.Add(checkpointFileData);
+            dataList.Add(offsetData);
+            dataList.Add(lengthData);
+
+            serializeBuf.AppendBlocks(dataList);
+            return serializeBuf.DataBuf;
+        }
+
+        public override void DeSerialize(byte[] data)
+        {
+            var serializeBuf = new SerializeBuffer();
+            serializeBuf.ConcatenateBuff(data);
+            var endIt = serializeBuf.End();
+            var it = serializeBuf.Begin();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            var baseSerializeData = new byte[it.RecordSize];
+            Buffer.BlockCopy(it.DataBuff, it.RecordOff, baseSerializeData, 0, it.RecordSize);
+            base.DeSerialize(baseSerializeData);
+
+            it = it.Next();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            _checkpointFile = Encoding.UTF8.GetString(it.DataBuff, it.RecordOff, it.RecordSize);
+            it = it.Next();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            _offset = BitConverter.ToUInt64(it.DataBuff, it.RecordOff);
+            it = it.Next();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            _length = BitConverter.ToUInt32(it.DataBuff, it.RecordOff);
+        }
+    }
+
+    [Serializable()]
+    public class ReadCheckpointDataResp : PaxosMessage, ISer
+    {
+        private String _checkpointFile;
+        private UInt64 _offset;
+        private UInt32 _length;
+        private byte[] _data;
+
+        public ReadCheckpointDataResp()
+        {
+            MessageType = PaxosMessageType.CheckpointDataResp;
+            _checkpointFile = "";
+            _offset = 0;
+            _length = 0;
+            _data = null;
+        }
+
+        public ReadCheckpointDataResp(String chekcpointFile, UInt64 offset, UInt32 blockSize, byte[] data)
+        {
+            MessageType = PaxosMessageType.CheckpointDataResp;
+            _checkpointFile = chekcpointFile;
+            _offset = offset;
+            _length = blockSize;
+            _data = data;
+        }
+
+        public byte[] Data => _data;
+
+        public UInt32 DataLength => _length;
+
+        public override byte[] Serialize()
+        {
+            var serializeBuf = new SerializeBuffer();
+            var baseSerializedData = base.Serialize();
+
+            var checkpointFileData = Encoding.UTF8.GetBytes(_checkpointFile);
+            var offsetData = BitConverter.GetBytes(_offset);
+            var lengthData = BitConverter.GetBytes(_length);
+            var dataList = new List<byte[]>();
+            dataList.Add(baseSerializedData);
+            dataList.Add(checkpointFileData);
+            dataList.Add(offsetData);
+            dataList.Add(lengthData);
+            if (_data != null)
+            {
+                dataList.Add(_data);
+            }
+
+            serializeBuf.AppendBlocks(dataList);
+            return serializeBuf.DataBuf;
+        }
+
+        public override void DeSerialize(byte[] data)
+        {
+            var serializeBuf = new SerializeBuffer();
+            serializeBuf.ConcatenateBuff(data);
+            var endIt = serializeBuf.End();
+            var it = serializeBuf.Begin();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            var baseSerializeData = new byte[it.RecordSize];
+            Buffer.BlockCopy(it.DataBuff, it.RecordOff, baseSerializeData, 0, it.RecordSize);
+            base.DeSerialize(baseSerializeData);
+
+            it = it.Next();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            _checkpointFile = Encoding.UTF8.GetString(it.DataBuff, it.RecordOff, it.RecordSize);
+            it = it.Next();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            _offset = BitConverter.ToUInt64(it.DataBuff, it.RecordOff);
+            it = it.Next();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            _length = BitConverter.ToUInt32(it.DataBuff, it.RecordOff);
+            it = it.Next();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            _data = new byte[it.RecordSize];
+            Buffer.BlockCopy(it.DataBuff, it.RecordOff, _data, 0, it.RecordSize);
+
+        }
+    }
+
 
     public class AggregatedPaxosMessage : PaxosMessage, ISer
     {

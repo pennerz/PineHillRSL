@@ -142,6 +142,10 @@ namespace Paxos.Rpc
             }
 
             connection = await NetworkFactory.CreateNetworkClient(_localAddr, remoteAddress);
+            if (connection == null)
+            {
+                return connection;
+            }
             var pendingConnection = new KeyValuePair<NodeAddress, IConnection>(remoteAddress, connection);
             var newSignalTask = new TaskCompletionSource<List<NetworkMessage>>();
 
@@ -449,7 +453,16 @@ namespace Paxos.Rpc
         /// <returns></returns>
         public async Task<RpcMessage> SendRequest(NodeAddress serverAddress, RpcMessage rpcRequest)
         {
-            IConnection connection = await _node.GetConnection(serverAddress);
+            IConnection connection = null;
+            
+            try
+            {
+                connection = await _node.GetConnection(serverAddress);
+            }
+            catch(Exception)
+            {
+
+            }
             if (connection == null)
             {
                 return null;
@@ -576,6 +589,11 @@ namespace Paxos.Rpc
                 {
                     rpcResp = new RpcMessage()
                     { IsRequest = false, RequestId = rpcRequest.RequestId, RequestContent = null };
+                }
+                else
+                {
+                    rpcResp.IsRequest = false;
+                    rpcResp.RequestId = rpcRequest.RequestId;
                 }
 
                 await connection.SendMessage(RpcMessageHelper.CreateNetworkMessage(rpcResp));
