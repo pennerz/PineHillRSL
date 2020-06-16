@@ -59,6 +59,8 @@ namespace Paxos.Tests
 
         private async Task ProposeTest(bool notifyLearner)
         {
+            CleanupLogFiles(null);
+
             var cluster = new PaxosCluster();
             for (int i = 0; i < 5; i++)
             {
@@ -183,9 +185,8 @@ namespace Paxos.Tests
             {
                 var node = new PaxosNode(cluster, nodeInfo);
                 nodeMap[nodeInfo.Name] = node;
-                var proposerLogFile = ".\\storage\\" + nodeInfo.Name + ".proposerlog";
-                var votedLogFile = ".\\storage\\" + nodeInfo.Name + ".voterlog";
-                await node.Load(proposerLogFile, votedLogFile);
+                var metaLogFile = ".\\storage\\" + nodeInfo.Name + ".meta";
+                await node.Load(metaLogFile);
             }
 
             var proposer = nodeMap[cluster.Members[0].Name];
@@ -264,7 +265,7 @@ namespace Paxos.Tests
                 nextBallotMsg.BallotNo = 1;
                 nextBallotMsg.SourceNode = sourceNode;
                 nextBallotMsg.TargetNode = targetNode;
-                await voter.DeliverNextBallotMessage(nextBallotMsg);
+                await voter.HandlePaxosMessage(nextBallotMsg);
                 await voter.WaitForAllMessageSent();
                 await networkInfr.WaitUntillAllReceivedMessageConsumed();
 
@@ -283,7 +284,7 @@ namespace Paxos.Tests
                 // now the NextBalloNo is 1
                 // 1.2. New ballot no > 1 will be accepted and got a last vote
                 nextBallotMsg.BallotNo = 2;
-                await voter.DeliverNextBallotMessage(nextBallotMsg);
+                await voter.HandlePaxosMessage(nextBallotMsg);
                 await voter.WaitForAllMessageSent();
                 await networkInfr.WaitUntillAllReceivedMessageConsumed();
 
@@ -301,7 +302,7 @@ namespace Paxos.Tests
                 // now NextBallotNo is 2
 
                 // 1.3. NextBallotNo <= 2 will not be accepted and got a stale ballot message
-                await voter.DeliverNextBallotMessage(nextBallotMsg);
+                await voter.HandlePaxosMessage(nextBallotMsg);
                 await voter.WaitForAllMessageSent();
                 await networkInfr.WaitUntillAllReceivedMessageConsumed();
 
@@ -315,7 +316,7 @@ namespace Paxos.Tests
                 msgList.Clear();
 
                 nextBallotMsg.BallotNo = 1;
-                await voter.DeliverNextBallotMessage(nextBallotMsg);
+                await voter.HandlePaxosMessage(nextBallotMsg);
                 await voter.WaitForAllMessageSent();
                 await networkInfr.WaitUntillAllReceivedMessageConsumed();
 
@@ -339,7 +340,7 @@ namespace Paxos.Tests
                     new PaxosDecree(){ Content = voteContent });
 
                 nextBallotMsg.BallotNo = 3;
-                await voter.DeliverNextBallotMessage(nextBallotMsg);
+                await voter.HandlePaxosMessage(nextBallotMsg);
                 await voter.WaitForAllMessageSent();
                 await networkInfr.WaitUntillAllReceivedMessageConsumed();
 
@@ -357,7 +358,7 @@ namespace Paxos.Tests
                 await proposerNote.CommitDecree(1, new PaxosDecree(lastVoteMsg.VoteDecreeContent));
                 nextBallotMsg.BallotNo = 2; // do not care about the ballot no for committed decree
 
-                await voter.DeliverNextBallotMessage(nextBallotMsg);
+                await voter.HandlePaxosMessage(nextBallotMsg);
                 await voter.WaitForAllMessageSent();
                 await networkInfr.WaitUntillAllReceivedMessageConsumed();
 
@@ -401,14 +402,14 @@ namespace Paxos.Tests
                 beginBallotMsg.SourceNode = sourceNode;
                 beginBallotMsg.TargetNode = targetNode;
                 beginBallotMsg.DecreeContent = voteContent;
-                await voter.DeliverBeginBallotMessage(beginBallotMsg);    // no response
+                await voter.HandlePaxosMessage(beginBallotMsg);    // no response
                 await voter.WaitForAllMessageSent();
                 await networkInfr.WaitUntillAllReceivedMessageConsumed();
 
                 Assert.AreEqual(msgList.Count, 0);
 
                 await voterNote.UpdateNextBallotNo(1, 2); // nextBallotNo = 2, > 1
-                await voter.DeliverBeginBallotMessage(beginBallotMsg);    // state ballot response
+                await voter.HandlePaxosMessage(beginBallotMsg);    // state ballot response
                 await voter.WaitForAllMessageSent();
                 await networkInfr.WaitUntillAllReceivedMessageConsumed();
 
@@ -423,7 +424,7 @@ namespace Paxos.Tests
 
                 // 2.2 NextBallotNo match
                 beginBallotMsg.BallotNo = 2;
-                await voter.DeliverBeginBallotMessage(beginBallotMsg);    // vote
+                await voter.HandlePaxosMessage(beginBallotMsg);    // vote
                 await voter.WaitForAllMessageSent();
                 await networkInfr.WaitUntillAllReceivedMessageConsumed();
 
@@ -438,7 +439,7 @@ namespace Paxos.Tests
                 // 2.3 Decree committed, return a lastvotemsg, indicate the decree committed
                 await proposerNote.CommitDecree(beginBallotMsg.DecreeNo, new PaxosDecree(beginBallotMsg.Decree));
                 beginBallotMsg.BallotNo = 3;
-                await voter.DeliverBeginBallotMessage(beginBallotMsg);    // vote
+                await voter.HandlePaxosMessage(beginBallotMsg);    // vote
                 await voter.WaitForAllMessageSent();
                 await networkInfr.WaitUntillAllReceivedMessageConsumed();
 
@@ -553,7 +554,7 @@ namespace Paxos.Tests
                         cluster.Members[i].Name, cluster.Members[0].Name,
                         1/*decreeNo*/, 2/*ballotNo*/,
                         0/*votedBallotNo*/, null/*votedDecree*/);
-                    await proposer.DeliverLastVoteMessage(lastVote);
+                    await proposer.HandlePaxosMessage(lastVote);
                     if ( i >= 3)
                     {
                         Assert.IsTrue(collectLastVoteTask.IsCompleted);
@@ -628,7 +629,7 @@ namespace Paxos.Tests
                             0/*votedBallotNo*/, null/*votedDecree*/);
                     }
 
-                    await proposer.DeliverLastVoteMessage(lastVote);
+                    await proposer.HandlePaxosMessage(lastVote);
                     if (i >= 3)
                     {
                         Assert.IsTrue(collectLastVoteTask.IsCompleted);
@@ -716,7 +717,7 @@ namespace Paxos.Tests
                             0/*votedBallotNo*/, null/*votedDecree*/);
                     }
 
-                    await proposer.DeliverLastVoteMessage(lastVote);
+                    await proposer.HandlePaxosMessage(lastVote);
                     if (i >= 2)
                     {
                         Assert.IsTrue(collectLastVoteTask.IsCompleted);
@@ -789,7 +790,7 @@ namespace Paxos.Tests
                             cluster.Members[i].Name, cluster.Members[0].Name,
                             1/*decreeNo*/, 4/*ballotNo*/,
                             5/*nextBallotNo*/);
-                        await proposer.DeliverStaleBallotMessage(stateMsg);
+                        await proposer.HandlePaxosMessage(stateMsg);
                     }
                     else
                     {
@@ -797,7 +798,7 @@ namespace Paxos.Tests
                             cluster.Members[i].Name, cluster.Members[0].Name,
                             1/*decreeNo*/, 4/*ballotNo*/,
                             2/*votedBallotNo*/, decreeContent1/*votedDecree*/);
-                        await proposer.DeliverLastVoteMessage(lastVote);
+                        await proposer.HandlePaxosMessage(lastVote);
                     }
 
                     if (i >= 2)
@@ -857,7 +858,7 @@ namespace Paxos.Tests
                     cluster.Members[1].Name, cluster.Members[0].Name,
                     1/*decreeNo*/, 3/*ballotNo*/,
                     0/*votedBallotNo*/, null/*votedDecree*/);
-                await proposer.DeliverLastVoteMessage(lastVote);
+                await proposer.HandlePaxosMessage(lastVote);
                 Assert.AreEqual(propose.LastVoteMessages.Count, 0);
 
                 // only stale message and last vote message will be accepted.
@@ -865,7 +866,7 @@ namespace Paxos.Tests
                 var votemsg = CreateVoteMessage(
                     cluster.Members[1].Name, cluster.Members[0].Name,
                     1/*decreeNo*/, 4/*ballotNo*/);
-                await proposer.DeliverVoteMessage(votemsg);
+                await proposer.HandlePaxosMessage(votemsg);
                 // nothing changed
                 Assert.AreEqual(propose.VotedMessages.Count, 0);
                 Assert.AreEqual(propose.State, ProposeState.QueryLastVote);
@@ -941,7 +942,7 @@ namespace Paxos.Tests
                     var voteMsg = CreateVoteMessage(
                         cluster.Members[i].Name, cluster.Members[0].Name,
                         1/*decreeNo*/, 3/*ballotNo*/);
-                    await proposer.DeliverVoteMessage(voteMsg);
+                    await proposer.HandlePaxosMessage(voteMsg);
                     Assert.AreEqual(propose.VotedMessages.Count, i);
                     if (i < 3)
                     {
@@ -1007,14 +1008,14 @@ namespace Paxos.Tests
                             cluster.Members[i].Name, cluster.Members[0].Name,
                             1/*decreeNo*/, 3/*ballotNo*/,
                             4/*nextBallotNo*/);
-                        await proposer.DeliverStaleBallotMessage(staleMsg);
+                        await proposer.HandlePaxosMessage(staleMsg);
                         // every thing will be reset, and new query last vote message will be send
                         break;
                     }
                     var voteMsg = CreateVoteMessage(
                         cluster.Members[i].Name, cluster.Members[0].Name,
                         1/*decreeNo*/, 3/*ballotNo*/);
-                    await proposer.DeliverVoteMessage(voteMsg);
+                    await proposer.HandlePaxosMessage(voteMsg);
                     Assert.AreEqual(propose.VotedMessages.Count, i);
                     Assert.IsFalse(beginBallotTask.IsCompleted);
                 }
@@ -1075,13 +1076,13 @@ namespace Paxos.Tests
                     1/*decreeNo*/, 3/*ballotNo*/,
                     0/*votedBallotNo*/,
                     null);
-                await proposer.DeliverLastVoteMessage(lastVoteMessage);
+                await proposer.HandlePaxosMessage(lastVoteMessage);
                 Assert.AreEqual(propose.LastVoteMessages.Count, 0); // lastvote is abandonded
 
                 var voteMsg = CreateVoteMessage(
                     cluster.Members[1].Name, cluster.Members[0].Name,
                     1/*decreeNo*/, 2/*ballotNo*/);
-                await proposer.DeliverVoteMessage(voteMsg);
+                await proposer.HandlePaxosMessage(voteMsg);
                 Assert.AreEqual(propose.VotedMessages.Count, 0);
             }
         }
@@ -1089,6 +1090,8 @@ namespace Paxos.Tests
         [TestMethod()]
         public async Task StateMachineTest()
         {
+            CleanupLogFiles(null);
+
             var cluster = new PaxosCluster();
             for (int i = 0; i < 5; i++)
             {
@@ -1111,16 +1114,21 @@ namespace Paxos.Tests
             await master.InstertTable(new ReplicatedTableRequest() { Key = "1", Value = "test1" });
             await master.InstertTable(new ReplicatedTableRequest() { Key = "2", Value = "test2" });
             await master.InstertTable(new ReplicatedTableRequest() { Key = "3", Value = "test3" });
-   
+
             foreach (var node in tableNodeMap)
             {
-                node.Value.Dispose();
+                await Task.Run(() =>
+                {
+                    node.Value.Dispose();
+                });
             }
         }
 
         [TestMethod()]
         public async Task StateMachineCheckpointTest()
         {
+            CleanupLogFiles(null);
+
             Dictionary<string, string> _table = new Dictionary<string, string>();
             var start = DateTime.Now;
             var end = DateTime.Now;
@@ -1159,6 +1167,15 @@ namespace Paxos.Tests
                 await task;
             }
 
+            foreach (var node in tableNodeMap)
+            {
+                await Task.Run(() =>
+                {
+                    node.Value.Dispose();
+                });
+            }
+
+
             end = DateTime.Now;
 
 
@@ -1186,13 +1203,18 @@ namespace Paxos.Tests
 
             foreach (var node in tableNodeMap)
             {
-                node.Value.Dispose();
+                await Task.Run(() =>
+                {
+                    node.Value.Dispose();
+                });
             }
         }
 
         [TestMethod()]
         public async Task StateMachineCheckpointRequestTest()
         {
+            CleanupLogFiles(null);
+
             Dictionary<string, string> _table = new Dictionary<string, string>();
             var start = DateTime.Now;
             var end = DateTime.Now;
@@ -1235,11 +1257,18 @@ namespace Paxos.Tests
             {
                 var task = master.InstertTable(new ReplicatedTableRequest() { Key = i.ToString(), Value = "test" + i.ToString() });
                 await task;
+                if (i == 124)
+                {
+                    Console.WriteLine("break");
+                }
             }
 
             foreach(var node in tableNodeMap)
             {
-                node.Value.Dispose();
+                await Task.Run(() =>
+                {
+                    node.Value.Dispose();
+                });
             }
 
             var unHealthyNodeInfo = cluster.Members[unHealthyNodeIndex];
@@ -1247,14 +1276,8 @@ namespace Paxos.Tests
             var unHealthyNodeProposerLogFile = ".\\storage\\" + unHealthyNodeInfo.Name + ".proposerlog";
             var unHealthyVotedLogFile = ".\\storage\\" + unHealthyNodeInfo.Name + ".voterlog";
 
-            List<string> dirs = new List<string>(Directory.EnumerateFiles(".\\storage"));
-            foreach (var dir in dirs)
-            {
-                if (dir.IndexOf(unHealthyNodeInfo.Name) != -1)
-                {
-                    File.Delete(dir);
-                }
-            }
+
+            CleanupLogFiles(unHealthyNodeInfo.Name);
 
             networkInfr = new TestNetworkInfr();
             NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
@@ -1293,6 +1316,15 @@ namespace Paxos.Tests
                 Assert.AreEqual(value, "test" + i.ToString());
             }
 
+            foreach (var node in tableNodeMap)
+            {
+                await Task.Run(() =>
+                {
+                    node.Value.Dispose();
+                });
+            }
+
+            CleanupLogFiles(unHealthyNodeInfo.Name);
         }
 
         private PaxosMessage CreatePaxosMessage(RpcMessage rpcMessage)
@@ -1747,6 +1779,19 @@ namespace Paxos.Tests
             var pefCounter = PerfCounterManager.GetInst();
             pefCounter.GetCounterValue(0);
         }*/
+
+        private void CleanupLogFiles(string nodeName)
+        {
+            List<string> paths = new List<string>(Directory.EnumerateFiles(".\\storage"));
+            foreach (var path in paths)
+            {
+                if (string.IsNullOrEmpty(nodeName) || path.IndexOf(nodeName) != -1)
+                {
+                    File.Delete(path);
+                }
+            }
+
+        }
     }
 }
 

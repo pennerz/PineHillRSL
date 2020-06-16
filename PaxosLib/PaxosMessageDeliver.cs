@@ -44,24 +44,15 @@ namespace Paxos.Message
             switch (message.MessageType)
             {
                 case PaxosMessageType.NEXTBALLOT:
-                    await _voterRole.DeliverNextBallotMessage(message as NextBallotMessage);
+                case PaxosMessageType.BEGINBALLOT:
+                //case PaxosMessageType.SUCCESS:
+                    await _voterRole.HandlePaxosMessage(message);
                     break;
                 case PaxosMessageType.LASTVOTE:
-                    await _proposerRole.DeliverLastVoteMessage(message as LastVoteMessage);
-                    break;
-                case PaxosMessageType.BEGINBALLOT:
-                    await _voterRole.DeliverBeginBallotMessage(message as BeginBallotMessage);
-                    break;
                 case PaxosMessageType.VOTE:
-                    await _proposerRole.DeliverVoteMessage(message as VoteMessage);
-                    break;
                 case PaxosMessageType.SUCCESS:
-                    await _proposerRole.DeliverSuccessMessage(message as SuccessMessage);
-                    // for test
-                    //await _voterRole.DeliverSuccessMessage(message as SuccessMessage);
-                    break;
                 case PaxosMessageType.STALEBALLOT:
-                    await _proposerRole.DeliverStaleBallotMessage(message as StaleBallotMessage);
+                    await _proposerRole.HandlePaxosMessage(message);
                     break;
                 default:
                     break;
@@ -74,13 +65,9 @@ namespace Paxos.Message
             switch (request.MessageType)
             {
                 case PaxosMessageType.CheckpointSummaryReq:
-                    {
-                        resp = await _proposerRole.RequestCheckpointSummary();
-                        break;
-                    }
                 case PaxosMessageType.CheckpointDataReq:
                     {
-                        resp = await _proposerRole.RequestCheckpointData(request as ReadCheckpointDataRequest);
+                        resp = await _proposerRole.HandleRequest(request);
                         break;
                     }
             }

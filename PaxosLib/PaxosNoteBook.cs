@@ -292,6 +292,8 @@ namespace Paxos.Notebook
                 _ballotInfo.AddOrUpdate(ballotRecord.DecreeNo, ballotRecord.VotedBallotInfo,
                     (key, oldValue) => ballotRecord.VotedBallotInfo);
             }
+
+
         }
 
         public ulong GetNextBallotNo(ulong decreeNo)

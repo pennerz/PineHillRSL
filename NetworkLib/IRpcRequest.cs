@@ -145,7 +145,7 @@ namespace Paxos.Rpc
     /// <summary>
     /// Rpc client interface
     /// </summary>
-    public interface IRpcClient
+    public interface IRpcClient : IDisposable
     {
         Task<RpcMessage> SendRequest(NodeAddress targetNode, RpcMessage request);
     }
@@ -153,7 +153,7 @@ namespace Paxos.Rpc
     /// <summary>
     /// Rpc server interface
     /// </summary>
-    public interface IRpcServer
+    public interface IRpcServer : IDisposable
     {
         void RegisterRequestHandler(IRpcRequestHandler requestHandler);
     }

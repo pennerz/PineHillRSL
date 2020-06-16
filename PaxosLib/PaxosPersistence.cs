@@ -174,7 +174,8 @@ namespace Paxos.Persistence
         }
         public virtual void Dispose()
         {
-            // _dataStream?.Close();
+            _dataStream?.Close();
+            _dataStream?.Dispose();
         }
 
         public LogEntry Log => _logEntry;
@@ -298,7 +299,10 @@ namespace Paxos.Persistence
                 do
                 {
                     await _pendingRequestLock.WaitAsync();
-
+                    if (IsStop)
+                    {
+                        break;
+                    }
                     byte[] writeBuf = null;
                     int writeEndOff = 0;
                     int bufLen = 0;
@@ -306,24 +310,30 @@ namespace Paxos.Persistence
                     var begin = DateTime.Now;
 
                     TruncateRequest truncateRequest = null;
-                    lock (_truncateRequestList)
+                    try
                     {
-                        if (_truncateRequestList.Count > 0)
-                        {
-                            truncateRequest = _truncateRequestList[0];
-                        }
-                    }
-                    if (truncateRequest != null)
-                    {
-                        await TruncateInlock(truncateRequest.Position);
                         lock (_truncateRequestList)
                         {
-                            _truncateRequestList.RemoveAt(0);
+                            if (_truncateRequestList.Count > 0)
+                            {
+                                truncateRequest = _truncateRequestList[0];
+                            }
                         }
-                        truncateRequest.Result.SetResult(true);
+                        if (truncateRequest != null)
+                        {
+                            //await TruncateInlock(truncateRequest.Position);
+                            lock (_truncateRequestList)
+                            {
+                                _truncateRequestList.RemoveAt(0);
+                            }
+                            truncateRequest.Result.SetResult(true);
 
+                        }
                     }
-
+                    catch (Exception e)
+                    {
+                        Console.WriteLine(e.Message);
+                    }
                     lock (_ringBuffer)
                     {
                         var curBuffer = _ringBuffer[_currentIndex];
@@ -369,6 +379,7 @@ namespace Paxos.Persistence
                     var task = Task.Run(() =>
                     {
                         var begin = DateTime.Now;
+
                         foreach (var req in finishedReqList)
                         {
                             req.Result.SetResult(new AppendPosition(currentFragmentIndex, (UInt64)req.Offset - currentFragmentBaseOff, (UInt64)req.Offset));
@@ -386,14 +397,16 @@ namespace Paxos.Persistence
                     {
                         //Console.WriteLine("too slow");
                     }
-
                 } while (!IsStop);
+                return;
             });
         }
 
         public void Dispose()
         {
             IsStop = true;
+            _pendingRequestLock.Release();
+            _appendTask.Wait();
             _dataStream?.Close();
             _dataStream?.Dispose();
         }
@@ -487,7 +500,7 @@ namespace Paxos.Persistence
 
             var taskCreateTime = DateTime.Now - begin - objAllocatedTime - requestInQueueTime;
 
-            var appendPosition = await request.Result.Task;
+            var appendPosition = await request.Result.Task.ConfigureAwait(false);
 
             var appendTime = DateTime.Now - begin;
             if (appendTime.TotalMilliseconds > 500)
@@ -498,23 +511,33 @@ namespace Paxos.Persistence
             return appendPosition;
         }
 
-        public Task Truncate(AppendPosition position)
+        public async Task Truncate(AppendPosition position)
         {
             var reqeust = new TruncateRequest()
             {
                 Position = position,
                 Result = new TaskCompletionSource<bool>()
             };
-            lock (_truncateRequestList)
+            try
             {
-                if (_truncateRequestList.Count == 0)
+                lock (_truncateRequestList)
                 {
-                    _truncateRequestList.Add(reqeust);  // only one request allowed
+                    if (_truncateRequestList.Count == 0)
+                    {
+                        _truncateRequestList.Add(reqeust);  // only one request allowed
+                    }
                 }
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e.Message);
             }
 
             _pendingRequestLock.Release();
-            return reqeust.Result.Task;
+            //reqeust.Result.Task.Wait();
+            await reqeust.Result.Task.ConfigureAwait(false);
+            return;
+            //return Task.CompletedTask;
         }
 
         public void SetBeginPosition(AppendPosition position)

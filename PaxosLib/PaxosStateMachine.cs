@@ -77,13 +77,6 @@ namespace Paxos.StateMachine
             _node?.Dispose();
         }
 
-        public async Task Load(string proposerLog, string voterLog)
-        {
-            Dispose();
-
-            await _node?.Load(proposerLog, voterLog);
-        }
-
         public Task Load(string metaLog)
         {
             return _node?.Load(metaLog);

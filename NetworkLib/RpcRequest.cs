@@ -514,6 +514,11 @@ namespace Paxos.Rpc
             return Task.CompletedTask;
         }
 
+        public void Dispose()
+        {
+
+        }
+
     }
 
 
@@ -598,6 +603,11 @@ namespace Paxos.Rpc
 
                 await connection.SendMessage(RpcMessageHelper.CreateNetworkMessage(rpcResp));
             }
+        }
+
+        public void Dispose()
+        {
+
         }
     }
 
