@@ -336,7 +336,8 @@ namespace Paxos.Protocol
             {
                 // decree already committed in other nodes
                 if (State == ProposeState.QueryLastVote ||
-                    State == ProposeState.BeginNewBallot)
+                    State == ProposeState.BeginNewBallot ||
+                    State == ProposeState.Init)
                 {
                     foreach (var lastVote in _lastVoteMessages)
                     {

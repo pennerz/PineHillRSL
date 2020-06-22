@@ -33,7 +33,15 @@ namespace Paxos.StateMachine
 
         public static StateMachineRequest DeSerialize(string content)
         {
+            if (string.IsNullOrEmpty(content))
+            {
+                return null;
+            }
             var separatorIndex = content.IndexOf('#');
+            if (separatorIndex == -1)
+            {
+                return null;
+            }
             var requestId = content.Substring(0, separatorIndex);
             content = content.Substring(separatorIndex + 1);
             separatorIndex = content.IndexOf('#');
@@ -116,6 +124,10 @@ namespace Paxos.StateMachine
                 SequenceNo = decreeNo,
                 Request = StateMachineRequestSerializer.DeSerialize(decree.Content)
             };
+            if (internalRequest.Request == null)
+            {
+                return;
+            }
             internalRequest.Request.SequenceId = decreeNo;
             _reqSlideWindow.Add(decreeNo, internalRequest);
             var task = Task.Run(async () =>
@@ -160,7 +172,7 @@ namespace Paxos.StateMachine
             var lastDecreeNo = decreeNo;
             if (lastDecreeNo > 0)
             {
-                --lastDecreeNo;
+                //lastDecreeNo;
             }
             _reqSlideWindow = new SlidingWindow(lastDecreeNo, null);
         }

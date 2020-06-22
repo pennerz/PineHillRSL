@@ -446,7 +446,7 @@ namespace Paxos.Notebook
 
             if (minPos == null)
             {
-                minPos = new AppendPosition(0, 0, 0);
+                minPos = new AppendPosition(0, 0);
             }
 
             return minPos;
@@ -515,7 +515,7 @@ namespace Paxos.Notebook
             var offsetInFragment = BitConverter.ToUInt64(buf, offInBuf);
             offInBuf += sizeof(UInt64);
             _checkpointFile = Encoding.UTF8.GetString(buf, offInBuf, len - offInBuf);
-            _checkpointPosition = new AppendPosition(fragmentIndex, offsetInFragment, 0);
+            _checkpointPosition = new AppendPosition(fragmentIndex, offsetInFragment);
         }
     }
 
@@ -862,7 +862,7 @@ namespace Paxos.Notebook
             }
             if (minPos == null)
             {
-                minPos = new AppendPosition(0, 0, 0);
+                minPos = new AppendPosition(0, 0);
             }
 
             return minPos;

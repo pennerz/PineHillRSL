@@ -721,16 +721,21 @@ namespace Paxos.Tests
                     if (i >= 2)
                     {
                         Assert.IsTrue(collectLastVoteTask.IsCompleted);
-                        Assert.AreEqual(propose.LastVoteMessages.Count, 2);
+                        //Assert.AreEqual(propose.LastVoteMessages.Count, 2);
+
                         //if (i > 2)
                         //{
-                         //   var returnedLastVote = propose.LastVoteMessages[i - 1];
-                         //   VerifyLastVoteMessage(returnedLastVote, 1/*decreeNo*/, 4/*ballotNo*/, 0/*votedBallotNo*/, null/*votedContent*/);
-                       // }
+                        //   var returnedLastVote = propose.LastVoteMessages[i - 1];
+                        //   VerifyLastVoteMessage(returnedLastVote, 1/*decreeNo*/, 4/*ballotNo*/, 0/*votedBallotNo*/, null/*votedContent*/);
+                        // }
+                        var result = await collectLastVoteTask;
+                        Assert.IsTrue(result.IsCommitted);
+                        Assert.AreEqual(result.OngoingPropose.LastTriedBallot, (ulong)4);
+                        Assert.AreEqual(result.OngoingPropose.Decree.Content, decreeContent1);
 
-                        VerifyPropose(propose, 4/*lastTriedBallot*/, ProposeState.Commited, decreeContent1);
+                        //VerifyPropose(propose, 4/*lastTriedBallot*/, ProposeState.Commited, decreeContent1);
 
-                        Assert.IsTrue(proposerNote.GetCommittedDecreeCount() == 1);
+                        //Assert.IsTrue(proposerNote.GetCommittedDecreeCount() == 1);
                     }
                     else
                     {
@@ -748,9 +753,9 @@ namespace Paxos.Tests
                 }
                 var collectLastVoteResult = await collectLastVoteTask;
                 var nextAction = await collectLastVoteResult.OngoingPropose.GetNextAction();
-                Assert.AreEqual(nextAction, Propose.NextAction.None);
+                Assert.AreEqual(nextAction, Propose.NextAction.Commit);
                 Assert.IsTrue(collectLastVoteResult.IsCommitted);
-                Assert.AreEqual(collectLastVoteResult.OngoingPropose.GetCommittedDecree().Content, decreeContent1);
+                Assert.AreEqual(collectLastVoteResult.OngoingPropose.Decree.Content, decreeContent1);
 
                 proposeManager.Reset();
             }
@@ -1284,10 +1289,13 @@ namespace Paxos.Tests
             ReplicatedTable.ReplicatedTable unHealthyNode = null;
             for (int i = 0; i < cluster.Members.Count; ++i)
             {
-                var nodeInfo = cluster.Members[i];
-                var node = new ReplicatedTable.ReplicatedTable(cluster, nodeInfo);
-                tableNodeMap[nodeInfo.Name] = node;
+                if (i == unHealthyNodeIndex)
+                {
+                    continue;
+                }
+                tableNodeMap[cluster.Members[i].Name] = new ReplicatedTable.ReplicatedTable(cluster, cluster.Members[i]);
             }
+            tableNodeMap[cluster.Members[unHealthyNodeIndex].Name] = new ReplicatedTable.ReplicatedTable(cluster, cluster.Members[unHealthyNodeIndex]);
 
             for (int i = 0; i < cluster.Members.Count; ++i)
             {

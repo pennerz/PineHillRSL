@@ -661,6 +661,7 @@ namespace Paxos.Protocol
         IPaxosNotification _notificationSubscriber;
 
         private List<PaxosMessage> _ongoingRequests = new List<PaxosMessage>();
+        private int _catchupLogSize = 0;
 
         public ProposerRole(
             NodeInfo nodeInfo,
@@ -703,6 +704,7 @@ namespace Paxos.Protocol
         public async Task Load()
         {
             await _proposerNote.Load();
+            int catchupLogSize = 0;
             do
             {
                 if (_notificationSubscriber != null)
@@ -716,9 +718,20 @@ namespace Paxos.Protocol
                         }
                     }
 
+                    if (_proposerNote.CommittedDecrees.Count == 0)
+                    {
+                        PaxosDecree fakeDecree = new PaxosDecree();
+                        await Propose(fakeDecree, 0);
+                    }
+
+                    // catchup 
                     foreach (var committedDecree in _proposerNote.CommittedDecrees)
                     {
                         await _notificationSubscriber.UpdateSuccessfullDecree(committedDecree.Key, committedDecree.Value);
+                        if (committedDecree.Value.Data != null)
+                        {
+                            catchupLogSize += committedDecree.Value.Data.Length;
+                        }
                     }
                 }
 
@@ -728,11 +741,10 @@ namespace Paxos.Protocol
                 {
                     break;
                 }
-
+                catchupLogSize = 0;
                 // check if need to continue
             } while (true);
-
-            // catchup 
+            _catchupLogSize = catchupLogSize;
         }
 
         private async Task<bool> LoadCheckpointFromRemoteNodes()
@@ -823,60 +835,44 @@ namespace Paxos.Protocol
             _notificationSubscriber = listener;
         }
 
-        public async Task Checkpoint()
+        public Task TriggerCheckpoint()
         {
+            // TODO: add parallel checkpoints support
+            if (_catchupLogSize <= Persistence.LogSizeThreshold.CommitLogFileCheckpointThreshold)
+            {
+                return Task.CompletedTask;
+            }
+            _catchupLogSize = 0;
+
             var fakeMsg = new PaxosMessage();
             lock (_ongoingRequests)
             {
                 if (Stop)
                 {
-                    return;
+                    return Task.CompletedTask;
                 }
                 _ongoingRequests.Add(fakeMsg);
             }
 
-            try
+            var task = Task.Run(async () =>
             {
-                // all the decree before decreeno has been checkpointed.
-                // reserver the logs from the lowest position of the positions of decrees which are bigger than decreeNo
-                if (_notificationSubscriber != null)
+                try
                 {
-                    // get next checkpoint file
-                    var checkpointFilePath = _proposerNote.ProposeRoleMetaRecord?.CheckpointFilePath;
-                    if (checkpointFilePath == null)
-                    {
-                        checkpointFilePath = ".\\storage\\" + _nodeInfo.Name + "_checkpoint.0000000000000001";
-                    }
-                    else
-                    {
-                        int checkpointFileIndex = 0;
-                        var baseName = ".\\storage\\" + _nodeInfo.Name + "_checkpoint";
-                        var separatorIndex = checkpointFilePath.IndexOf(baseName);
-                        if (separatorIndex != -1)
-                        {
-                            Int32.TryParse(checkpointFilePath.Substring(baseName.Length + 1), out checkpointFileIndex);
-                            checkpointFileIndex++;
-                        }
-                        checkpointFilePath = baseName + "." + checkpointFileIndex.ToString("D16");
-                    }
-                    using (var fileStream = new FileStream(checkpointFilePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
-                    {
-                        var decreeNo = await _notificationSubscriber.Checkpoint(fileStream);
-
-                        // save new metadata
-                        await _proposerNote.Checkpoint(checkpointFilePath, decreeNo);
-
-                    }
-
+                    await Checkpoint();
                 }
-            }
-            finally
-            {
-                lock (_ongoingRequests)
+                finally
                 {
-                    _ongoingRequests.Remove(fakeMsg);
+                    lock (_ongoingRequests)
+                    {
+                        _ongoingRequests.Remove(fakeMsg);
+                    }
                 }
-            }
+            });
+
+            // do not care about the task, just let it run, when it's completed
+            // it will remove the fake msg from onoging requests
+
+            return task;
         }
 
         public async Task<DecreeReadResult> ReadDecree(ulong decreeNo)
@@ -981,7 +977,10 @@ namespace Paxos.Protocol
                     var propose = _proposeManager.GetOngoingPropose(nextDecreeNo);
                     if (lastVoteResult.IsCommitted)
                     {
-                        _proposeManager.RemovePropose(nextDecreeNo);
+                        //_proposeManager.RemovePropose(nextDecreeNo);
+
+                        // commit the propose
+                        await CommitPropose(nextDecreeNo, lastVoteResult.OngoingPropose.LastTriedBallot);
 
                         // already committed
                         if (decreeNo == 0)
@@ -1170,7 +1169,8 @@ namespace Paxos.Protocol
                                 {
                                     DecreeNo = msg.DecreeNo,
                                     OngoingPropose = propose,
-                                    IsCommitted = LastVoteMessageResult.ResultAction.DecreeCommitted == result.Action
+                                    IsCommitted = LastVoteMessageResult.ResultAction.DecreeCommitted == result.Action,
+                                    CommittedDecree = (LastVoteMessageResult.ResultAction.DecreeCommitted == result.Action) ? propose.Decree : null
                                 };
 
                                 lock (result.CommittedPropose)
@@ -1253,11 +1253,11 @@ namespace Paxos.Protocol
             if (_notificationSubscriber != null)
                 await _notificationSubscriber.UpdateSuccessfullDecree(msg.DecreeNo, new PaxosDecree(msg.Decree));
 
+            _catchupLogSize += msg.Decree.Length;
+
             // check if need to checkpoint
-            if (position.TotalOffset > Persistence.LogSizeThreshold.CommitLogFileCheckpointThreshold)
-            {
-                await Checkpoint();
-            }
+            // TODO, remvoe it from critical path
+            await TriggerCheckpoint();
         }
 
         private Task<CheckpointSummaryResp> RequestCheckpointSummary()
@@ -1440,11 +1440,43 @@ namespace Paxos.Protocol
             if (_notificationSubscriber != null)
                 await _notificationSubscriber?.UpdateSuccessfullDecree(decreeNo, propose.GetCommittedDecree());
 
-            // check if need to checkpoint
-            if (position.TotalOffset > Persistence.LogSizeThreshold.CommitLogFileCheckpointThreshold)
+            if (propose.GetCommittedDecree().Data != null)
             {
-                await Checkpoint();
+                _catchupLogSize += propose.GetCommittedDecree().Data.Length;
             }
+            // check if need to checkpoint
+            // TODO, remvoe it from critical path
+            await TriggerCheckpoint();
+
+            // Max played 
+            return propose;
+        }
+
+        private async Task<Propose> CommitProposeInLock(ulong decreeNo, ulong ballotNo)
+        {
+            var propose = _proposeManager.GetOngoingPropose(decreeNo);
+            Persistence.AppendPosition position;
+            if (!propose.Commit(ballotNo))
+            {
+                // others may commit a new one with a different ballotNo
+                return null;
+            }
+
+            position = await _proposerNote.CommitDecree(decreeNo, propose.GetCommittedDecree());
+
+            await NotifyLearnersResult(decreeNo, ballotNo, propose.GetCommittedDecree());
+            _proposeManager.RemovePropose(decreeNo);
+
+            if (_notificationSubscriber != null)
+                await _notificationSubscriber?.UpdateSuccessfullDecree(decreeNo, propose.GetCommittedDecree());
+
+            if (propose.GetCommittedDecree().Data != null)
+            {
+                _catchupLogSize += propose.GetCommittedDecree().Data.Length;
+            }
+            // check if need to checkpoint
+            // TODO, remvoe it from critical path
+            await TriggerCheckpoint();
 
             // Max played 
             return propose;
@@ -1531,6 +1563,7 @@ namespace Paxos.Protocol
                 ulong lstVoteMsgCount = propose.AddLastVoteMessage(msg);
                 if (msg.Commited)
                 {
+                    /*
                     if (propose.Commit(msg.BallotNo))
                     {
                         var committedDecree = propose.GetCommittedDecree();
@@ -1539,7 +1572,9 @@ namespace Paxos.Protocol
                     else
                     {
                         // somebody else already committed it
-                    }
+                    }*/
+                    //await CommitProposeInLock(msg.DecreeNo, msg.BallotNo);
+
 
                     // decree already committed
                     return new LastVoteMessageResult()
@@ -1702,6 +1737,41 @@ namespace Paxos.Protocol
                 tasks.Add(task);
             }
             await Task.WhenAll(tasks);
+        }
+
+        private async Task Checkpoint()
+        {
+            // all the decree before decreeno has been checkpointed.
+            // reserver the logs from the lowest position of the positions of decrees which are bigger than decreeNo
+            if (_notificationSubscriber != null)
+            {
+                // get next checkpoint file
+                var checkpointFilePath = _proposerNote.ProposeRoleMetaRecord?.CheckpointFilePath;
+                if (checkpointFilePath == null)
+                {
+                    checkpointFilePath = ".\\storage\\" + _nodeInfo.Name + "_checkpoint.0000000000000001";
+                }
+                else
+                {
+                    int checkpointFileIndex = 0;
+                    var baseName = ".\\storage\\" + _nodeInfo.Name + "_checkpoint";
+                    var separatorIndex = checkpointFilePath.IndexOf(baseName);
+                    if (separatorIndex != -1)
+                    {
+                        Int32.TryParse(checkpointFilePath.Substring(baseName.Length + 1), out checkpointFileIndex);
+                        checkpointFileIndex++;
+                    }
+                    checkpointFilePath = baseName + "." + checkpointFileIndex.ToString("D16");
+                }
+                using (var fileStream = new FileStream(checkpointFilePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+                {
+                    var decreeNo = await _notificationSubscriber.Checkpoint(fileStream);
+
+                    // save new metadata
+                    await _proposerNote.Checkpoint(checkpointFilePath, decreeNo);
+
+                }
+            }
         }
     }
 

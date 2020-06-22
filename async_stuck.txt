@@ -1,0 +1,7 @@
+1. work thread set result for a task
+2. resume the the task
+3. continue the task & wait for the work thread to exit
+
+1. main thread issue a async task A, this async taskA await on another async taskB
+2. main thread wait on the task
+3. TaskB finished, and want to resume TaskA on original thread context, the original thread context is stuck on wait on the taskA

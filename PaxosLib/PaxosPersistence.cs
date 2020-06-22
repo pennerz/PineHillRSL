@@ -26,15 +26,13 @@ namespace Paxos.Persistence
 
     public class AppendPosition
     {
-        public AppendPosition(UInt64 fragementIndex, UInt64 offsetInFragment, UInt64 totalOffset)
+        public AppendPosition(UInt64 fragementIndex, UInt64 offsetInFragment)
         {
             FragmentIndex = fragementIndex;
             OffsetInFragment = offsetInFragment;
-            TotalOffset = totalOffset;
         }
         public UInt64 FragmentIndex { get; set; }
         public UInt64 OffsetInFragment { get; set; }
-        public UInt64 TotalOffset { get; set; }
 
         public static bool operator <(AppendPosition left, AppendPosition right)
         {
@@ -321,7 +319,7 @@ namespace Paxos.Persistence
                         }
                         if (truncateRequest != null)
                         {
-                            //await TruncateInlock(truncateRequest.Position);
+                            await TruncateInlock(truncateRequest.Position);
                             lock (_truncateRequestList)
                             {
                                 _truncateRequestList.RemoveAt(0);
@@ -382,7 +380,7 @@ namespace Paxos.Persistence
 
                         foreach (var req in finishedReqList)
                         {
-                            req.Result.SetResult(new AppendPosition(currentFragmentIndex, (UInt64)req.Offset - currentFragmentBaseOff, (UInt64)req.Offset));
+                            req.Result.SetResult(new AppendPosition(currentFragmentIndex, (UInt64)req.Offset - currentFragmentBaseOff));
                         }
                         var notifyTime = DateTime.Now - begin;
                         if (notifyTime.TotalMilliseconds > 500)

@@ -119,12 +119,12 @@ namespace Paxos.Node
             _proposerRole.SubscribeNotification(_notificationSubscriber);
             _voterRole.SubscribeNotification(_notificationSubscriber);
 
-            await _proposerRole.Load();
-
             _messager = new PaxosNodeMessageDeliver(_proposerRole, _voterRole);
             var rpcRequestHandler = new PaxosMessageHandler(_messager, null);
             _rpcServer.RegisterRequestHandler(rpcRequestHandler);
-            await _rpcServer.Start();
+
+            await _proposerRole.Load();
+
 
             // request checkpoint from remote nodes
 
@@ -197,6 +197,9 @@ namespace Paxos.Node
             _rpcClient = new RpcClient(localAddr);
             var serverAddr = new NodeAddress(_nodeInfo, 88);
             _rpcServer = new RpcServer(serverAddr);
+
+            _rpcServer.Start().Wait();
+
 
             var metaLogFilePath = ".\\storage\\" + _nodeInfo.Name + ".meta";
             var task = Load(metaLogFilePath);

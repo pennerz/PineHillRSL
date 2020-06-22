@@ -100,6 +100,10 @@ namespace Paxos.Common
             int dataSize = 0;
             foreach(var dataBuf in scatteredData)
             {
+                if(dataBuf == null)
+                {
+                    continue;
+                }
                 dataSize += dataBuf.Length + sizeof(int);
             }
             if (_dataBuf != null)
@@ -122,6 +126,10 @@ namespace Paxos.Common
             int blockSize = 0;
             foreach(var dataBuf in scatteredData)
             {
+                if (dataBuf == null)
+                {
+                    continue;
+                }
                 blockSize = dataBuf.Length;
                 Buffer.BlockCopy(BitConverter.GetBytes(blockSize), 0, data, off, sizeof(int));
                 off += sizeof(int);
@@ -132,6 +140,10 @@ namespace Paxos.Common
 
         public void AppendBlock(byte[] block)
         {
+            if (block == null)
+            {
+                return;
+            }
             int dataSize = block.Length;
             if (_dataBuf != null)
             {

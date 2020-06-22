@@ -192,6 +192,10 @@ namespace Paxos.ReplicatedTable
 
         protected override async Task ExecuteRequest(StateMachine.StateMachineRequest request)
         {
+            if (request == null)
+            {
+                return;
+            }
             var result = RequestSerializer.DeSerialize(request.Content);
             var batchRequest = result as BatchRplicatedTableRequest;
             if (batchRequest != null)
