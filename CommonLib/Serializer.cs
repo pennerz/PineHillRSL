@@ -6,7 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Collections.Generic;
 
-namespace Paxos.Common
+namespace PineRSL.Common
 {
     public class SerializeBufferIterator : IEquatable<SerializeBufferIterator>
     {

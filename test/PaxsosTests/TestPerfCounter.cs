@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Paxos.Tests
+namespace PineRSL.Tests
 {
     public enum  TestPerfCounterType
     {

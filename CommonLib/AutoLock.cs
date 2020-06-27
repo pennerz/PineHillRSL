@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Threading;
 
-namespace Paxos.Common
+namespace PineRSL.Common
 {
     public class AutoLock : IDisposable
     {

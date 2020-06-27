@@ -1,8 +1,6 @@
-﻿using Paxos.Common;
-using Paxos.Message;
-using Paxos.Network;
-using Paxos.Rpc;
-using Paxos.PerCounter;
+﻿using PineRSL.Common;
+using PineRSL.Network;
+using PineRSL.Rpc;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -11,7 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;
 
-namespace Paxos.Tests
+namespace PineRSL.Tests
 {
     /// <summary>
     /// Test implementation of IConnection.

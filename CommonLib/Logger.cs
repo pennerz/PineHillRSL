@@ -7,7 +7,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Diagnostics;
 
-namespace Paxos.Common
+namespace PineRSL.Common
 {
     public interface ILog
     {

@@ -1,19 +1,15 @@
-﻿using Paxos.Common;
-using Paxos.Protocol;
-using Paxos.Network;
-using Paxos.Node;
-using Paxos.Persistence;
-using Paxos.Notebook;
-using Paxos.Message;
-using Paxos.Request;
-using Paxos.Rpc;
+﻿using PineRSL.Common;
+using PineRSL.Paxos.Protocol;
+using PineRSL.Network;
+using PineRSL.Paxos.Node;
+using PineRSL.Paxos.Request;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Paxos.StateMachine
+namespace PineRSL.StateMachine
 {
     public class StateMachineRequest
     {

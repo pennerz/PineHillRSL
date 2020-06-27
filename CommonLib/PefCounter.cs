@@ -4,7 +4,7 @@ using System.Threading;
 using System.Collections.Concurrent;
 
 
-namespace Paxos.Common
+namespace PineRSL.Common
 {
     public class PerfCounterManager
     {

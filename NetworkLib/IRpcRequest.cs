@@ -1,4 +1,5 @@
-﻿using Paxos.Network;
+﻿using PineRSL.Common;
+using PineRSL.Network;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -9,9 +10,8 @@ using System.Xml.Serialization;
 using System.Text.Json;
 using System.Runtime.Serialization.Json;
 using System.Text.Json.Serialization;
-using Paxos.Common;
 
-namespace Paxos.Rpc
+namespace PineRSL.Rpc
 {
     /// <summary>
     /// Rpc message communicated between client and server

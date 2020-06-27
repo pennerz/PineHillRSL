@@ -1,7 +1,7 @@
-﻿using Paxos.Common;
-using Paxos.Message;
-using Paxos.Persistence;
-using Paxos.Request;
+﻿using PineRSL.Common;
+using PineRSL.Paxos.Message;
+using PineRSL.Paxos.Persistence;
+using PineRSL.Paxos.Request;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -11,7 +11,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Paxos.Notebook
+namespace PineRSL.Paxos.Notebook
 {
     public class VoteInfo
     {
@@ -190,7 +190,7 @@ namespace Paxos.Notebook
             var votedBallotData = _votedBallotInfo.Serialize();
             var decreeNoData = BitConverter.GetBytes(_decreeNo);
             int recrodSize = _magic.Length + votedBallotData.Length + decreeNoData.Length;
-            var buf = new Paxos.Persistence.LogBuffer();
+            var buf = new Persistence.LogBuffer();
             buf.AllocateBuffer(recrodSize + sizeof(int));
             buf.EnQueueData(BitConverter.GetBytes(recrodSize));
             buf.EnQueueData(_magic);
@@ -488,7 +488,7 @@ namespace Paxos.Notebook
             var offsetInFragmentData = BitConverter.GetBytes((UInt64)_checkpointPosition.OffsetInFragment);
             var decreeNoData = BitConverter.GetBytes(_decreeNo);
             int recrodSize = _magic.Length + filePathData.Length + decreeNoData.Length + fragmentIndexData.Length + offsetInFragmentData.Length;
-            var buf = new Paxos.Persistence.LogBuffer();
+            var buf = new Persistence.LogBuffer();
             buf.AllocateBuffer(recrodSize + sizeof(int));
             buf.EnQueueData(BitConverter.GetBytes(recrodSize));
             buf.EnQueueData(_magic);
@@ -581,7 +581,7 @@ namespace Paxos.Notebook
             var decreeContentData = _decreeContent; // Encoding.UTF8.GetBytes(_decreeContent);
             var decreeNoData = BitConverter.GetBytes(_decreeNo);
             int recrodSize = _magic.Length + decreeContentData.Length + decreeNoData.Length;
-            var buf = new Paxos.Persistence.LogBuffer();
+            var buf = new Persistence.LogBuffer();
             buf.AllocateBuffer(recrodSize + sizeof(int));
             buf.EnQueueData(BitConverter.GetBytes(recrodSize));
             buf.EnQueueData(_magic);

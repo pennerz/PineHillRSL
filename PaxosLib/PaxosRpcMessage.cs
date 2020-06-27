@@ -1,9 +1,10 @@
-﻿using Paxos.Network;
-using Paxos.Message;
+﻿using PineRSL.Network;
+using PineRSL.Rpc;
+using PineRSL.Paxos.Message;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
-namespace Paxos.Rpc
+namespace PineRSL.Paxos.Rpc
 {
     public enum PaxosRpcMessageType
     {

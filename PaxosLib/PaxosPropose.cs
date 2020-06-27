@@ -1,13 +1,13 @@
-﻿using Paxos.Common;
-using Paxos.Message;
-using Paxos.Request;
+﻿using PineRSL.Common;
+using PineRSL.Paxos.Message;
+using PineRSL.Paxos.Request;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Paxos.Protocol
+namespace PineRSL.Paxos.Protocol
 {
 
     public enum ProposeState

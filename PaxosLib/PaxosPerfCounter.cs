@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Paxos.PerCounter
+namespace PineRSL.PerCounter
 {
     public enum  PerfCounterType
     {

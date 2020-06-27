@@ -1,10 +1,9 @@
-﻿using Paxos.Message;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Paxos.Message
+namespace PineRSL.Paxos.Message
 {
     /// <summary>
     /// Paxos message deliver interface

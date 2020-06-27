@@ -1,9 +1,10 @@
-﻿using Paxos.Common;
-using Paxos.Network;
-using Paxos.Notebook;
-using Paxos.Message;
-using Paxos.Request;
-using Paxos.Rpc;
+﻿using PineRSL.Common;
+using PineRSL.Network;
+using PineRSL.Paxos.Message;
+using PineRSL.Paxos.Notebook;
+using PineRSL.Paxos.Request;
+using PineRSL.Paxos.Rpc;
+using PineRSL.Rpc;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -12,7 +13,7 @@ using System.Threading.Tasks;
 using System.Linq;
 using System.IO;
 
-namespace Paxos.Protocol
+namespace PineRSL.Paxos.Protocol
 {
 
     public interface IPaxosNotification

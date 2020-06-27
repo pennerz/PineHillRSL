@@ -1,7 +1,4 @@
-﻿using Paxos.Notebook;
-using Paxos.Request;
-using Paxos.Common;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.IO;
@@ -9,7 +6,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Paxos.Persistence
+namespace PineRSL.Paxos.Persistence
 {
     public class LogSizeThreshold
     {

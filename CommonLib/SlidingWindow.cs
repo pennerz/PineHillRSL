@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Paxos.Common
+namespace PineRSL.Common
 {
     public class SlidingWindow
     {

@@ -1,12 +1,12 @@
-﻿using Paxos.Common;
-using Paxos.Protocol;
-using Paxos.Network;
-using Paxos.Node;
-using Paxos.Persistence;
-using Paxos.Notebook;
-using Paxos.Message;
-using Paxos.Request;
-using Paxos.Rpc;
+﻿using PineRSL.Common;
+using PineRSL.Network;
+using PineRSL.Paxos.Message;
+using PineRSL.Paxos.Node;
+using PineRSL.Paxos.Notebook;
+using PineRSL.Paxos.Persistence;
+using PineRSL.Paxos.Protocol;
+using PineRSL.Paxos.Request;
+using PineRSL.Rpc;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -15,7 +15,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Paxos.ReplicatedTable
+namespace PineRSL.ReplicatedTable
 {
     public class ReplicatedTableRequest
     {

@@ -1,6 +1,6 @@
-﻿using Paxos.Network;
-using Paxos.Common;
-using Paxos.PerCounter;
+﻿using PineRSL.Common;
+using PineRSL.Network;
+using PineRSL.PerCounter;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -10,7 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;
 
-namespace Paxos.Rpc
+namespace PineRSL.Rpc
 {
     /// <summary>
     /// Rpc node event handler, which has method to handle different kind

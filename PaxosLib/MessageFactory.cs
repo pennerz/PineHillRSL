@@ -1,10 +1,10 @@
-﻿using Paxos.Message;
-using Paxos.Rpc;
-using Paxos.Common;
+﻿using PineRSL.Paxos.Message;
+using PineRSL.Common;
+using PineRSL.Rpc;
 using System;
 using System.Collections.Generic;
 
-namespace Paxos.Network
+namespace PineRSL.Paxos.Rpc
 {
 
     public class PaxosRpcMessageFactory
