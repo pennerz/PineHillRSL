@@ -18,7 +18,7 @@ namespace PineRSL.Paxos.Node
         private ProposerRole _proposerRole;
 
         private readonly PaxosCluster _cluster;
-        private readonly NodeInfo _nodeInfo;
+        private readonly NodeAddress _serverAddr;
 
         private PaxosNodeMessageDeliver _messager;
 
@@ -29,7 +29,6 @@ namespace PineRSL.Paxos.Node
         private ILogger _proposeLogger;
         private ILogger _voterLogger;
 
-        private MetaNote _metaNote;
         private VoterNote _voterNote;
         private ProposerNote _proposerNote;
         private ProposeManager _proposeManager;
@@ -39,7 +38,7 @@ namespace PineRSL.Paxos.Node
 
         public PaxosNode(
             PaxosCluster cluster,
-            NodeInfo nodeInfo)
+            NodeAddress serverAddr)
         {
             /*
             if (messageTransport == null)
@@ -51,14 +50,14 @@ namespace PineRSL.Paxos.Node
             {
                 throw new ArgumentNullException("cluster is null");
             }
-            if (nodeInfo == null)
+            if (serverAddr == null)
             {
                 throw new ArgumentNullException("nodeInfo is null");
             }
 
             //_messageTransport = messageTransport;
             _cluster = cluster;
-            _nodeInfo = nodeInfo;
+            _serverAddr = serverAddr;
 
             Init();
 
@@ -113,9 +112,9 @@ namespace PineRSL.Paxos.Node
 
             _proposeManager = new ProposeManager(_proposerNote.GetMaximumCommittedDecreeNo());
 
-            _voterRole = new VoterRole(_nodeInfo, _cluster, _rpcClient, _voterNote, _proposerNote);
+            _voterRole = new VoterRole(_serverAddr, _cluster, _rpcClient, _voterNote, _proposerNote);
             _proposerRole = new ProposerRole(
-                _nodeInfo, _cluster, _rpcClient, _proposerNote, _proposeManager);
+                _serverAddr, _cluster, _rpcClient, _proposerNote, _proposeManager);
 
             _proposerRole.SubscribeNotification(_notificationSubscriber);
             _voterRole.SubscribeNotification(_notificationSubscriber);
@@ -194,15 +193,16 @@ namespace PineRSL.Paxos.Node
 
         private void Init()
         {
-            var localAddr = new NodeAddress(_nodeInfo, 0);
-            _rpcClient = new RpcClient(localAddr);
-            var serverAddr = new NodeAddress(_nodeInfo, 88);
-            _rpcServer = new RpcServer(serverAddr);
+            //var localAddr = new NodeAddress(_nodeInfo, 0);
+            _rpcClient = new RpcClient(/*localAddr*/);
+            //var serverAddr = new NodeAddress(_nodeInfo, 88);
+            _rpcServer = new RpcServer(_serverAddr);
 
             _rpcServer.Start().Wait();
 
+            var instanceName = NodeAddress.Serialize(_serverAddr);
 
-            var metaLogFilePath = ".\\storage\\" + _nodeInfo.Name + ".meta";
+            var metaLogFilePath = ".\\storage\\" + instanceName + ".meta";
             var task = Load(metaLogFilePath);
             task.Wait();
         }

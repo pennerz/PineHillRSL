@@ -69,9 +69,9 @@ namespace PineRSL.StateMachine
 
         public PaxosStateMachine(
             PaxosCluster cluster,
-            NodeInfo nodeInfo)
+            NodeAddress serverAddr)
         {
-            _node = new PaxosNode(cluster, nodeInfo);
+            _node = new PaxosNode(cluster, serverAddr);
             _node.SubscribeNotification(this);
 
         }

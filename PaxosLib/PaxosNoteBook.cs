@@ -773,7 +773,7 @@ namespace PineRSL.Paxos.Notebook
             return CommitDecreeInternal(decreeNo, commitedDecree);
         }
 
-        public async Task<List<KeyValuePair<ulong, PaxosDecree>>> GetFollowingCommittedDecress(ulong beginDecreeNo)
+        public Task<List<KeyValuePair<ulong, PaxosDecree>>> GetFollowingCommittedDecress(ulong beginDecreeNo)
         {
             var committedDecrees = new List<KeyValuePair<ulong, PaxosDecree>>();
             lock (_lock)
@@ -787,7 +787,7 @@ namespace PineRSL.Paxos.Notebook
                     }
                 }
             }
-            return committedDecrees.Count > 0 ? committedDecrees : null;
+            return Task.FromResult(committedDecrees.Count > 0 ? committedDecrees : null);
         }
         public ulong GetCommittedDecreeCount()
         {
@@ -840,7 +840,7 @@ namespace PineRSL.Paxos.Notebook
             await _logger.Truncate(minOff);
         }
 
-        private async Task<AppendPosition> GetMinPositionForDecrees(ulong beginDecreeNo)
+        private Task<AppendPosition> GetMinPositionForDecrees(ulong beginDecreeNo)
         {
             AppendPosition minPos = null;
             Tuple<ulong, AppendPosition> lastSmallerDecree = null;
@@ -865,7 +865,7 @@ namespace PineRSL.Paxos.Notebook
                 minPos = new AppendPosition(0, 0);
             }
 
-            return minPos;
+            return Task.FromResult(minPos);
         }
 
         private ulong GetMaximumCommittedDecreeNoNeedLock()

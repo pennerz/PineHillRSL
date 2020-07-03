@@ -163,6 +163,8 @@ namespace PineRSL.Common
 
             int blockSize = block.Length;
             Buffer.BlockCopy(BitConverter.GetBytes(blockSize), 0, data, off, sizeof(int));
+            off += sizeof(int);
+            Buffer.BlockCopy(block, 0, data, off, block.Length);
         }
 
         public void ConcatenateBuff(byte[] buf)

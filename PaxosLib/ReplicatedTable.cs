@@ -113,7 +113,7 @@ namespace PineRSL.ReplicatedTable
 
         public ReplicatedTable(
             PaxosCluster cluster,
-            NodeInfo nodeInfo) : base(cluster, nodeInfo)
+            NodeAddress serverAddr) : base(cluster, serverAddr)
         {
             
         }
@@ -266,7 +266,7 @@ namespace PineRSL.ReplicatedTable
         protected override async Task OnLoadCheckpoint(UInt64 decreeNo, Stream checkpointStream)
         {
             var databuf = new byte[1024 * 4096]; // 4M buffer
-            UInt64 checkpointedSeqNo = 0;
+            //UInt64 checkpointedSeqNo = 0;
             await _tableUpdateLock.WaitAsync();
             var autoLock = new AutoLock(_tableUpdateLock);
             using (autoLock)

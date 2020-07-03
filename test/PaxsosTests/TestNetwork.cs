@@ -50,7 +50,7 @@ namespace PineRSL.Tests
             _networkInfr = networkInfr;
         }
 
-        public async Task SendMessage(NetworkMessage msg)
+        public Task SendMessage(NetworkMessage msg)
         {
             using (var sendMsgTimer = new PerfTimerCounter((int)TestPerfCounterType.SendMessageTime))
             {
@@ -72,6 +72,8 @@ namespace PineRSL.Tests
                     Console.WriteLine("connection deliver message cost too much time[{0}ms]", sentTime.TotalMilliseconds);
                 }
             }
+
+            return Task.CompletedTask;
         }
 
 
@@ -360,10 +362,13 @@ namespace PineRSL.Tests
     public class TestNetworkCreator : INetworkCreator
     {
         private TestNetworkInfr _networkInfr;
+        private NodeInfo _localNode;
+        private int _localPort = 10240;
 
-        public TestNetworkCreator(TestNetworkInfr networkInfr)
+        public TestNetworkCreator(TestNetworkInfr networkInfr, NodeInfo localNode)
         {
             _networkInfr = networkInfr;
+            _localNode = localNode;
         }
 
         /// <summary>
@@ -389,22 +394,23 @@ namespace PineRSL.Tests
         /// <param name="localAddrr"></param>
         /// <param name="serverAddr"></param>
         /// <returns></returns>
-        public Task<IConnection> CreateNetworkClient(NodeAddress localAddrr, NodeAddress serverAddr)
+        public Task<IConnection> CreateNetworkClient(NodeAddress serverAddr)
         {
             //lock(_networkInfr)
             {
-                var clientConnection = _networkInfr.GetConnection(localAddrr, serverAddr);
+                var localAddr = new NodeAddress(_localNode, _localPort++);
+                var clientConnection = _networkInfr.GetConnection(localAddr, serverAddr);
                 if (clientConnection != null)
                 {
                     return Task.FromResult(clientConnection as IConnection);
                 }
-                clientConnection = new TestConnection(localAddrr, serverAddr, _networkInfr);
+                clientConnection = new TestConnection(localAddr, serverAddr, _networkInfr);
                 var server = _networkInfr.GetServer(serverAddr);
                 if (server == null)
                 {
                     return null;
                 }
-                if (!server.BuildNewConnection(localAddrr))
+                if (!server.BuildNewConnection(localAddr))
                 {
                     return Task.FromResult((IConnection)null);
                 }

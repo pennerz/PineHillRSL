@@ -29,15 +29,9 @@ namespace PineRSL.Paxos.Protocol
 
     public class PaxosCluster
     {
-        private List<NodeInfo> members = new List<NodeInfo>();
+        private List<NodeAddress> _members = new List<NodeAddress>();
 
-        public List<NodeInfo> Members
-        {
-            get
-            {
-                return members;
-            }
-        }
+        public List<NodeAddress> Members => _members;
     }
 
     public abstract class PaxosRole : IDisposable
@@ -46,18 +40,18 @@ namespace PineRSL.Paxos.Protocol
         {
             private SemaphoreSlim _lock = new SemaphoreSlim(3);
             private readonly RpcClient _rpcClient;
-            private readonly NodeInfo _nodeInfo;
+            private readonly NodeAddress _serverAddr;
             private List<PaxosMessage> _messageQueue = new List<PaxosMessage>();
 
-            public PaxosMessageQeuue(NodeInfo nodeInfo, RpcClient rpcClient)
+            public PaxosMessageQeuue(NodeAddress serverAddr, RpcClient rpcClient)
             {
-                _nodeInfo = nodeInfo;
+                _serverAddr = serverAddr;
                 _rpcClient = rpcClient;
             }
 
             public void AddPaxosMessage(PaxosMessage paxosMessage)
             {
-                paxosMessage.SourceNode = _nodeInfo.Name;
+                paxosMessage.SourceNode = NodeAddress.Serialize(_serverAddr);
                 lock (_lock)
                 {
                     _messageQueue.Add(paxosMessage);
@@ -77,11 +71,11 @@ namespace PineRSL.Paxos.Protocol
                                 {
                                     return;
                                 }
-                                paxosMsg.SourceNode = _nodeInfo.Name;
+                                paxosMsg.SourceNode = NodeAddress.Serialize(_serverAddr);
                                 var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(paxosMsg);
                                 var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
                                 rpcMsg.NeedResp = false;
-                                var remoteAddr = new NodeAddress(new NodeInfo(paxosMessage.TargetNode), 88);
+                                var remoteAddr = NodeAddress.DeSerialize(paxosMsg.TargetNode);
 
                                 var task = _rpcClient.SendRequest(remoteAddr, rpcMsg);
 
@@ -129,7 +123,7 @@ namespace PineRSL.Paxos.Protocol
         }
 
         private readonly RpcClient _rpcClient;
-        private readonly NodeInfo _nodeInfo;
+        private readonly NodeAddress _serverAddr;
         private ConcurrentDictionary<string, PaxosMessageQeuue> _paxosMessageList =
             new ConcurrentDictionary<string, PaxosMessageQeuue>();
         private SemaphoreSlim _lock = new SemaphoreSlim(1);
@@ -137,13 +131,13 @@ namespace PineRSL.Paxos.Protocol
         private List<PaxosMessage> _procssingMsgList = new List<PaxosMessage>();
 
         public PaxosRole(
-            NodeInfo nodeInfo,
+            NodeAddress serverAddress,
             RpcClient rpcClient)
         {
-            if (nodeInfo == null) throw new ArgumentNullException("nodeInfo");
+            if (serverAddress == null) throw new ArgumentNullException("nodeInfo");
             if (rpcClient == null) throw new ArgumentNullException("rpcClient");
             Stop = false;
-            _nodeInfo = nodeInfo;
+            _serverAddr = serverAddress;
             _rpcClient = rpcClient;
         }
 
@@ -155,7 +149,7 @@ namespace PineRSL.Paxos.Protocol
         public bool Stop { get; set; }
         public bool WaitRpcResp { get; set; }
 
-        public NodeInfo Node => _nodeInfo;
+        public NodeAddress ServerAddress => _serverAddr;
 
         public async Task<bool> HandlePaxosMessage(PaxosMessage msg)
         {
@@ -223,11 +217,11 @@ namespace PineRSL.Paxos.Protocol
         protected abstract Task<PaxosMessage> DoRequest(PaxosMessage request);
 
 
-        protected async Task SendPaxosMessage(PaxosMessage paxosMessage)
+        protected Task SendPaxosMessage(PaxosMessage paxosMessage)
         {
             if (paxosMessage == null)
             {
-                return;
+                return Task.CompletedTask;
             }
             /*
             paxosMessage.SourceNode = _nodeInfo.Name;
@@ -241,15 +235,16 @@ namespace PineRSL.Paxos.Protocol
 
             var messageQueue = GetMessageQueue(paxosMessage.TargetNode);
             messageQueue.AddPaxosMessage(paxosMessage);
+            return Task.CompletedTask;
         }
 
         protected async Task<PaxosMessage> Request(PaxosMessage request)
         {
-            request.SourceNode = _nodeInfo.Name;
+            request.SourceNode = NodeAddress.Serialize(_serverAddr);
             var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(request);
             var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
             rpcMsg.NeedResp = true;
-            var remoteAddr = new NodeAddress(new NodeInfo(request.TargetNode), 88);
+            var remoteAddr = NodeAddress.DeSerialize(request.TargetNode);
 
             var rpcResp = await _rpcClient.SendRequest(remoteAddr, rpcMsg);
             if (rpcResp == null)
@@ -282,7 +277,7 @@ namespace PineRSL.Paxos.Protocol
                 {
                     return messageQueue;
                 }
-                messageQueue = new PaxosMessageQeuue(_nodeInfo, _rpcClient);
+                messageQueue = new PaxosMessageQeuue(_serverAddr, _rpcClient);
                 _paxosMessageList.TryAdd(targetNode, messageQueue);
             } while (true);
         }
@@ -299,7 +294,7 @@ namespace PineRSL.Paxos.Protocol
     ///
     public class VoterRole : PaxosRole, IDisposable
     {
-        private readonly NodeInfo _nodeInfo;
+        private readonly NodeAddress _serverAddr;
         private readonly VoterNote _note;
         private readonly ProposerNote _ledger;
         private IPaxosNotification _notificationSubscriber;
@@ -309,17 +304,17 @@ namespace PineRSL.Paxos.Protocol
         private List<PaxosMessage> _ongoingMessages = new List<PaxosMessage>();
 
         public VoterRole(
-            NodeInfo nodeInfo,
+            NodeAddress serverAddress,
             PaxosCluster cluster,
             RpcClient rpcClient,
             VoterNote voterNote,
             ProposerNote ledger)
-            : base(nodeInfo, rpcClient)
+            : base(serverAddress, rpcClient)
         {
             if (voterNote == null) throw new ArgumentNullException("no note book");
             if (ledger == null) throw new ArgumentNullException("ledger");
 
-            _nodeInfo = nodeInfo;
+            _serverAddr = serverAddress;
             _note = voterNote;
             _ledger = ledger;
 
@@ -428,13 +423,13 @@ namespace PineRSL.Paxos.Protocol
             }
         }
 
-        private async Task DeliverSuccessMessage(SuccessMessage msg)
+        private Task DeliverSuccessMessage(SuccessMessage msg)
         {
             lock(_ongoingMessages)
             {
                 if (_exit)
                 {
-                    return;
+                    return Task.CompletedTask;
                 }
                 _ongoingMessages.Add(msg);
             }
@@ -452,6 +447,8 @@ namespace PineRSL.Paxos.Protocol
             {
                 _ongoingMessages.Remove(msg);
             }
+
+            return Task.CompletedTask;
         }
 
         private async Task<PaxosMessage> ProcessNextBallotMessageInternal(NextBallotMessage msg)
@@ -653,7 +650,7 @@ namespace PineRSL.Paxos.Protocol
         };
 
 
-        private readonly NodeInfo _nodeInfo;
+        private readonly NodeAddress _serverAddr;
         private readonly PaxosCluster _cluster;
 
         private readonly ProposerNote _proposerNote;
@@ -665,19 +662,19 @@ namespace PineRSL.Paxos.Protocol
         private int _catchupLogSize = 0;
 
         public ProposerRole(
-            NodeInfo nodeInfo,
+            NodeAddress serverAddr,
             PaxosCluster cluster,
             RpcClient rpcClient,
             ProposerNote proposerNote,
             ProposeManager proposerManager)
-            : base(nodeInfo, rpcClient)
+            : base(serverAddr, rpcClient)
         {
             if (cluster == null) throw new ArgumentNullException("cluster");
-            if (nodeInfo == null) throw new ArgumentNullException("nodeInfo");
+            if (serverAddr == null) throw new ArgumentNullException("nodeInfo");
             if (rpcClient == null) throw new ArgumentNullException("rpcClient");
             if (proposerNote == null) throw new ArgumentNullException("proposer note");
 
-            _nodeInfo = nodeInfo;
+            _serverAddr = serverAddr;
             _cluster = cluster;
             _proposerNote = proposerNote;
             _proposeManager = proposerManager;
@@ -753,12 +750,12 @@ namespace PineRSL.Paxos.Protocol
             var summaryRequestTaskList = new List<Task<PaxosMessage>>();
             foreach (var node in _cluster.Members)
             {
-                if (node.Name == _nodeInfo.Name)
+                if (node.Equals(_serverAddr))
                 {
                     continue;
                 }
                 var checkpointSummaryRequest = new CheckpointSummaryRequest();
-                checkpointSummaryRequest.TargetNode = node.Name;
+                checkpointSummaryRequest.TargetNode = NodeAddress.Serialize(node);
                 var task = Request(checkpointSummaryRequest);
                 summaryRequestTaskList.Add(task);
             }
@@ -787,12 +784,12 @@ namespace PineRSL.Paxos.Protocol
                 var checkpointFilePath = _proposerNote.ProposeRoleMetaRecord?.CheckpointFilePath;
                 if (checkpointFilePath == null)
                 {
-                    checkpointFilePath = ".\\storage\\" + _nodeInfo.Name + "_checkpoint.0000000000000001";
+                    checkpointFilePath = ".\\storage\\" + NodeAddress.Serialize(_serverAddr) + "_checkpoint.0000000000000001";
                 }
                 else
                 {
                     int checkpointFileIndex = 0;
-                    var baseName = ".\\storage\\" + _nodeInfo.Name + "_checkpoint";
+                    var baseName = ".\\storage\\" + NodeAddress.Serialize(_serverAddr) + "_checkpoint";
                     var separatorIndex = checkpointFilePath.IndexOf(baseName);
                     if (separatorIndex != -1)
                     {
@@ -1668,17 +1665,17 @@ namespace PineRSL.Paxos.Protocol
             var tasks = new List<Task>();
             foreach (var node in _cluster.Members)
             {
-                if (node.Name == _nodeInfo.Name)
+                if (node.Equals(_serverAddr))
                 {
                     continue;
                 }
                 var task = Task.Run(async () =>
                 {
                     var nextBallotMessage = new NextBallotMessage();
-                    nextBallotMessage.TargetNode = node.Name;
+                    nextBallotMessage.TargetNode = NodeAddress.Serialize(node);
                     nextBallotMessage.DecreeNo = decreeNo;
                     nextBallotMessage.BallotNo = nextBallotNo;
-                    return  SendPaxosMessage(nextBallotMessage);
+                    await  SendPaxosMessage(nextBallotMessage);
                 });
 
                 tasks.Add(task);
@@ -1691,7 +1688,7 @@ namespace PineRSL.Paxos.Protocol
             var tasks = new List<Task>();
             foreach (var node in _cluster.Members)
             {
-                if (node.Name == _nodeInfo.Name)
+                if (node.Equals(_serverAddr))
                 {
                     continue;
                 }
@@ -1700,9 +1697,9 @@ namespace PineRSL.Paxos.Protocol
                     var beginBallotMessage = new BeginBallotMessage();
                     beginBallotMessage.DecreeNo = decreeNo;
                     beginBallotMessage.BallotNo = ballotNo;
-                    beginBallotMessage.TargetNode = node.Name;
+                    beginBallotMessage.TargetNode = NodeAddress.Serialize(node);
                     beginBallotMessage.Decree = newBallotDecree.Data;
-                    return SendPaxosMessage(beginBallotMessage);
+                    await SendPaxosMessage(beginBallotMessage);
                 });
 
                 tasks.Add(task);
@@ -1720,19 +1717,19 @@ namespace PineRSL.Paxos.Protocol
 
             foreach (var node in _cluster.Members)
             {
-                if (node.Name == _nodeInfo.Name)
+                if (node.Equals(_serverAddr))
                 {
                     continue;
                 }
                 var task = Task.Run(async () =>
                 {
                     var successMessage = new SuccessMessage();
-                    successMessage.TargetNode = node.Name;
+                    successMessage.TargetNode = NodeAddress.Serialize(node);
                     successMessage.DecreeNo = decreeNo;
                     successMessage.BallotNo = ballotNo;
                     successMessage.Decree = decree.Data;
 
-                    return SendPaxosMessage(successMessage);
+                    await SendPaxosMessage(successMessage);
                 });
 
                 tasks.Add(task);
@@ -1750,12 +1747,12 @@ namespace PineRSL.Paxos.Protocol
                 var checkpointFilePath = _proposerNote.ProposeRoleMetaRecord?.CheckpointFilePath;
                 if (checkpointFilePath == null)
                 {
-                    checkpointFilePath = ".\\storage\\" + _nodeInfo.Name + "_checkpoint.0000000000000001";
+                    checkpointFilePath = ".\\storage\\" + NodeAddress.Serialize(_serverAddr) + "_checkpoint.0000000000000001";
                 }
                 else
                 {
                     int checkpointFileIndex = 0;
-                    var baseName = ".\\storage\\" + _nodeInfo.Name + "_checkpoint";
+                    var baseName = ".\\storage\\" + NodeAddress.Serialize(_serverAddr) + "_checkpoint";
                     var separatorIndex = checkpointFilePath.IndexOf(baseName);
                     if (separatorIndex != -1)
                     {

@@ -45,27 +45,28 @@ namespace PineRSL
             var cluster = new PaxosCluster();
             for (int i = 0; i < 5; i++)
             {
-                var node = new NodeInfo("Node" + i.ToString());
-                cluster.Members.Add(node);
+                var node = new NodeInfo("127.0.0.1");
+                var nodeAddr = new NodeAddress(node, 88 + i);
+                cluster.Members.Add(nodeAddr);
             }
 
             var networkInfr = new TestNetworkInfr();
-            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
 
             if (false)
             {
 
                 var tableNodeMap = new Dictionary<string, ReplicatedTable.ReplicatedTable>();
-                foreach (var nodeInfo in cluster.Members)
+                foreach (var nodeAddr in cluster.Members)
                 {
-                    var node = new ReplicatedTable.ReplicatedTable(cluster, nodeInfo);
-                    tableNodeMap[nodeInfo.Name] = node;
+                    var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
+                    tableNodeMap[NodeAddress.Serialize(nodeAddr)] = node;
                 }
 
                 var start = DateTime.Now;
 
                 List<Task> taskList = new List<Task>();
-                var master = tableNodeMap[cluster.Members[0].Name];
+                var master = tableNodeMap[NodeAddress.Serialize(cluster.Members[0])];
                 for (int i = 0; i < 10000000; i++)
                 {
                     var task = master.InstertTable(new ReplicatedTableRequest() { Key = i.ToString(), Value = "test" + i.ToString() });
@@ -89,16 +90,16 @@ namespace PineRSL
             else
             {
                 var nodeMap = new Dictionary<string, PaxosNode>();
-                foreach (var nodeInfo in cluster.Members)
+                foreach (var nodeAddr in cluster.Members)
                 {
-                    var node = new PaxosNode(cluster, nodeInfo);
-                    nodeMap[nodeInfo.Name] = node;
+                    var node = new PaxosNode(cluster, nodeAddr);
+                    nodeMap[NodeAddress.Serialize(nodeAddr)] = node;
                 }
 
                 bool isParallel = true;
                 var start = DateTime.Now;
 
-                var proposer = nodeMap[cluster.Members[0].Name];
+                var proposer = nodeMap[NodeAddress.Serialize(cluster.Members[0])];
 
                 int workerCount = 0;
                 int iocpCount = 0;

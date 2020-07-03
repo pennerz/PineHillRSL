@@ -36,7 +36,7 @@ namespace PineRSL.Network
     public class NodeAddress : IEquatable<NodeAddress>
     {
         private readonly NodeInfo _nodeInfo;
-        private readonly ushort _port;
+        private readonly int _port;
 
         public bool Equals(NodeAddress rhs)
         {
@@ -60,14 +60,28 @@ namespace PineRSL.Network
             return Node.GetHashCode() + Port.GetHashCode();
         }
 
-        public NodeAddress(NodeInfo nodeInfo, ushort port)
+        public NodeAddress(NodeInfo nodeInfo, int port)
         {
             _nodeInfo = nodeInfo;
             _port = port;
         }
 
+        public static string Serialize(NodeAddress addr)
+        {
+            return addr._nodeInfo.Name + ":" + addr._port.ToString();
+        }
+
+        public static NodeAddress DeSerialize(string str)
+        {
+            var index = str.IndexOf(':');
+            var nodeInfo = new NodeInfo(str.Substring(0, index));
+            var portStr = str.Substring(index + 1);
+            var port = int.Parse(portStr);
+            return new NodeAddress(nodeInfo, port);
+        }
+
         public NodeInfo Node => _nodeInfo;
-        public ushort Port => _port;
+        public int Port => _port;
     }
 
     /// <summary>
@@ -124,7 +138,7 @@ namespace PineRSL.Network
     public interface INetworkCreator
     {
         Task<INetworkServer> CreateNetworkServer(NodeAddress serverAddr);
-        Task<IConnection> CreateNetworkClient(NodeAddress localAddrr, NodeAddress serverAddr);
+        Task<IConnection> CreateNetworkClient(/*NodeAddress localAddrr, */NodeAddress serverAddr);
     }
 
     /// <summary>
@@ -148,13 +162,13 @@ namespace PineRSL.Network
             return null;
         }
 
-        public static async Task<IConnection> CreateNetworkClient(NodeAddress localAddr, NodeAddress serverAddr)
+        public static async Task<IConnection> CreateNetworkClient(/*NodeAddress localAddr,*/ NodeAddress serverAddr)
         {
             if (_creator != null)
             {
                 try
                 {
-                    var connection = await _creator.CreateNetworkClient(localAddr, serverAddr);
+                    var connection = await _creator.CreateNetworkClient(/*localAddr, */serverAddr);
                     return connection;
                 }
                 catch(Exception)

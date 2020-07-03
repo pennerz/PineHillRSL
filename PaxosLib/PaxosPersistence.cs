@@ -563,12 +563,12 @@ namespace PineRSL.Paxos.Persistence
             _dataStream = new FileStream(_dataFilePath + _currentFragmentIndex.ToString("D16"), FileMode.OpenOrCreate, FileAccess.Write, FileShare.ReadWrite);
         }
 
-        private async Task<bool> TruncateInlock(AppendPosition position)
+        private Task<bool> TruncateInlock(AppendPosition position)
         {
             // remove all the files before the current fragment index
             if (_baseFragmentIndex >= position.FragmentIndex)
             {
-                return false; // nothing to truncate
+                return Task.FromResult(false); // nothing to truncate
             }
             UInt64 truncateDataSize = 0;
             for (UInt64 i = _baseFragmentIndex; i < position.FragmentIndex; i++)
@@ -587,7 +587,7 @@ namespace PineRSL.Paxos.Persistence
                 req.Offset -= (int)truncateDataSize;
             }
 
-            return true;
+            return Task.FromResult(true);
         }
     }
 

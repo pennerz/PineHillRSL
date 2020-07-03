@@ -65,21 +65,22 @@ namespace PineRSL.Tests
             var cluster = new PaxosCluster();
             for (int i = 0; i < 5; i++)
             {
-                var node = new NodeInfo("Node" + i.ToString());
-                cluster.Members.Add(node);
+                var node = new NodeInfo("127.0.0.1");
+                var nodeAddr = new NodeAddress(node, 88 + i);
+                cluster.Members.Add(nodeAddr);
             }
 
             var networkInfr = new TestNetworkInfr();
-            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
 
             var nodeMap = new Dictionary<string, PaxosNode>();
-            foreach (var nodeInfo in cluster.Members)
+            foreach (var nodeAddr in cluster.Members)
             {
-                var node = new PaxosNode(cluster, nodeInfo);
-                nodeMap[nodeInfo.Name] = node;
+                var node = new PaxosNode(cluster, nodeAddr);
+                nodeMap[NodeAddress.Serialize(nodeAddr)] = node;
             }
 
-            var proposer = nodeMap[cluster.Members[0].Name];
+            var proposer = nodeMap[NodeAddress.Serialize(cluster.Members[0])];
             proposer.NotifyLearner = notifyLearner;
             var decree = new PaxosDecree()
             {
@@ -91,7 +92,7 @@ namespace PineRSL.Tests
             Assert.IsTrue(readReslut.Decree.Content.Equals("test"));
             Assert.IsTrue(readReslut.MaxDecreeNo == 1);
 
-            var proposer2 = nodeMap[cluster.Members[1].Name];
+            var proposer2 = nodeMap[NodeAddress.Serialize(cluster.Members[1])];
             proposer2.NotifyLearner = notifyLearner;
             var decree2 = new PaxosDecree()
             {
@@ -162,11 +163,12 @@ namespace PineRSL.Tests
             var cluster = new PaxosCluster();
             for (int i = 0; i < 5; i++)
             {
-                var node = new NodeInfo("Node" + i.ToString());
+                var node = new NodeInfo("127.0.0.1");
+                var nodeAddr = new NodeAddress(node, 88 + i);
                 //cluster.Members.Add(node);
-
-                var proposerLogFile = ".\\storage\\" + node.Name + ".proposerlog";
-                var votedLogFile = ".\\storage\\" + node.Name + ".voterlog";
+                var instanceName = NodeAddress.Serialize(nodeAddr);
+                var proposerLogFile = ".\\storage\\" + instanceName + ".proposerlog";
+                var votedLogFile = ".\\storage\\" + instanceName + ".voterlog";
                 File.Delete(proposerLogFile);
                 File.Delete(votedLogFile);
             }
@@ -174,30 +176,32 @@ namespace PineRSL.Tests
             await BeginNewProposeTest();
             for (int i = 0; i < 5; i++)
             {
-                var node = new NodeInfo("Node" + i.ToString());
-                cluster.Members.Add(node);
+                var node = new NodeInfo("127.0.0.1");
+                var nodeAddr = new NodeAddress(node, 88 + i);
+                cluster.Members.Add(nodeAddr);
             }
 
             var networkInfr = new TestNetworkInfr();
-            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
 
             var nodeMap = new Dictionary<string, PaxosNode>();
-            foreach (var nodeInfo in cluster.Members)
+            foreach (var nodeAddr in cluster.Members)
             {
-                var node = new PaxosNode(cluster, nodeInfo);
-                nodeMap[nodeInfo.Name] = node;
-                var metaLogFile = ".\\storage\\" + nodeInfo.Name + ".meta";
+                var node = new PaxosNode(cluster, nodeAddr);
+                var instanceName = NodeAddress.Serialize(nodeAddr);
+                nodeMap[instanceName] = node;
+                var metaLogFile = ".\\storage\\" + instanceName + ".meta";
                 await node.Load(metaLogFile);
             }
 
-            var proposer = nodeMap[cluster.Members[0].Name];
+            var proposer = nodeMap[NodeAddress.Serialize(cluster.Members[0])];
 
             var readReslut = await proposer.ReadDecree(1);
             Assert.IsTrue(readReslut.IsFound);
             Assert.IsTrue(readReslut.Decree.Content.Equals("test"));
             Assert.IsTrue(readReslut.MaxDecreeNo == 3);
 
-            var proposer2 = nodeMap[cluster.Members[1].Name];
+            var proposer2 = nodeMap[NodeAddress.Serialize(cluster.Members[1])];
 
             // this will get the committed decree in proposer1
             readReslut = await proposer2.ReadDecree(1);
@@ -229,19 +233,20 @@ namespace PineRSL.Tests
             var cluster = new PaxosCluster();
             for (int i = 0; i < 5; i++)
             {
-                var node = new NodeInfo("Node" + i.ToString());
-                cluster.Members.Add(node);
+                var node = new NodeInfo("127.0.0.1");
+                var nodeAddr = new NodeAddress(node, 88 + i);
+                cluster.Members.Add(nodeAddr);
             }
 
             var networkInfr = new TestNetworkInfr();
-            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
 
-            var sourceNode = cluster.Members[0].Name;
-            var targetNode = cluster.Members[1].Name;
-            var srcServerAddress = new NodeAddress(new NodeInfo(sourceNode), 88);
-            var srcClientAddress = new NodeAddress(new NodeInfo(sourceNode), 0);
-            var targetServerAddress = new NodeAddress(new NodeInfo(targetNode), 88);
-            var targetClientAddress = new NodeAddress(new NodeInfo(targetNode), 0);
+            var sourceNode = NodeAddress.Serialize(cluster.Members[0]);
+            var targetNode = NodeAddress.Serialize(cluster.Members[1]);
+            var srcServerAddress = cluster.Members[0];
+            //var srcClientAddress = new NodeAddress(new NodeInfo(sourceNode), 0);
+            var targetServerAddress = cluster.Members[1];
+            //var targetClientAddress = new NodeAddress(new NodeInfo(targetNode), 0);
 
             var logPrefix = Guid.NewGuid().ToString();
 
@@ -258,7 +263,7 @@ namespace PineRSL.Tests
                 rpcServer.RegisterRequestHandler(new TestRpcRequestHandler(msgList));
                 await rpcServer.Start();
 
-                var rpcClient = new RpcClient(targetClientAddress);
+                var rpcClient = new RpcClient();
                 var voter = new VoterRole(cluster.Members[1], cluster, rpcClient, voterNote, proposerNote);
                 voter.WaitRpcResp = true;
                 var nextBallotMsg = new NextBallotMessage();
@@ -270,7 +275,9 @@ namespace PineRSL.Tests
                 await voter.WaitForAllMessageSent();
                 await networkInfr.WaitUntillAllReceivedMessageConsumed();
 
-                var propserConnection = networkInfr.GetConnection(srcServerAddress, targetClientAddress);
+                var connection = await rpcClient.GetConnection(srcServerAddress);
+
+                var propserConnection = networkInfr.GetConnection(srcServerAddress, connection.RemoteAddress);
                 Assert.AreEqual(msgList.Count, 1);
                 var lastVoteMsg = CreatePaxosMessage(msgList[0]) as LastVoteMessage;
                 Assert.IsNotNull(lastVoteMsg);
@@ -383,18 +390,19 @@ namespace PineRSL.Tests
                 voterNote.Reset();
 
                 networkInfr = new TestNetworkInfr();
-                NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
+                NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
 
                 var rpcServer = new RpcServer(srcServerAddress);
                 rpcServer.RegisterRequestHandler(new TestRpcRequestHandler(msgList));
                 await rpcServer.Start();
 
                 // 2.2 has no NextBallotNo yet
-                var rpcClient = new RpcClient(targetClientAddress);
+                var rpcClient = new RpcClient();
                 var voter = new VoterRole(cluster.Members[1], cluster, rpcClient, voterNote, proposerNote);
                 voter.WaitRpcResp = true;
 
-                var propserConnection = networkInfr.GetConnection(srcServerAddress, targetClientAddress);
+                var connection = await rpcClient.GetConnection(srcServerAddress);
+                var propserConnection = networkInfr.GetConnection(srcServerAddress, connection.LocalAddress);
 
                 string voteContent = "test1";
                 var beginBallotMsg = new BeginBallotMessage();
@@ -485,28 +493,23 @@ namespace PineRSL.Tests
             /// </summary>
 
             var cluster = new PaxosCluster();
-            List<NodeAddress> nodeAddrList = new List<NodeAddress>();
             for (int i = 0; i < 5; i++)
             {
-                var node = new NodeInfo("Node" + i.ToString());
-                cluster.Members.Add(node);
-                nodeAddrList.Add(new NodeAddress(node, 0));
+                var node = new NodeInfo("127.0.0.1");
+                var nodeAddr = new NodeAddress(node, 88 + i);
+                cluster.Members.Add(nodeAddr);
             }
 
             var networkInfr = new TestNetworkInfr();
-            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
-            var sourceNode = cluster.Members[0].Name;
-            var targetNode = cluster.Members[1].Name;
-            var srcServerAddress = new NodeAddress(new NodeInfo(sourceNode), 88);
-            var srcClientAddress = new NodeAddress(new NodeInfo(sourceNode), 0);
-            var targetServerAddress = new NodeAddress(new NodeInfo(targetNode), 88);
-            var targetClientAddress = new NodeAddress(new NodeInfo(targetNode), 0);
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
+            var srcServerAddress = cluster.Members[0];
+            var targetServerAddress = cluster.Members[1];
 
             List<List<RpcMessage>> msgList = new List<List<RpcMessage>>();
             List<RpcServer> serverList = new List<RpcServer>();
-            foreach(var node in nodeAddrList)
+            foreach(var nodeAddr in cluster.Members)
             {
-                var svrAddr = new NodeAddress(node.Node, 88);
+                var svrAddr = nodeAddr;
                 var msgs = new List<RpcMessage>();
                 msgList.Add(msgs);
                 var rpcServer = new RpcServer(svrAddr);
@@ -521,7 +524,7 @@ namespace PineRSL.Tests
             var proposerNote = new ProposerNote(ledgerLogger);
             var proposeManager = new ProposeManager(proposerNote.GetMaximumCommittedDecreeNo() + 1);
 
-            var rpcClient = new RpcClient(srcClientAddress);
+            var rpcClient = new RpcClient();
             // collectlastvote2,
             //  all response lastvote has no voted decree
             //  the decree for voting should be the proposed decree
@@ -540,7 +543,7 @@ namespace PineRSL.Tests
                     new PaxosDecree(){Content = decreeContent},
                     1);
 
-                for (int i = 1; i < nodeAddrList.Count; i++)
+                for (int i = 1; i < cluster.Members.Count; i++)
                 {
                     while (msgList[i].Count == 0) await Task.Delay(50);
                     var queryLastVote = CreatePaxosMessage(msgList[i][0]) as NextBallotMessage;
@@ -552,7 +555,8 @@ namespace PineRSL.Tests
                 for (int i = 1; i < 5; i++)
                 {
                     var lastVote = CreateLastVoteMessage(
-                        cluster.Members[i].Name, cluster.Members[0].Name,
+                        NodeAddress.Serialize(cluster.Members[i]),
+                        NodeAddress.Serialize(cluster.Members[0]),
                         1/*decreeNo*/, 2/*ballotNo*/,
                         0/*votedBallotNo*/, null/*votedDecree*/);
                     await proposer.HandlePaxosMessage(lastVote);
@@ -596,7 +600,7 @@ namespace PineRSL.Tests
                     new PaxosDecree() { Content = decreeContent },
                     1);
 
-                for (int i = 1; i < nodeAddrList.Count; i++)
+                for (int i = 1; i < cluster.Members.Count; i++)
                 {
                     while (msgList[i].Count == 0) await Task.Delay(50);
                     var queryLastVote = CreatePaxosMessage(msgList[i][0]) as NextBallotMessage;
@@ -611,21 +615,24 @@ namespace PineRSL.Tests
                     if (i == 3)
                     {
                         lastVote = CreateLastVoteMessage(
-                            cluster.Members[i].Name, cluster.Members[0].Name,
+                            NodeAddress.Serialize(cluster.Members[i]),
+                            NodeAddress.Serialize(cluster.Members[0]),
                             1/*decreeNo*/, 4/*ballotNo*/,
                             3/*votedBallotNo*/, decreeContent1/*votedDecree*/);
                     }
                     else if (i == 2)
                     {
                         lastVote = CreateLastVoteMessage(
-                            cluster.Members[i].Name, cluster.Members[0].Name,
+                            NodeAddress.Serialize(cluster.Members[i]),
+                            NodeAddress.Serialize(cluster.Members[0]),
                             1/*decreeNo*/, 4/*ballotNo*/,
                             2/*votedBallotNo*/, decreeContent/*votedDecree*/);
                     }
                     else
                     {
                         lastVote = CreateLastVoteMessage(
-                            cluster.Members[i].Name, cluster.Members[0].Name,
+                            NodeAddress.Serialize(cluster.Members[i]),
+                            NodeAddress.Serialize(cluster.Members[0]),
                             1/*decreeNo*/, 4/*ballotNo*/,
                             0/*votedBallotNo*/, null/*votedDecree*/);
                     }
@@ -691,7 +698,7 @@ namespace PineRSL.Tests
                     new PaxosDecree() { Content = decreeContent },
                     1);
 
-                for (int i = 1; i < nodeAddrList.Count; i++)
+                for (int i = 1; i < cluster.Members.Count; i++)
                 {
                     while (msgList[i].Count == 0) await Task.Delay(50);
                     var queryLastVote = CreatePaxosMessage(msgList[i][0]) as NextBallotMessage;
@@ -705,7 +712,8 @@ namespace PineRSL.Tests
                     if (i == 2)
                     {
                         lastVote = CreateLastVoteMessage(
-                            cluster.Members[i].Name, cluster.Members[0].Name,
+                            NodeAddress.Serialize(cluster.Members[i]),
+                            NodeAddress.Serialize(cluster.Members[0]),
                             1/*decreeNo*/, 4/*ballotNo*/,
                             3/*votedBallotNo*/, decreeContent1/*votedDecree*/);
                         lastVote.Commited = true;
@@ -713,7 +721,8 @@ namespace PineRSL.Tests
                     else
                     {
                         lastVote = CreateLastVoteMessage(
-                            cluster.Members[i].Name, cluster.Members[0].Name,
+                            NodeAddress.Serialize(cluster.Members[i]),
+                            NodeAddress.Serialize(cluster.Members[0]),
                             1/*decreeNo*/, 4/*ballotNo*/,
                             0/*votedBallotNo*/, null/*votedDecree*/);
                     }
@@ -780,7 +789,7 @@ namespace PineRSL.Tests
                     new PaxosDecree() { Content = decreeContent },
                     1);
 
-                for (int i = 1; i < nodeAddrList.Count; i++)
+                for (int i = 1; i < cluster.Members.Count; i++)
                 {
                     while (msgList[i].Count == 0) await Task.Delay(50);
                     var queryLastVote = CreatePaxosMessage(msgList[i][0]) as NextBallotMessage;
@@ -793,7 +802,8 @@ namespace PineRSL.Tests
                     if (i == 2)
                     {
                         var stateMsg = CreateStaleMessage(
-                            cluster.Members[i].Name, cluster.Members[0].Name,
+                            NodeAddress.Serialize(cluster.Members[i]),
+                            NodeAddress.Serialize(cluster.Members[0]),
                             1/*decreeNo*/, 4/*ballotNo*/,
                             5/*nextBallotNo*/);
                         await proposer.HandlePaxosMessage(stateMsg);
@@ -801,7 +811,8 @@ namespace PineRSL.Tests
                     else
                     {
                         var lastVote = CreateLastVoteMessage(
-                            cluster.Members[i].Name, cluster.Members[0].Name,
+                            NodeAddress.Serialize(cluster.Members[i]),
+                            NodeAddress.Serialize(cluster.Members[0]),
                             1/*decreeNo*/, 4/*ballotNo*/,
                             2/*votedBallotNo*/, decreeContent1/*votedDecree*/);
                         await proposer.HandlePaxosMessage(lastVote);
@@ -849,7 +860,7 @@ namespace PineRSL.Tests
                     new PaxosDecree() { Content = decreeContent },
                     1);
 
-                for (int i = 1; i < nodeAddrList.Count; i++)
+                for (int i = 1; i < cluster.Members.Count; i++)
                 {
                     while (msgList[i].Count == 0) await Task.Delay(50);
                     var queryLastVote = CreatePaxosMessage(msgList[i][0]) as NextBallotMessage;
@@ -861,7 +872,8 @@ namespace PineRSL.Tests
 
                 // state last vote should be abandoned
                 lastVote = CreateLastVoteMessage(
-                    cluster.Members[1].Name, cluster.Members[0].Name,
+                    NodeAddress.Serialize(cluster.Members[1]),
+                    NodeAddress.Serialize(cluster.Members[0]),
                     1/*decreeNo*/, 3/*ballotNo*/,
                     0/*votedBallotNo*/, null/*votedDecree*/);
                 await proposer.HandlePaxosMessage(lastVote);
@@ -870,7 +882,8 @@ namespace PineRSL.Tests
                 // only stale message and last vote message will be accepted.
                 // vote will not be accept at this state
                 var votemsg = CreateVoteMessage(
-                    cluster.Members[1].Name, cluster.Members[0].Name,
+                    NodeAddress.Serialize(cluster.Members[1]),
+                    NodeAddress.Serialize(cluster.Members[0]),
                     1/*decreeNo*/, 4/*ballotNo*/);
                 await proposer.HandlePaxosMessage(votemsg);
                 // nothing changed
@@ -887,12 +900,12 @@ namespace PineRSL.Tests
             }
 
             networkInfr = new TestNetworkInfr();
-            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
             msgList = new List<List<RpcMessage>>();
             serverList = new List<RpcServer>();
-            foreach (var node in nodeAddrList)
+            foreach (var nodeAddr in cluster.Members)
             {
-                var svrAddr = new NodeAddress(node.Node, 88);
+                var svrAddr = nodeAddr;
                 var msgs = new List<RpcMessage>();
                 msgList.Add(msgs);
                 var rpcServer = new RpcServer(svrAddr);
@@ -900,7 +913,7 @@ namespace PineRSL.Tests
                 await rpcServer.Start();
                 serverList.Add(rpcServer);
             }
-            rpcClient = new RpcClient(srcClientAddress);
+            rpcClient = new RpcClient();
 
             // 2. State: BeginNewBallot
             // 3 vote pass
@@ -926,7 +939,8 @@ namespace PineRSL.Tests
                 for (int i = 1; i < 5; i++)
                 {
                     lastVoteMessage = CreateLastVoteMessage(
-                        cluster.Members[i].Name, cluster.Members[0].Name,
+                        NodeAddress.Serialize(cluster.Members[i]),
+                        NodeAddress.Serialize(cluster.Members[0]),
                         1/*decreeNo*/, 3/*ballotNo*/,
                         (ulong)(i != 2 ? 0 : 1)/*votedBallotNo*/,
                         i != 2 ? null : decreeContent1);
@@ -935,7 +949,7 @@ namespace PineRSL.Tests
                 Assert.AreEqual(propose.LastVoteMessages.Count, 4);
 
                 var beginBallotTask = proposer.BeginNewBallot(1/*decreeNo*/, 3/*ballotNo*/);
-                for (int i = 1; i < nodeAddrList.Count; i++)
+                for (int i = 1; i < cluster.Members.Count; i++)
                 {
                     while (msgList[i].Count == 0) await Task.Delay(50);
                     var beginBallot = CreatePaxosMessage(msgList[i][0]) as BeginBallotMessage;
@@ -946,7 +960,8 @@ namespace PineRSL.Tests
                 for (int i = 1; i < 5; i++)
                 {
                     var voteMsg = CreateVoteMessage(
-                        cluster.Members[i].Name, cluster.Members[0].Name,
+                        NodeAddress.Serialize(cluster.Members[i]),
+                        NodeAddress.Serialize(cluster.Members[0]),
                         1/*decreeNo*/, 3/*ballotNo*/);
                     await proposer.HandlePaxosMessage(voteMsg);
                     Assert.AreEqual(propose.VotedMessages.Count, i);
@@ -989,7 +1004,8 @@ namespace PineRSL.Tests
                 for (int i = 1; i < 5; i++)
                 {
                     lastVoteMessage = CreateLastVoteMessage(
-                        cluster.Members[i].Name, cluster.Members[0].Name,
+                        NodeAddress.Serialize(cluster.Members[i]),
+                        NodeAddress.Serialize(cluster.Members[0]),
                         1/*decreeNo*/, 3/*ballotNo*/,
                         (ulong)(i != 2 ? 0 : 1)/*votedBallotNo*/,
                         i != 2 ? null : decreeContent1);
@@ -998,7 +1014,7 @@ namespace PineRSL.Tests
                 Assert.AreEqual(propose.LastVoteMessages.Count, 4);
 
                 var beginBallotTask = proposer.BeginNewBallot(1/*decreeNo*/, 3/*ballotNo*/);
-                for (int i = 1; i < nodeAddrList.Count; i++)
+                for (int i = 1; i < cluster.Members.Count; i++)
                 {
                     while (msgList[i].Count == 0) await Task.Delay(50);
                     var beginBallot = CreatePaxosMessage(msgList[i][0]) as BeginBallotMessage;
@@ -1011,7 +1027,8 @@ namespace PineRSL.Tests
                     if (i == 2)
                     {
                         var staleMsg = CreateStaleMessage(
-                            cluster.Members[i].Name, cluster.Members[0].Name,
+                            NodeAddress.Serialize(cluster.Members[i]),
+                            NodeAddress.Serialize(cluster.Members[0]),
                             1/*decreeNo*/, 3/*ballotNo*/,
                             4/*nextBallotNo*/);
                         await proposer.HandlePaxosMessage(staleMsg);
@@ -1019,7 +1036,8 @@ namespace PineRSL.Tests
                         break;
                     }
                     var voteMsg = CreateVoteMessage(
-                        cluster.Members[i].Name, cluster.Members[0].Name,
+                        NodeAddress.Serialize(cluster.Members[i]),
+                        NodeAddress.Serialize(cluster.Members[0]),
                         1/*decreeNo*/, 3/*ballotNo*/);
                     await proposer.HandlePaxosMessage(voteMsg);
                     Assert.AreEqual(propose.VotedMessages.Count, i);
@@ -1061,7 +1079,8 @@ namespace PineRSL.Tests
                 for (int i = 1; i < 4; i++)
                 {
                     lastVoteMessage = CreateLastVoteMessage(
-                        cluster.Members[i].Name, cluster.Members[0].Name,
+                        NodeAddress.Serialize(cluster.Members[i]),
+                        NodeAddress.Serialize(cluster.Members[0]),
                         1/*decreeNo*/, 3/*ballotNo*/,
                         (ulong)(i != 2 ? 0 : 1)/*votedBallotNo*/,
                         i != 2 ? null : decreeContent1);
@@ -1069,7 +1088,7 @@ namespace PineRSL.Tests
                 }
 
                 var beginBallotTask = proposer.BeginNewBallot(1/*decreeNo*/, 3/*ballotNo*/);
-                for (int i = 1; i < nodeAddrList.Count; i++)
+                for (int i = 1; i < cluster.Members.Count; i++)
                 {
                     while (msgList[i].Count == 0) await Task.Delay(50);
                     var beginBallot = CreatePaxosMessage(msgList[i][0]) as BeginBallotMessage;
@@ -1078,7 +1097,8 @@ namespace PineRSL.Tests
                 }
 
                 lastVoteMessage = CreateLastVoteMessage(
-                    cluster.Members[4].Name, cluster.Members[0].Name,
+                    NodeAddress.Serialize(cluster.Members[4]),
+                    NodeAddress.Serialize(cluster.Members[0]),
                     1/*decreeNo*/, 3/*ballotNo*/,
                     0/*votedBallotNo*/,
                     null);
@@ -1086,7 +1106,8 @@ namespace PineRSL.Tests
                 Assert.AreEqual(propose.LastVoteMessages.Count, 0); // lastvote is abandonded
 
                 var voteMsg = CreateVoteMessage(
-                    cluster.Members[1].Name, cluster.Members[0].Name,
+                    NodeAddress.Serialize(cluster.Members[1]),
+                    NodeAddress.Serialize(cluster.Members[0]),
                     1/*decreeNo*/, 2/*ballotNo*/);
                 await proposer.HandlePaxosMessage(voteMsg);
                 Assert.AreEqual(propose.VotedMessages.Count, 0);
@@ -1101,22 +1122,23 @@ namespace PineRSL.Tests
             var cluster = new PaxosCluster();
             for (int i = 0; i < 5; i++)
             {
-                var node = new NodeInfo("Node" + i.ToString());
-                cluster.Members.Add(node);
+                var node = new NodeInfo("127.0.0.1");
+                var nodeAddr = new NodeAddress(node, 88 + i);
+                cluster.Members.Add(nodeAddr);
             }
 
             var networkInfr = new TestNetworkInfr();
-            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
 
             var tableNodeMap = new Dictionary<string, ReplicatedTable.ReplicatedTable>();
-            foreach (var nodeInfo in cluster.Members)
+            foreach (var nodeAddr in cluster.Members)
             {
-                var node = new ReplicatedTable.ReplicatedTable(cluster, nodeInfo);
-                tableNodeMap[nodeInfo.Name] = node;
+                var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
+                tableNodeMap[NodeAddress.Serialize(nodeAddr)] = node;
             }
 
 
-            var master = tableNodeMap[cluster.Members[0].Name];
+            var master = tableNodeMap[NodeAddress.Serialize(cluster.Members[0])];
             await master.InstertTable(new ReplicatedTableRequest() { Key = "1", Value = "test1" });
             await master.InstertTable(new ReplicatedTableRequest() { Key = "2", Value = "test2" });
             await master.InstertTable(new ReplicatedTableRequest() { Key = "3", Value = "test3" });
@@ -1143,30 +1165,33 @@ namespace PineRSL.Tests
             var cluster = new PaxosCluster();
             for (int i = 0; i < 5; i++)
             {
-                var node = new NodeInfo("Node" + i.ToString());
+                var node = new NodeInfo("127.0.0.1");
+                var nodeAddr = new NodeAddress(node, 88 + i);
+                cluster.Members.Add(nodeAddr);
 
-                var metaLogFile = ".\\storage\\" + node.Name + ".meta";
-                var proposerLogFile = ".\\storage\\" + node.Name + ".proposerlog";
-                var votedLogFile = ".\\storage\\" + node.Name + ".voterlog";
+                var instanceName = NodeAddress.Serialize(nodeAddr);
+
+                var metaLogFile = ".\\storage\\" + instanceName + ".meta";
+                var proposerLogFile = ".\\storage\\" + instanceName + ".proposerlog";
+                var votedLogFile = ".\\storage\\" + instanceName + ".voterlog";
                 File.Delete(proposerLogFile);
                 File.Delete(votedLogFile);
-
-                cluster.Members.Add(node);
             }
 
             var networkInfr = new TestNetworkInfr();
-            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
 
             var tableNodeMap = new Dictionary<string, ReplicatedTable.ReplicatedTable>();
-            foreach (var nodeInfo in cluster.Members)
+            foreach (var nodeAddr in cluster.Members)
             {
-                var node = new ReplicatedTable.ReplicatedTable(cluster, nodeInfo);
-                tableNodeMap[nodeInfo.Name] = node;
+                var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
+                var instanceName = NodeAddress.Serialize(nodeAddr);
+                tableNodeMap[instanceName] = node;
             }
 
             start = DateTime.Now;
 
-            var master = tableNodeMap[cluster.Members[0].Name];
+            var master = tableNodeMap[NodeAddress.Serialize(cluster.Members[0])];
             for (int i = 0; i < 500; i++)
             {
                 var task = master.InstertTable(new ReplicatedTableRequest() { Key = i.ToString(), Value = "test" + i.ToString() });
@@ -1186,23 +1211,24 @@ namespace PineRSL.Tests
 
 
             networkInfr = new TestNetworkInfr();
-            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
 
-            foreach (var nodeInfo in cluster.Members)
+            foreach (var nodeAddr in cluster.Members)
             {
-                var node = new ReplicatedTable.ReplicatedTable(cluster, nodeInfo);
-                tableNodeMap[nodeInfo.Name] = node;
-                var proposerLogFile = ".\\storage\\" + nodeInfo.Name + ".proposerlog";
-                var votedLogFile = ".\\storage\\" + nodeInfo.Name + ".voterlog";
+                var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
+                var nodeInstanceName = NodeAddress.Serialize(nodeAddr);
+                tableNodeMap[nodeInstanceName] = node;
+                var proposerLogFile = ".\\storage\\" + nodeInstanceName + ".proposerlog";
+                var votedLogFile = ".\\storage\\" + nodeInstanceName + ".voterlog";
 
-                var metaLogFile = ".\\storage\\" + nodeInfo.Name + ".meta";
+                var metaLogFile = ".\\storage\\" + nodeInstanceName + ".meta";
                 await node.Load(metaLogFile);
                 //await node.Load(proposerLogFile, votedLogFile);
             }
 
             start = DateTime.Now;
 
-            master = tableNodeMap[cluster.Members[0].Name];
+            master = tableNodeMap[NodeAddress.Serialize(cluster.Members[0])];
 
             costTime = (end - start).TotalMilliseconds;
             Console.WriteLine("TPS: {0}", 10000 * 1000 / costTime);
@@ -1229,19 +1255,20 @@ namespace PineRSL.Tests
             var cluster = new PaxosCluster();
             for (int i = 0; i < 5; i++)
             {
-                var node = new NodeInfo("Node" + i.ToString());
+                var node = new NodeInfo("127.0.0.1");
+                var nodeAddr = new NodeAddress(node, 88 + i);
+                cluster.Members.Add(nodeAddr);
+                var nodeInstanceName = NodeAddress.Serialize(nodeAddr);
 
-                var metaLogFile = ".\\storage\\" + node.Name + ".meta";
-                var proposerLogFile = ".\\storage\\" + node.Name + ".proposerlog";
-                var votedLogFile = ".\\storage\\" + node.Name + ".voterlog";
+                var metaLogFile = ".\\storage\\" + nodeInstanceName + ".meta";
+                var proposerLogFile = ".\\storage\\" + nodeInstanceName + ".proposerlog";
+                var votedLogFile = ".\\storage\\" + nodeInstanceName + ".voterlog";
                 File.Delete(proposerLogFile);
                 File.Delete(votedLogFile);
-
-                cluster.Members.Add(node);
             }
 
             var networkInfr = new TestNetworkInfr();
-            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
 
             int unHealthyNodeIndex = 2;
             var tableNodeMap = new Dictionary<string, ReplicatedTable.ReplicatedTable>();
@@ -1251,14 +1278,15 @@ namespace PineRSL.Tests
                 {
                     //continue;
                 }
-                var nodeInfo = cluster.Members[i];
-                var node = new ReplicatedTable.ReplicatedTable(cluster, nodeInfo);
-                tableNodeMap[nodeInfo.Name] = node;
+                var nodeAddr = cluster.Members[i];
+                var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
+                var nodeInstanceName = NodeAddress.Serialize(nodeAddr);
+                tableNodeMap[nodeInstanceName] = node;
             }
 
             start = DateTime.Now;
 
-            var master = tableNodeMap[cluster.Members[0].Name];
+            var master = tableNodeMap[NodeAddress.Serialize(cluster.Members[0])];
             for (int i = 0; i < 500; i++)
             {
                 var task = master.InstertTable(new ReplicatedTableRequest() { Key = i.ToString(), Value = "test" + i.ToString() });
@@ -1277,16 +1305,17 @@ namespace PineRSL.Tests
                 });
             }
 
-            var unHealthyNodeInfo = cluster.Members[unHealthyNodeIndex];
-            var unHealthyNodeMetaLogFile = ".\\storage\\" + unHealthyNodeInfo.Name + ".meta";
-            var unHealthyNodeProposerLogFile = ".\\storage\\" + unHealthyNodeInfo.Name + ".proposerlog";
-            var unHealthyVotedLogFile = ".\\storage\\" + unHealthyNodeInfo.Name + ".voterlog";
+            var unHealthyNodeAddr = cluster.Members[unHealthyNodeIndex];
+            var unhealthInstanceName = NodeAddress.Serialize(unHealthyNodeAddr);
+            var unHealthyNodeMetaLogFile = ".\\storage\\" + unhealthInstanceName + ".meta";
+            var unHealthyNodeProposerLogFile = ".\\storage\\" + unhealthInstanceName + ".proposerlog";
+            var unHealthyVotedLogFile = ".\\storage\\" + unhealthInstanceName + ".voterlog";
 
 
-            CleanupLogFiles(unHealthyNodeInfo.Name);
+            CleanupLogFiles(unhealthInstanceName);
 
             networkInfr = new TestNetworkInfr();
-            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
             ReplicatedTable.ReplicatedTable unHealthyNode = null;
             for (int i = 0; i < cluster.Members.Count; ++i)
             {
@@ -1294,18 +1323,19 @@ namespace PineRSL.Tests
                 {
                     continue;
                 }
-                tableNodeMap[cluster.Members[i].Name] = new ReplicatedTable.ReplicatedTable(cluster, cluster.Members[i]);
+                tableNodeMap[NodeAddress.Serialize(cluster.Members[i])] = new ReplicatedTable.ReplicatedTable(cluster, cluster.Members[i]);
             }
-            tableNodeMap[cluster.Members[unHealthyNodeIndex].Name] = new ReplicatedTable.ReplicatedTable(cluster, cluster.Members[unHealthyNodeIndex]);
+            tableNodeMap[NodeAddress.Serialize(cluster.Members[unHealthyNodeIndex])] = new ReplicatedTable.ReplicatedTable(cluster, cluster.Members[unHealthyNodeIndex]);
 
             for (int i = 0; i < cluster.Members.Count; ++i)
             {
-                var nodeInfo = cluster.Members[i];
-                var node = tableNodeMap[nodeInfo.Name];
-                var proposerLogFile = ".\\storage\\" + nodeInfo.Name + ".proposerlog";
-                var votedLogFile = ".\\storage\\" + nodeInfo.Name + ".voterlog";
+                var nodeAddr = cluster.Members[i];
+                var nodeInstanceName = NodeAddress.Serialize(nodeAddr);
+                var node = tableNodeMap[nodeInstanceName];
+                var proposerLogFile = ".\\storage\\" + nodeInstanceName + ".proposerlog";
+                var votedLogFile = ".\\storage\\" + nodeInstanceName + ".voterlog";
 
-                var metaLogFile = ".\\storage\\" + nodeInfo.Name + ".meta";
+                var metaLogFile = ".\\storage\\" + nodeInstanceName + ".meta";
                 if (i == unHealthyNodeIndex)
                 {
                     unHealthyNode = node;
@@ -1333,7 +1363,7 @@ namespace PineRSL.Tests
                 });
             }
 
-            CleanupLogFiles(unHealthyNodeInfo.Name);
+            CleanupLogFiles(unhealthInstanceName);
         }
 
         private PaxosMessage CreatePaxosMessage(RpcMessage rpcMessage)
@@ -1422,7 +1452,7 @@ namespace PineRSL.Tests
             }
 
             var networkInfr = new TestNetworkInfr();
-            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
 
             var tableNodeMap = new Dictionary<string, ReplicatedTable.ReplicatedTable>();
             foreach (var nodeInfo in cluster.Members)
@@ -1469,7 +1499,7 @@ namespace PineRSL.Tests
             }
 
             var networkInfr = new TestNetworkInfr();
-            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
 
             var nodeMap = new Dictionary<string, PaxosNode>();
             foreach (var nodeInfo in cluster.Members)
@@ -1703,7 +1733,7 @@ namespace PineRSL.Tests
             }
 
             var networkInfr = new TestNetworkInfr();
-            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr));
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
             var sourceNode = cluster.Members[0].Name;
             var targetNode = cluster.Members[1].Name;
             var srcServerAddress = new NodeAddress(new NodeInfo(sourceNode), 88);

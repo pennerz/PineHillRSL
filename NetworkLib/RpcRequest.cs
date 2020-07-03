@@ -46,9 +46,9 @@ namespace PineRSL.Rpc
         private SemaphoreSlim _lock = new SemaphoreSlim(1);
         //private List<int> _lock = new List<int>();
 
-        public RpcNode(NodeAddress localAddrr, IRpcNodeEventHandler rpcNodeEventHandler)
+        public RpcNode(/*NodeAddress localAddrr, */IRpcNodeEventHandler rpcNodeEventHandler)
         {
-            _localAddr = localAddrr;
+            //_localAddr = localAddrr;
             _rpcEventHandler = rpcNodeEventHandler;
             _messageHandlerTask = Task.Run(async () =>
             {
@@ -141,7 +141,7 @@ namespace PineRSL.Rpc
                 }
             }
 
-            connection = await NetworkFactory.CreateNetworkClient(_localAddr, remoteAddress);
+            connection = await NetworkFactory.CreateNetworkClient(/*_localAddr, */remoteAddress);
             if (connection == null)
             {
                 return connection;
@@ -436,13 +436,13 @@ namespace PineRSL.Rpc
     public class RpcClient : IRpcClient, IRpcNodeEventHandler
     {
         private ConcurrentDictionary<Guid, TaskCompletionSource<RpcMessage>> _ongoingRequests = new ConcurrentDictionary<Guid, TaskCompletionSource<RpcMessage>>();
-        private NodeAddress _localAddr;
+        //private NodeAddress _localAddr;
         private RpcNode _node;
 
-        public RpcClient(NodeAddress localAddrr)
+        public RpcClient(/*NodeAddress localAddrr*/)
         {
-            _localAddr = localAddrr;
-            _node = new RpcNode(_localAddr, this);
+            //_localAddr = localAddrr;
+            _node = new RpcNode(/*_localAddr,*/ this);
         }
 
         /// <summary>
@@ -514,6 +514,11 @@ namespace PineRSL.Rpc
             return Task.CompletedTask;
         }
 
+        public async Task<IConnection> GetConnection(NodeAddress serverAddr)
+        {
+            return await _node.GetConnection(serverAddr);
+        }
+
         public void Dispose()
         {
 
@@ -535,7 +540,7 @@ namespace PineRSL.Rpc
         public RpcServer(NodeAddress localAddrr)
         {
             _serverAddr = localAddrr;
-            _node = new RpcNode(_serverAddr, this);
+            _node = new RpcNode(this);
         }
 
         public void RegisterRequestHandler(IRpcRequestHandler requestHandler)

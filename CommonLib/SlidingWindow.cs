@@ -59,6 +59,12 @@ namespace PineRSL.Common
                     return null;
                 }
 
+                if (_itemList.Keys[0] < _lastReadySeq + 1)
+                {
+                    _itemList.RemoveAt(0);
+                    return null;
+                }
+
                 if (_itemList.Keys[0] == _lastReadySeq + 1)
                 {
                     _lastPopSeq = _lastPopSeq + 1;
