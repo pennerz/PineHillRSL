@@ -57,7 +57,7 @@ namespace PineRSL.Network
 
         public override int GetHashCode()
         {
-            return Node.GetHashCode() + Port.GetHashCode();
+            return Node.GetHashCode() + Port.GetHashCode() * 100;
         }
 
         public NodeAddress(NodeInfo nodeInfo, int port)

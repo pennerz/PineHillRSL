@@ -27,7 +27,7 @@ namespace PineRSL.Tests
         private void InitLog()
         {
 
-            var logFilePath = "logger." + DateTime.Now.Ticks.ToString() + ".log";
+            var logFilePath = ".\\log\\logger." + DateTime.Now.Ticks.ToString() + ".log";
             var fielLogger = new FileLog(logFilePath);
             Logger.Init(fielLogger);
 
@@ -161,17 +161,7 @@ namespace PineRSL.Tests
         public async Task PaxosNodeBootstrapTest()
         {
             var cluster = new PaxosCluster();
-            for (int i = 0; i < 5; i++)
-            {
-                var node = new NodeInfo("127.0.0.1");
-                var nodeAddr = new NodeAddress(node, 88 + i);
-                //cluster.Members.Add(node);
-                var instanceName = NodeAddress.Serialize(nodeAddr);
-                var proposerLogFile = ".\\storage\\" + instanceName + ".proposerlog";
-                var votedLogFile = ".\\storage\\" + instanceName + ".voterlog";
-                File.Delete(proposerLogFile);
-                File.Delete(votedLogFile);
-            }
+            CleanupLogFiles(null);
 
             await BeginNewProposeTest();
             for (int i = 0; i < 5; i++)
@@ -250,8 +240,8 @@ namespace PineRSL.Tests
 
             var logPrefix = Guid.NewGuid().ToString();
 
-            var ledgerLogger = new FileLogger(logPrefix + "logger_node1.log");
-            var votedLogger = new FileLogger(logPrefix + "votedlogger_node1.log");
+            var ledgerLogger = new FileLogger(".\\storage\\" + logPrefix + "logger_node1.log");
+            var votedLogger = new FileLogger(".\\storage\\" + logPrefix + "votedlogger_node1.log");
             var proposerNote = new ProposerNote(ledgerLogger);
             var voterNote = new VoterNote(votedLogger);
 
@@ -520,7 +510,7 @@ namespace PineRSL.Tests
 
 
             var logPrefix = Guid.NewGuid().ToString();
-            var ledgerLogger = new FileLogger(logPrefix + "logger.log");
+            var ledgerLogger = new FileLogger(".\\storage\\" + logPrefix + "logger.log");
             var proposerNote = new ProposerNote(ledgerLogger);
             var proposeManager = new ProposeManager(proposerNote.GetMaximumCommittedDecreeNo() + 1);
 

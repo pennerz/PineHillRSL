@@ -201,7 +201,7 @@ namespace PineRSL.Tests
     {
         List<TestConnection> _connections = new List<TestConnection>();
         List<TestNetworkServer> _servers = new List<TestNetworkServer>();
-        ConcurrentDictionary<int, TestConnection> _connectionIndex = new ConcurrentDictionary<int, TestConnection>();
+        ConcurrentDictionary<int, List<TestConnection>> _connectionIndex = new ConcurrentDictionary<int, List<TestConnection>>();
 
         //public List<TestConnection> NetworkConnections  => _connections;
         private bool _useConnectionMap = true;
@@ -209,7 +209,16 @@ namespace PineRSL.Tests
         {
             if (_useConnectionMap)
             {
-                _connectionIndex.TryAdd(connection.LocalAddress.GetHashCode() + connection.RemoteAddress.GetHashCode() * 10, connection);
+                List<TestConnection> connectionList = null;
+                var hasVal = connection.LocalAddress.GetHashCode() + connection.RemoteAddress.GetHashCode() * 10;
+                if (!_connectionIndex.TryGetValue(hasVal, out connectionList))
+                {
+                    connectionList = _connectionIndex.GetOrAdd(hasVal, new List<TestConnection>());
+                }
+                lock(connectionList)
+                {
+                    connectionList.Add(connection);
+                }
             }
             else
             {
@@ -228,24 +237,31 @@ namespace PineRSL.Tests
             {
                 if (_useConnectionMap)
                 {
-                    var key = localAddr.GetHashCode() + remoteAddr.GetHashCode() * 10;
-                    TestConnection connection = null;
-                    if (!_connectionIndex.TryGetValue(key, out connection))
+                    List<TestConnection> connectionList = null;
+                    var hasVal = localAddr.GetHashCode() + remoteAddr.GetHashCode() * 10;
+
+                    if (!_connectionIndex.TryGetValue(hasVal, out connectionList))
                     {
                         return null;
                     }
-                    if (connection == null)
+                    if (connectionList == null)
                     {
                         return null;
                     }
                     else
                     {
-                        if (connection.LocalAddress.Equals(localAddr) &&
-                            connection.RemoteAddress.Equals(remoteAddr))
+                        lock(connectionList)
                         {
-                            return connection;
+                            foreach(var connection in connectionList)
+                            {
+                                if (connection.LocalAddress.Equals(localAddr) &&
+                                    connection.RemoteAddress.Equals(remoteAddr))
+                                {
+                                    return connection;
+                                }
+                            }
+                            return null;
                         }
-                        return null;
                     }
                 }
                 else
@@ -288,7 +304,10 @@ namespace PineRSL.Tests
 
             foreach(var connectionItm in _connectionIndex)
             {
-                await connectionItm.Value.WaitUntillAllReceivedMessageConsumed();
+                foreach(var connection in connectionItm.Value)
+                {
+                    await connection.WaitUntillAllReceivedMessageConsumed();
+                }
             }
             await Task.Delay(100);
         }
@@ -398,7 +417,8 @@ namespace PineRSL.Tests
         {
             //lock(_networkInfr)
             {
-                var localAddr = new NodeAddress(_localNode, _localPort++);
+                var localPort = Interlocked.Increment(ref _localPort);
+                var localAddr = new NodeAddress(_localNode, localPort);
                 var clientConnection = _networkInfr.GetConnection(localAddr, serverAddr);
                 if (clientConnection != null)
                 {
