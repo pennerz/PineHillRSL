@@ -144,7 +144,7 @@ namespace PineRSL.Common
             {
                 return;
             }
-            int dataSize = block.Length;
+            int dataSize = block.Length + sizeof(int);
             if (_dataBuf != null)
             {
                 dataSize += _dataBuf.Length;
@@ -167,6 +167,30 @@ namespace PineRSL.Common
             Buffer.BlockCopy(block, 0, data, off, block.Length);
         }
 
+        public void ConcatenateBuff(byte[] buf, int off, int length)
+        {
+            if (_dataBuf != null || off != 0 || length != buf.Length)
+            {
+                if (_dataBuf != null)
+                {
+                    byte[] newDataBuf = new byte[length + _dataBuf.Length];
+                    Buffer.BlockCopy(_dataBuf, 0, newDataBuf, 0, _dataBuf.Length);
+                    Buffer.BlockCopy(buf, off, newDataBuf, _dataBuf.Length, length);
+                    _dataBuf = newDataBuf;
+
+                }
+                else
+                {
+                    byte[] newDataBuf = new byte[length];
+                    Buffer.BlockCopy(buf, off, newDataBuf, 0, length);
+                    _dataBuf = newDataBuf;
+                }
+            }
+            else
+            {
+                _dataBuf = buf;
+            }
+        }
         public void ConcatenateBuff(byte[] buf)
         {
             if (_dataBuf != null)

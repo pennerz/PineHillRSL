@@ -367,7 +367,7 @@ namespace PineRSL.Tests
                 return false;
             }
             _netowrkInfr.AddConnection(connection);
-            _connectionNotifier?.OnNewConnection(connection);
+            _connectionNotifier?.OnConnectionOpened(connection);
 
             return true;
         }

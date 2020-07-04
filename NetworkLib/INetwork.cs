@@ -118,7 +118,8 @@ namespace PineRSL.Network
     /// </summary>
     public interface IConnectionChangeNotification
     {
-        void OnNewConnection(IConnection newConnection);
+        void OnConnectionOpened(IConnection newConnection);
+        void OnConnectionClosed(IConnection closedConnection);
     }
 
     /// <summary>

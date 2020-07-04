@@ -26,32 +26,36 @@ namespace PineRSL.Network
             return serializerBuffer.DataBuf;
         }
 
-        public static NetworkMessage DeSerialize(byte[] data)
+        public static NetworkMessage DeSerialize(byte[] data, int off, int length)
         {
             var serializerBuffer = new SerializeBuffer();
-            serializerBuffer.ConcatenateBuff(data);
+            serializerBuffer.ConcatenateBuff(data, off, length);
 
             var msg = new NetworkMessage();
             var blockIt = serializerBuffer.Begin();
-            msg.ActivityId = new Guid(blockIt.DataBuff);
+            var buf = new byte[blockIt.RecordSize];
+            Buffer.BlockCopy(blockIt.DataBuff, blockIt.RecordOff, buf, 0, blockIt.RecordSize);
+            msg.ActivityId = new Guid(buf);
             blockIt = blockIt.Next();
             if (blockIt == serializerBuffer.End())
             {
                 throw new Exception("Maleformed network message!");
             }
-            msg.DeliveredTime = new DateTime(BitConverter.ToInt64(blockIt.DataBuff));
+            msg.DeliveredTime = new DateTime(BitConverter.ToInt64(blockIt.DataBuff, blockIt.RecordOff));
             blockIt = blockIt.Next();
             if (blockIt == serializerBuffer.End())
             {
                 throw new Exception("Maleformed network message!");
             }
-            msg.ReceivedTime = new DateTime(BitConverter.ToInt64(blockIt.DataBuff));
+            msg.ReceivedTime = new DateTime(BitConverter.ToInt64(blockIt.DataBuff, blockIt.RecordOff));
             blockIt = blockIt.Next();
             if (blockIt == serializerBuffer.End())
             {
                 throw new Exception("Maleformed network message!");
             }
-            msg.Data = blockIt.DataBuff;
+            buf = new byte[blockIt.RecordSize];
+            Buffer.BlockCopy(blockIt.DataBuff, blockIt.RecordOff, buf, 0, blockIt.RecordSize);
+            msg.Data = buf;
 
             return msg;
         }
@@ -59,14 +63,8 @@ namespace PineRSL.Network
     class TcpPacket
     {
         byte[] _packBuffer;
-        byte[] _dataBuffer;
         int _dataSize;
-        public TcpPacket(byte[] packBuffer, byte[] dataBuffer)
-        {
-            _packBuffer = packBuffer;
-            _dataBuffer = dataBuffer;
-            _dataSize = dataBuffer.Length;
-        }
+        int _dataOff;
 
         public TcpPacket(byte[] packBuffer)
         {
@@ -79,12 +77,12 @@ namespace PineRSL.Network
                 return;
             }
 
-            _dataBuffer = itBlock.DataBuff;
-            _dataSize = _dataBuffer.Length;
+            _dataSize = itBlock.RecordSize;
+            _dataOff = itBlock.RecordOff;
         }
 
         public int DataSize => _dataSize;
-        public byte[] Data => _dataBuffer;
+        public int DataOff => _dataOff;
         public byte[] PacketData => _packBuffer;
     }
     class NetworkMessageBuilder
@@ -94,12 +92,12 @@ namespace PineRSL.Network
             var data = NetworkMessageSerializer.Serialize(msg);
             var serializerBuffer = new SerializeBuffer();
             serializerBuffer.AppendBlock(data);
-            return new TcpPacket(serializerBuffer.DataBuf, data);
+            return new TcpPacket(serializerBuffer.DataBuf);
         }
 
         public static NetworkMessage BuildNetworkMessage(TcpPacket tcpPacket)
         {
-            return NetworkMessageSerializer.DeSerialize(tcpPacket.Data);
+            return NetworkMessageSerializer.DeSerialize(tcpPacket.PacketData, tcpPacket.DataOff, tcpPacket.DataSize);
         }
     }
 
@@ -145,7 +143,7 @@ namespace PineRSL.Network
         {
             var result = new List<NetworkMessage>();
             var networkStream = _tcpConnection.GetStream();
-            byte[] packBuffer = new byte[4096 * 1024 + 1024];
+            byte[] packBuffer = new byte[4096];
 
             do
             {
@@ -157,6 +155,11 @@ namespace PineRSL.Network
                     return result;
                 }
                 int dataSize = BitConverter.ToInt32(packBuffer, 0);
+                if (dataSize > packBuffer.Length - sizeof(int))
+                {
+                    packBuffer = new byte[sizeof(int) + dataSize];
+                    Buffer.BlockCopy(BitConverter.GetBytes(dataSize), 0, packBuffer, 0, sizeof(int));
+                }
                 readDataSize = 0;
                 do
                 {
@@ -167,8 +170,7 @@ namespace PineRSL.Network
                 var tcpPack = new TcpPacket(packBuffer);
                 var msg = NetworkMessageBuilder.BuildNetworkMessage(tcpPack);
                 result.Add(msg);
-
-            } while (networkStream.CanRead);
+            } while (networkStream.DataAvailable);
 
             return result;
         }
@@ -185,8 +187,8 @@ namespace PineRSL.Network
 
         public Task StartServer(NodeAddress serverAddr)
         {
-            Int32 port = 13000;
-            IPAddress localAddr = IPAddress.Parse("127.0.0.1");
+            IPAddress localAddr = IPAddress.Parse(serverAddr.Node.Name);
+            Int32 port = serverAddr.Port;
 
             _server = new TcpListener(localAddr, port);
             _server.Start();
@@ -200,7 +202,7 @@ namespace PineRSL.Network
                     if (_connectionChangeNotifier != null)
                     {
                         var newConnect = new SocketConnection(tcpClient);
-                        _connectionChangeNotifier.OnNewConnection(newConnect);
+                        _connectionChangeNotifier.OnConnectionOpened(newConnect);
                     }
 
                 } while (true);
@@ -227,10 +229,11 @@ namespace PineRSL.Network
     /// </summary>
     public class TcpNetworkCreator : INetworkCreator
     {
-        public Task<INetworkServer> CreateNetworkServer(NodeAddress serverAddr)
+        public async Task<INetworkServer> CreateNetworkServer(NodeAddress serverAddr)
         {
             var server = new PineRSL.Network.TcpServer();
-            return Task.FromResult((INetworkServer)server);
+            await server.StartServer(serverAddr);
+            return server;
         }
 
         public async Task<IConnection> CreateNetworkClient(NodeAddress serverAddr)

@@ -123,6 +123,12 @@ namespace PineRSL.Rpc
             }
         }
 
+        public void RemoveConnection(IConnection connection)
+        {
+        }
+
+
+
         /// <summary>
         /// Get a connection to the remote address. If not exist, create one.
         /// </summary>
@@ -574,9 +580,14 @@ namespace PineRSL.Rpc
         /// One connection build callback
         /// </summary>
         /// <param name="connection"></param>
-        public void OnNewConnection(IConnection connection)
+        public void OnConnectionOpened(IConnection connection)
         {
             _node.AddConnection(connection);
+        }
+
+        public void OnConnectionClosed(IConnection connection)
+        {
+            _node.RemoveConnection(connection);
         }
 
         /// <summary>
