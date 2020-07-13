@@ -11,10 +11,11 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PineRSL
+namespace PineRSL.Server
 {
     class Program
     {
@@ -23,7 +24,7 @@ namespace PineRSL
             Console.WriteLine("{0}: avg={1}, min={2}, max={3}", name, stat.Avg, stat.Min, stat.Max);
         }
 
-        static async Task Main(string[] args)
+        static async Task Test(string[] args)
         {
             int maxWorker = 0;
             int maxIocp = 0;
@@ -201,6 +202,35 @@ namespace PineRSL
                 {
                     node.Value.Dispose();
                 }
+            }
+        }
+
+        static async Task Main(string[] args)
+        {
+            var cfgFile = new FileStream(".\\config.json", FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite);
+            var dataBuf = new byte[cfgFile.Length];
+            var readLen = await cfgFile.ReadAsync(dataBuf, 0, (int)(cfgFile.Length));
+            var cfgStr = Encoding.UTF8.GetString(dataBuf, 0, readLen);
+            var serverCfg = JsonSerializer.Deserialize<ServerConfig>(cfgStr);
+
+            var cluster = new PaxosCluster();
+            foreach (var memberStr in serverCfg.RSLClusterServers)
+            {
+                var nodeAddr = NodeAddress.DeSerialize(memberStr);
+                cluster.Members.Add(nodeAddr);
+
+            }
+            NetworkFactory.SetNetworkCreator(new TcpNetworkCreator());
+
+            var serverAddr = NodeAddress.DeSerialize(serverCfg.RSLServerAddr);
+            var serverNode = new ReplicatedTable.ReplicatedTable(cluster, serverAddr);
+
+            var serviceServer = new PineRSL.ServerLib.PineRSLServer(serverNode);
+            var serviceAddr = NodeAddress.DeSerialize(serverCfg.ServiceServerAddr);
+            await serviceServer.StartServer(serviceAddr);
+            while(true)
+            {
+                await Task.Delay(1000);
             }
         }
     }

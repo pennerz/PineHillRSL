@@ -11,7 +11,5 @@
     <ProjectReference Include="..\PaxosLib\PaxosLib.csproj" />
     <ProjectReference Include="..\test\PaxsosTests\PaxsosTests.csproj" />
   </ItemGroup>
-  <ItemGroup Condition="">
-    <None Update="config.json" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
+
 </Project>

@@ -1357,6 +1357,49 @@ namespace PineRSL.Tests
             CleanupLogFiles(unhealthInstanceName);
         }
 
+        [TestMethod()]
+        public async Task RSLServerTest()
+        {
+            CleanupLogFiles(null);
+
+            var cluster = new PaxosCluster();
+            for (int i = 0; i < 5; i++)
+            {
+                var node = new NodeInfo("127.0.0.1");
+                var nodeAddr = new NodeAddress(node, 88 + i);
+                cluster.Members.Add(nodeAddr);
+            }
+
+            var networkInfr = new TestNetworkInfr();
+            //NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
+            NetworkFactory.SetNetworkCreator(new TcpNetworkCreator());
+
+            var tableNodeMap = new Dictionary<string, ReplicatedTable.ReplicatedTable>();
+            foreach (var nodeAddr in cluster.Members)
+            {
+                var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
+                tableNodeMap[NodeAddress.Serialize(nodeAddr)] = node;
+            }
+
+            var master = tableNodeMap[NodeAddress.Serialize(cluster.Members[0])];
+            var serviceServer = new PineRSL.ServerLib.PineRSLServer(master);
+            var serviceAddr = new NodeAddress(new NodeInfo("127.0.0.1"), 1000);
+            await serviceServer.StartServer(serviceAddr);
+
+            var client = new ClientLib.PineRSLClient();
+            await client.InsertTable("1", "test1");
+            await client.InsertTable("2", "test2");
+            await client.InsertTable("3", "test3");
+
+            foreach (var node in tableNodeMap)
+            {
+                await Task.Run(() =>
+                {
+                    node.Value.Dispose();
+                });
+            }
+        }
+
         private PaxosMessage CreatePaxosMessage(RpcMessage rpcMessage)
         {
             var paxosRpcMessage = PaxosRpcMessageFactory.CreatePaxosRpcMessage(rpcMessage);

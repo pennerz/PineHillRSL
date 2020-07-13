@@ -171,20 +171,20 @@ namespace PineRSL.ReplicatedTable
                             _pendingRequests.TryAdd(batchRequest, batchRequest);
                         }
                     }
+                    BatchRplicatedTableRequest outBatchRequest = null;
                     if (batchRequest.Requests.Count == 0)
                     {
+                        _pendingRequests.TryRemove(batchRequest, out outBatchRequest);
                         return;
                     }
                     var request = new StateMachine.StateMachineRequest();
                     request.Content = RequestSerializer.Serialize(batchRequest);
                     await Request(request);
+                    _pendingRequests.TryRemove(batchRequest, out outBatchRequest);
                     foreach (var req in batchRequest.Requests)
                     {
                         req.Result.SetResult(true);
                     }
-                    BatchRplicatedTableRequest outBatchRequest = null;
-                    _pendingRequests.TryRemove(batchRequest, out outBatchRequest);
-
                 }
             });
             return task;
