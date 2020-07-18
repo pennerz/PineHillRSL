@@ -141,12 +141,26 @@ namespace PineRSL.ClientLib
         }
     }
 
+
     public class PineRSLClient
     {
         private RpcClient _rpcClient = new RpcClient();
+        private List<NodeAddress> _svrAddrList = new List<NodeAddress>();
 
-        public PineRSLClient()
+        public PineRSLClient(List<string> serviceSvrList)
         {
+            if (serviceSvrList == null)
+            {
+                return;
+            }
+            foreach(var svrAddrStr in serviceSvrList)
+            {
+                var nodeAddr = NodeAddress.DeSerialize(svrAddrStr);
+                if (nodeAddr != null)
+                {
+                    _svrAddrList.Add(nodeAddr);
+                }
+            }
         }
 
         public async Task InsertTable(string key, string value)
@@ -160,6 +174,11 @@ namespace PineRSL.ClientLib
 
         private NodeAddress GetServerAddr()
         {
+            if (_svrAddrList != null && _svrAddrList.Count > 0)
+            {
+                return _svrAddrList[0];
+            }
+
             return new NodeAddress(new NodeInfo("127.0.0.1"), 1000);
         }
     }

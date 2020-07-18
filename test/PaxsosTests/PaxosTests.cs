@@ -1386,7 +1386,7 @@ namespace PineRSL.Tests
             var serviceAddr = new NodeAddress(new NodeInfo("127.0.0.1"), 1000);
             await serviceServer.StartServer(serviceAddr);
 
-            var client = new ClientLib.PineRSLClient();
+            var client = new ClientLib.PineRSLClient(null);
             await client.InsertTable("1", "test1");
             await client.InsertTable("2", "test2");
             await client.InsertTable("3", "test3");
