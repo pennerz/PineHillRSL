@@ -196,15 +196,18 @@ namespace PineRSL.Paxos.Node
             //var localAddr = new NodeAddress(_nodeInfo, 0);
             _rpcClient = new RpcClient(/*localAddr*/);
             //var serverAddr = new NodeAddress(_nodeInfo, 88);
+            Common.Logger.Log($"RSL Node Address: {_serverAddr.Node.Name}:{_serverAddr.Port}");
             _rpcServer = new RpcServer(_serverAddr);
 
             _rpcServer.Start().Wait();
+            Common.Logger.Log($"RSL Node RPC Server Startd");
 
             var instanceName = NodeAddress.Serialize(_serverAddr);
 
             var metaLogFilePath = ".\\storage\\" + instanceName + ".meta";
             var task = Load(metaLogFilePath);
             task.Wait();
+            Common.Logger.Log($"RSL Node Loaded");
         }
 
         private void Cleanup()

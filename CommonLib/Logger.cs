@@ -66,9 +66,20 @@ namespace PineRSL.Common
         }
     }
 
+    public class ConsoleLog : ILog
+    {
+        public void Log(String formatstr, params Object?[] args)
+        {
+            var str = String.Format(formatstr, args);
+            str += " ActivityId:" + ActivityControl.CurrentActivityId().ToString() + "\n";
+            Console.WriteLine(str);
+        }
+    }
+
+
     public class Logger
     {
-        static ILog _loggerImpl = null;
+        static ILog _loggerImpl = new ConsoleLog();
         static public void Init(ILog logger)
         {
             if (_loggerImpl == null)

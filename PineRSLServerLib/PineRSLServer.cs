@@ -36,6 +36,7 @@ namespace PineRSL.ServerLib
                         Value = ((InsertTableRequest)rpcRequest).Value
                     };
                     await _rtable.InstertTable(serverRequest);
+                    PineRSL.Common.Logger.Log($"Insert table row[key:{serverRequest.Key}, value:{serverRequest.Value}");
                     return null;
                 case PineRSLRpcRequest.RequestType.Unknown:
                 default:

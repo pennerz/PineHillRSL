@@ -26,3 +26,8 @@
 /PineRSLClientLib/obj
 /PineRSLServerLib/bin/Debug/netcoreapp3.0
 /PineRSLServerLib/obj
+/containers/ReliableTableService/Node1/netcoreapp3.0
+/containers/ReliableTableService/Node2/netcoreapp3.0
+/containers/ReliableTableService/Node3/netcoreapp3.0
+/containers/ReliableTableService/Node4/netcoreapp3.0
+/containers/ReliableTableService/Node5/netcoreapp3.0

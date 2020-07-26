@@ -217,18 +217,22 @@ namespace PineRSL.Server
             foreach (var memberStr in serverCfg.RSLClusterServers)
             {
                 var nodeAddr = NodeAddress.DeSerialize(memberStr);
+                Logger.Log($"RSL Cluster Member:[{nodeAddr.Node.Name}:{nodeAddr.Port}");
                 cluster.Members.Add(nodeAddr);
 
             }
             NetworkFactory.SetNetworkCreator(new TcpNetworkCreator());
 
             var serverAddr = NodeAddress.DeSerialize(serverCfg.RSLServerAddr);
+            Logger.Log($"RSL Node:[{serverAddr.Node.Name}:{serverAddr.Port}");
             var serverNode = new ReplicatedTable.ReplicatedTable(cluster, serverAddr);
 
             var serviceServer = new PineRSL.ServerLib.PineRSLServer(serverNode);
             var serviceAddr = NodeAddress.DeSerialize(serverCfg.ServiceServerAddr);
+            Logger.Log($"Service Node:[{serviceAddr.Node.Name}:{serviceAddr.Port}");
             await serviceServer.StartServer(serviceAddr);
-            while(true)
+            Logger.Log($"Service Start Succeed!");
+            while (true)
             {
                 await Task.Delay(1000);
             }
