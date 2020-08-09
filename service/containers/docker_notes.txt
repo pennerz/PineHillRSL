@@ -1,4 +1,4 @@
-docker network create -d nat --subnet=172.16.238.0/24 --gateway=172.16.238.1 my_network
+docker network create -d nat --subnet=172.16.238.0/24 --gateway=172.16.238.1 pinertable_network
 
 docker build -t pennerz/pine_rtable_node5:v0.5 .
 

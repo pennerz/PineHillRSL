@@ -21,7 +21,7 @@ namespace PineRSL.Client
     {
         static async Task Main(string[] args)
         {
-            var cfgFile = new FileStream(".\\config.json", FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite);
+            var cfgFile = new FileStream("\\config\\config.json", FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite);
             var dataBuf = new byte[cfgFile.Length];
             var readLen = await cfgFile.ReadAsync(dataBuf, 0, (int)(cfgFile.Length));
             var cfgStr = Encoding.UTF8.GetString(dataBuf, 0, readLen);
