@@ -27,6 +27,8 @@ namespace PineRSL.Common
         private UInt64 _lastPopSeq = 0;
         private object _lastSmallestVaule = null;
 
+        private DateTime _lastPopTime = DateTime.Now;
+
         public SlidingWindow(ulong baseSeq, IItemComparer itemComparer)
         {
             _baseSeq = baseSeq;
@@ -72,6 +74,7 @@ namespace PineRSL.Common
                     _lastReadySeq += 1;
                     var item = _itemList[_lastReadySeq];
                     _itemList.RemoveAt(0);
+                    _lastPopTime = DateTime.Now;
                     return item;
                 }
 
@@ -103,6 +106,27 @@ namespace PineRSL.Common
                 return Task.CompletedTask;
             }
             return _lock.WaitAsync();
+        }
+
+        public DateTime LastPopTime => _lastPopTime;
+
+        public int Count => _itemList.Count;
+
+        public ulong LastPopSeq => _lastPopSeq;
+
+        public ulong SmallestSeqInWindow
+        {
+            get
+            {
+                lock (_itemList)
+                {
+                    if (_itemList.Count == 0)
+                    {
+                        return 0;
+                    }
+                    return _itemList[0].Seq;
+                }
+            }
         }
 
         private bool GetSmallestValueInLock(out object smallestVal)

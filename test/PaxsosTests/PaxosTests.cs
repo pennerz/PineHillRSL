@@ -1118,8 +1118,8 @@ namespace PineRSL.Tests
             }
 
             var networkInfr = new TestNetworkInfr();
-            //NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
-            NetworkFactory.SetNetworkCreator(new TcpNetworkCreator());
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
+            //NetworkFactory.SetNetworkCreator(new TcpNetworkCreator());
 
             var tableNodeMap = new Dictionary<string, ReplicatedTable.ReplicatedTable>();
             foreach (var nodeAddr in cluster.Members)

@@ -140,33 +140,18 @@ namespace PineRSL.Paxos.Node
             //
             using (var activity = Common.ActivityControl.NewActivity())
             {
-                // wait for checkpoint
-                //do
-                //{
-                //    while (_inLoading)
-                    {
-                //        await Task.Delay(1000);
-                    }
-
-                    bool loadCheckpointFromRemote = false;
-                    ProposeResult result = null;
-                    // propose
-                    try
-                    {
-                        result = await _proposerRole.Propose(decree, decreeNo);
-                    }
-                    catch (Exception)
-                    {
-                        // need to load exceptions from remote node
-                    //    loadCheckpointFromRemote = true;
-                    }
-                  //  if (!loadCheckpointFromRemote)
-                    {
-                        return result;
-                    }
-
-                  //  await LoadCheckpointFromRemoteNode();
-                //} while (true);
+                ProposeResult result = null;
+                // propose
+                try
+                {
+                    result = await _proposerRole.Propose(decree, decreeNo);
+                }
+                catch (Exception e)
+                {
+                    // need to load exceptions from remote node
+                    throw e;
+                }
+                return result;
             }
         }
 

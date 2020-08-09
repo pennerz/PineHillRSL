@@ -629,7 +629,7 @@ namespace PineRSL.Paxos.Protocol
     {
         private class LastVoteMessageResult
         {
-            public enum ResultAction { None, DecreeCommitted, NewBallotReadyToBegin };
+            public enum ResultAction { None, DecreeCommitted, DecreeCheckpointed, NewBallotReadyToBegin };
             public ResultAction Action { get; set; }
             public PaxosDecree NewBallotDecree { get; set; }
             public ulong NextBallotNo { get; set; }
@@ -969,6 +969,10 @@ namespace PineRSL.Paxos.Protocol
                         DecreeNo = nextDecreeNo,
                     };*/
 
+                    if (lastVoteResult.IsCommitted && lastVoteResult.CheckpointedDecreeNo >= nextDecreeNo)
+                    {
+                        throw new Exception("Decree checkpointed");
+                    }
 
                     DateTime collectLastVoteTime = DateTime.Now;
                     collectLastVoteCostTimeInMs += collectLastVoteTime - start;
@@ -1151,6 +1155,7 @@ namespace PineRSL.Paxos.Protocol
             {
                 case LastVoteMessageResult.ResultAction.None:
                     break;
+                case LastVoteMessageResult.ResultAction.DecreeCheckpointed:
                 case LastVoteMessageResult.ResultAction.DecreeCommitted:
                 case LastVoteMessageResult.ResultAction.NewBallotReadyToBegin:
                     {
@@ -1167,7 +1172,8 @@ namespace PineRSL.Paxos.Protocol
                                 {
                                     DecreeNo = msg.DecreeNo,
                                     OngoingPropose = propose,
-                                    IsCommitted = LastVoteMessageResult.ResultAction.DecreeCommitted == result.Action,
+                                    IsCommitted = (LastVoteMessageResult.ResultAction.DecreeCommitted == result.Action) ||
+                                    (LastVoteMessageResult.ResultAction.DecreeCheckpointed == result.Action),
                                     CommittedDecree = (LastVoteMessageResult.ResultAction.DecreeCommitted == result.Action) ? propose.Decree : null
                                 };
 
@@ -1575,6 +1581,16 @@ namespace PineRSL.Paxos.Protocol
 
 
                     // decree already committed
+                    if (msg.CheckpointedDecreNo >= msg.DecreeNo)
+                    {
+                        // decree checkpointed
+                        return new LastVoteMessageResult()
+                        {
+                            Action = LastVoteMessageResult.ResultAction.DecreeCheckpointed,
+                            NextBallotNo = msg.BallotNo,
+                            CommittedPropose = propose
+                        };
+                    }
                     return new LastVoteMessageResult()
                     {
                         Action = LastVoteMessageResult.ResultAction.DecreeCommitted,
