@@ -35,6 +35,7 @@ namespace PineRSL.Paxos.Node
 
         private IPaxosNotification _notificationSubscriber;
 
+        public enum DataSource { Local, Cluster};
 
         public PaxosNode(
             PaxosCluster cluster,
@@ -75,7 +76,7 @@ namespace PineRSL.Paxos.Node
             _voterRole.SubscribeNotification(_notificationSubscriber);
         }
 
-        public async Task Load(string metaLog)
+        public async Task Load(string metaLog, ProposerRole.DataSource datasource = ProposerRole.DataSource.Local)
         {
             await Task.Run(() =>
             {
@@ -123,7 +124,7 @@ namespace PineRSL.Paxos.Node
             var rpcRequestHandler = new PaxosMessageHandler(_messager, null);
             _rpcServer.RegisterRequestHandler(rpcRequestHandler);
 
-            await _proposerRole.Load();
+            await _proposerRole.Load(datasource);
 
 
             // request checkpoint from remote nodes

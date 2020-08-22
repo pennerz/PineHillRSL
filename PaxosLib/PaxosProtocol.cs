@@ -634,6 +634,7 @@ namespace PineRSL.Paxos.Protocol
             public PaxosDecree NewBallotDecree { get; set; }
             public ulong NextBallotNo { get; set; }
             public Propose CommittedPropose { get; set; }
+            public ulong CheckpointedDecreeNo { get; set; }
         }
 
         private class StateBallotMessageResult
@@ -660,6 +661,8 @@ namespace PineRSL.Paxos.Protocol
 
         private List<PaxosMessage> _ongoingRequests = new List<PaxosMessage>();
         private int _catchupLogSize = 0;
+
+        public enum DataSource { Local, Cluster};
 
         public ProposerRole(
             NodeAddress serverAddr,
@@ -699,12 +702,13 @@ namespace PineRSL.Paxos.Protocol
             }
         }
 
-        public async Task Load()
+        public async Task Load(DataSource dataSource = DataSource.Local)
         {
-            await _proposerNote.Load();
             int catchupLogSize = 0;
             do
             {
+                await _proposerNote.Load();
+                _proposeManager.ResetBaseDecreeNo(_proposerNote.GetMaximumCommittedDecreeNo());
                 if (_notificationSubscriber != null)
                 {
                     var metaRecord = _proposerNote.ProposeRoleMetaRecord;
@@ -719,18 +723,30 @@ namespace PineRSL.Paxos.Protocol
                     if (_proposerNote.CommittedDecrees.Count == 0)
                     {
                         PaxosDecree fakeDecree = new PaxosDecree();
-                        await Propose(fakeDecree, 0);
+                        try
+                        {
+                            await Propose(fakeDecree, 0);
+                        }
+                        catch(Exception)
+                        {
+                        }
+
                     }
 
                     // catchup 
                     foreach (var committedDecree in _proposerNote.CommittedDecrees)
                     {
-                        await _notificationSubscriber.UpdateSuccessfullDecree(committedDecree.Key, committedDecree.Value);
+                        //await _notificationSubscriber.UpdateSuccessfullDecree(committedDecree.Key, committedDecree.Value);
                         if (committedDecree.Value.Data != null)
                         {
                             catchupLogSize += committedDecree.Value.Data.Length;
                         }
                     }
+                }
+
+                if (dataSource == DataSource.Local)
+                {
+                    break;
                 }
 
                 // request remote node's checkpoints
@@ -1174,7 +1190,8 @@ namespace PineRSL.Paxos.Protocol
                                     OngoingPropose = propose,
                                     IsCommitted = (LastVoteMessageResult.ResultAction.DecreeCommitted == result.Action) ||
                                     (LastVoteMessageResult.ResultAction.DecreeCheckpointed == result.Action),
-                                    CommittedDecree = (LastVoteMessageResult.ResultAction.DecreeCommitted == result.Action) ? propose.Decree : null
+                                    CommittedDecree = (LastVoteMessageResult.ResultAction.DecreeCommitted == result.Action) ? propose.Decree : null,
+                                    CheckpointedDecreeNo = result.CheckpointedDecreeNo
                                 };
 
                                 lock (result.CommittedPropose)
@@ -1190,7 +1207,8 @@ namespace PineRSL.Paxos.Protocol
                                     DecreeNo = msg.DecreeNo,
                                     OngoingPropose = propose,
                                     CommittedDecree = propose.GetCommittedDecree(),
-                                    IsCommitted = LastVoteMessageResult.ResultAction.DecreeCommitted == result.Action
+                                    IsCommitted = LastVoteMessageResult.ResultAction.DecreeCommitted == result.Action,
+                                    CheckpointedDecreeNo = result.CheckpointedDecreeNo
                                 };
 
                                 lock (result.CommittedPropose)
@@ -1588,6 +1606,7 @@ namespace PineRSL.Paxos.Protocol
                         {
                             Action = LastVoteMessageResult.ResultAction.DecreeCheckpointed,
                             NextBallotNo = msg.BallotNo,
+                            CheckpointedDecreeNo = msg.CheckpointedDecreNo,
                             CommittedPropose = propose
                         };
                     }
@@ -1595,7 +1614,8 @@ namespace PineRSL.Paxos.Protocol
                     {
                         Action = LastVoteMessageResult.ResultAction.DecreeCommitted,
                         NextBallotNo = msg.BallotNo,
-                        CommittedPropose = propose
+                        CommittedPropose = propose,
+                        CheckpointedDecreeNo = msg.CheckpointedDecreNo
                     };
                 }
 
@@ -1607,7 +1627,8 @@ namespace PineRSL.Paxos.Protocol
                     {
                         Action = LastVoteMessageResult.ResultAction.NewBallotReadyToBegin,
                         CommittedPropose = propose,
-                        NextBallotNo = msg.BallotNo
+                        NextBallotNo = msg.BallotNo,
+                        CheckpointedDecreeNo = 0
                     };
                 }
             }

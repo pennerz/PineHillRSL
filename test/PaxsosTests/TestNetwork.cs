@@ -28,6 +28,8 @@ namespace PineRSL.Tests
         private List<NetworkMessage> _receivedMessages = new List<NetworkMessage>();
         private SemaphoreSlim _receivedMessageSemaphore = new SemaphoreSlim(0);
 
+        private bool _shutdown = false;
+
         static Statistic _receivedLockWaitTime = new Statistic();
         static Statistic _lockOccupiedTime = new Statistic();
         static Statistic _receivedMessageUpdateTime = new Statistic();
@@ -36,7 +38,6 @@ namespace PineRSL.Tests
         static Statistic _semaphoreReleaseTime = new Statistic();
         static Statistic _delevieryTime = new Statistic();
         static Statistic _sendDelayedTime = new Statistic();
-
 
         //private SemaphoreSlim _lock = new SemaphoreSlim(1);
         private List<int> _lock = new List<int>();
@@ -52,6 +53,11 @@ namespace PineRSL.Tests
 
         public Task SendMessage(NetworkMessage msg)
         {
+            if (_shutdown)
+            {
+                throw new Exception("shutdown");
+            }
+
             using (var sendMsgTimer = new PerfTimerCounter((int)TestPerfCounterType.SendMessageTime))
             {
                 if (_remoteConnection == null)
@@ -79,6 +85,11 @@ namespace PineRSL.Tests
 
         public async Task<List<NetworkMessage>> ReceiveMessage()
         {
+            if (_shutdown)
+            {
+                throw new Exception("shutdown");
+            }
+
             var newMsgList = new List<NetworkMessage>();
             List<NetworkMessage> result = null;
             do
@@ -140,6 +151,11 @@ namespace PineRSL.Tests
         /// <param name="message"></param>
         public void DeliverMessage(NetworkMessage message)
         {
+            if (_shutdown)
+            {
+                throw new Exception("shutdown");
+            }
+
             DateTime beforeLock = DateTime.Now;
             lock (_lock)
             {
@@ -154,7 +170,12 @@ namespace PineRSL.Tests
             _semaphoreReleaseTime.Accumulate((DateTime.Now - beforeSemaphore).TotalMilliseconds);
         }
 
-    public NodeAddress LocalAddress => _localAddress;
+        public void Shutdown()
+        {
+            _shutdown = true;
+        }
+
+        public NodeAddress LocalAddress => _localAddress;
 
         public NodeAddress RemoteAddress => _remoteAddress;
     }
@@ -295,6 +316,57 @@ namespace PineRSL.Tests
             }
         }
 
+        public void ShutdownServerConnection(NodeAddress serverAddr)
+        {
+            if (_useConnectionMap)
+            {
+                //for (int i = 0; i < _connectionIndex.Count; ++i)
+                foreach(var item in _connectionIndex)
+                {
+                    var connectionList = item.Value;
+                    if (connectionList == null)
+                    {
+                        continue;
+                    }
+                    lock (connectionList)
+                    {
+                        var removedConnections = new List<TestConnection>();
+                        foreach(var connection in connectionList)
+                        {
+                            if (connection.RemoteAddress.Equals(serverAddr))
+                            {
+                                connection.Shutdown();
+                                removedConnections.Add(connection);
+                            }
+                        }
+                        foreach (var removedConnection in removedConnections)
+                        {
+                            connectionList.Remove(removedConnection);
+                        }
+                    }
+                }
+            }
+            else
+            {
+                lock (_connections)
+                {
+                    var removedConnections = new List<TestConnection>();
+                    foreach (var connection in _connections)
+                    {
+                        if (connection.RemoteAddress.Equals(serverAddr))
+                        {
+                            connection.Shutdown();
+                            removedConnections.Add(connection);
+                        }
+                    }
+                    foreach (var removedConnection in removedConnections)
+                    {
+                        _connections.Remove(removedConnection);
+                    }
+                }
+            }
+        }
+
         public async Task WaitUntillAllReceivedMessageConsumed()
         {
             foreach (var connection in _connections)
@@ -397,13 +469,26 @@ namespace PineRSL.Tests
         /// <returns></returns>
         public async Task<INetworkServer> CreateNetworkServer(NodeAddress serverAddr)
         {
-            var server = new TestNetworkServer(_networkInfr);
-            await server.StartServer(serverAddr);
 
             lock(_networkInfr.NetworkServers)
             {
+                foreach(var existServer in _networkInfr.NetworkServers)
+                {
+                    if (existServer.ServerAddress.Equals(serverAddr))
+                    {
+                        _networkInfr.ShutdownServerConnection(serverAddr);
+                        _networkInfr.NetworkServers.Remove(existServer);
+                        break;
+                    }
+                }
+            }
+            var server = new TestNetworkServer(_networkInfr);
+            await server.StartServer(serverAddr);
+            lock (_networkInfr.NetworkServers)
+            {
                 _networkInfr.NetworkServers.Add(server);
             }
+
             return server;
         }
 

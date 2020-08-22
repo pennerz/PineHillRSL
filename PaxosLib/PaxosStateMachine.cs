@@ -82,6 +82,8 @@ namespace PineRSL.StateMachine
             _node = new PaxosNode(cluster, serverAddr);
             _node.SubscribeNotification(this);
 
+            MissedRequestTimeoutInSecond = 5 * 60;
+
             _matainTask = Task.Run(Mantain);
 
         }
@@ -128,7 +130,9 @@ namespace PineRSL.StateMachine
             };
             if (internalRequest.Request == null)
             {
-                return Task.CompletedTask;
+                internalRequest.Request = new StateMachineRequest();
+                internalRequest.Request.SequenceId = decreeNo;
+                internalRequest.Request.Content = "";
             }
             internalRequest.Request.SequenceId = decreeNo;
             _reqSlideWindow.Add(decreeNo, internalRequest);
@@ -181,6 +185,8 @@ namespace PineRSL.StateMachine
             _reqSlideWindow = new SlidingWindow(lastDecreeNo, null);
         }
 
+        public int MissedRequestTimeoutInSecond { get; set; }
+
         private async Task ReqeustInternal(StateMachineRequest request)
         {
             var begin = DateTime.Now;
@@ -206,7 +212,16 @@ namespace PineRSL.StateMachine
 
                 _node = new PaxosNode(_cluster, _serverAddr);
                 _node.SubscribeNotification(this);
-                await _node.Load(_metaLog);
+
+                if (string.IsNullOrEmpty(_metaLog))
+                {
+                    var instanceName = NodeAddress.Serialize(_serverAddr);
+                    _metaLog = ".\\storage\\" + instanceName + ".meta";
+                }
+                await Task.Run(async () =>
+                {
+                    await _node.Load(_metaLog, ProposerRole.DataSource.Cluster);
+                });
 
             } while (true);
 
@@ -229,7 +244,7 @@ namespace PineRSL.StateMachine
 
                 DateTime now = DateTime.Now;
                 var popElaspedTime = now - _reqSlideWindow.LastPopTime;
-                if (popElaspedTime.TotalSeconds > 60 * 5 && _reqSlideWindow.Count > 0)
+                if (popElaspedTime.TotalSeconds > MissedRequestTimeoutInSecond && _reqSlideWindow.Count > 0)
                 {
                     // request all the pending request
                     var smallestSeq = _reqSlideWindow.SmallestSeqInWindow;

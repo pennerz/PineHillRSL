@@ -176,6 +176,17 @@ namespace PineRSL.Rpc
             return connection;
         }
 
+        public void RemoveConnection(NodeAddress remoteAddress)
+        {
+            lock (_lock)
+            {
+                IConnection connection = null;
+                _connectionsTable.TryRemove(remoteAddress, out connection);
+            }
+
+        }
+
+
         /// <summary>
         /// Core processor for network packet receiving tasks.
         /// </summary>
@@ -460,34 +471,46 @@ namespace PineRSL.Rpc
         public async Task<RpcMessage> SendRequest(NodeAddress serverAddress, RpcMessage rpcRequest)
         {
             IConnection connection = null;
-            
-            try
-            {
-                connection = await _node.GetConnection(serverAddress);
-            }
-            catch(Exception)
+
+            do
             {
 
-            }
-            if (connection == null)
-            {
-                return null;
-            }
+                try
+                {
+                    try
+                    {
+                        connection = await _node.GetConnection(serverAddress);
+                    }
+                    catch (Exception)
+                    {
 
-            if (rpcRequest.NeedResp)
-            {
-                var completionSource = new TaskCompletionSource<RpcMessage>();
-                _ongoingRequests.TryAdd(rpcRequest.RequestId, completionSource);
-                var networkMessage = RpcMessageHelper.CreateNetworkMessage(rpcRequest);
-                await connection.SendMessage(networkMessage);
-                return await completionSource.Task;
-            }
-            else
-            {
-                var networkMessage = RpcMessageHelper.CreateNetworkMessage(rpcRequest);
-                await connection.SendMessage(networkMessage);
-                return null;
-            }
+                    }
+                    if (connection == null)
+                    {
+                        return null;
+                    }
+
+                    if (rpcRequest.NeedResp)
+                    {
+                        var completionSource = new TaskCompletionSource<RpcMessage>();
+                        _ongoingRequests.TryAdd(rpcRequest.RequestId, completionSource);
+                        var networkMessage = RpcMessageHelper.CreateNetworkMessage(rpcRequest);
+                        await connection.SendMessage(networkMessage);
+                        return await completionSource.Task;
+                    }
+                    else
+                    {
+                        var networkMessage = RpcMessageHelper.CreateNetworkMessage(rpcRequest);
+                        await connection.SendMessage(networkMessage);
+                        return null;
+                    }
+
+                }
+                catch (Exception)
+                {
+                    _node.RemoveConnection(serverAddress);
+                }
+            } while (true);
 
         }
 

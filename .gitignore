@@ -31,3 +31,8 @@
 /containers/ReliableTableService/Node3/netcoreapp3.0
 /containers/ReliableTableService/Node4/netcoreapp3.0
 /containers/ReliableTableService/Node5/netcoreapp3.0
+/service/binary
+/service/containers/ReliableTableService/Node5/netcoreapp3.0
+/service/containers/ReliableTableService/Node4/netcoreapp3.0
+/service/containers/ReliableTableService/Node3/netcoreapp3.0
+/service/containers/ReliableTableService/Node2/netcoreapp3.0

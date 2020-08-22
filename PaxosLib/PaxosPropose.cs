@@ -376,6 +376,11 @@ namespace PineRSL.Paxos.Protocol
 
         }
 
+        public void ResetBaseDecreeNo(ulong baseDecreeNo)
+        {
+            _nextDecreeNo = (int)baseDecreeNo;
+        }
+
         public ulong GetNextDecreeNo()
         {
             return (ulong)Interlocked.Increment(ref _nextDecreeNo);

@@ -68,12 +68,12 @@ namespace PineRSL.Network
 
         public static string Serialize(NodeAddress addr)
         {
-            return addr._nodeInfo.Name + ":" + addr._port.ToString();
+            return addr._nodeInfo.Name + "_" + addr._port.ToString();
         }
 
         public static NodeAddress DeSerialize(string str)
         {
-            var index = str.IndexOf(':');
+            var index = str.IndexOf('_');
             var nodeInfo = new NodeInfo(str.Substring(0, index));
             var portStr = str.Substring(index + 1);
             var port = int.Parse(portStr);

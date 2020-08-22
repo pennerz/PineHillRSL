@@ -1249,13 +1249,6 @@ namespace PineRSL.Tests
                 var node = new NodeInfo("127.0.0.1");
                 var nodeAddr = new NodeAddress(node, 88 + i);
                 cluster.Members.Add(nodeAddr);
-                var nodeInstanceName = NodeAddress.Serialize(nodeAddr);
-
-                var metaLogFile = ".\\storage\\" + nodeInstanceName + ".meta";
-                var proposerLogFile = ".\\storage\\" + nodeInstanceName + ".proposerlog";
-                var votedLogFile = ".\\storage\\" + nodeInstanceName + ".voterlog";
-                File.Delete(proposerLogFile);
-                File.Delete(votedLogFile);
             }
 
             var networkInfr = new TestNetworkInfr();
@@ -1337,9 +1330,21 @@ namespace PineRSL.Tests
                 }
             }
 
+            unHealthyNode.MissedRequestTimeoutInSecond = 5;
             await unHealthyNode.Load(unHealthyNodeMetaLogFile);
+            for (int i = 0; i < 500; i++)
+            {
+                var key = i.ToString();
+                var value = await unHealthyNode.ReadTable(key);
+                Assert.IsNull(value);
+            }
+            int rowIndex = 501;
+            var task1 = unHealthyNode.InstertTable(new ReplicatedTableRequest() { Key = rowIndex.ToString(), Value = "test" + rowIndex.ToString() });
+            await task1;
 
-            for(int i = 0; i < 500; i++)
+            await Task.Delay(10 * 1000);
+
+            for (int i = 0; i < 500; i++)
             {
                 var key = i.ToString();
                 var value = await unHealthyNode.ReadTable(key);

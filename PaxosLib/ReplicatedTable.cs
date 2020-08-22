@@ -192,7 +192,7 @@ namespace PineRSL.ReplicatedTable
 
         protected override async Task ExecuteRequest(StateMachine.StateMachineRequest request)
         {
-            if (request == null)
+            if (request == null || string.IsNullOrEmpty(request.Content))
             {
                 return;
             }
