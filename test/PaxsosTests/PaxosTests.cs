@@ -529,11 +529,13 @@ namespace PineRSL.Tests
                     proposeManager);
                 propose.LastTriedBallot = 1;    // collectlastvote2 will begin a new ballot no
 
+                propose.PrepareCollectLastVoteMessage(); //init -> QueryLastVote
+
                 var collectLastVoteTask = proposer.CollectLastVote(
                     new PaxosDecree(){Content = decreeContent},
                     1);
 
-                for (int i = 1; i < cluster.Members.Count; i++)
+                for (int i = 0; i < cluster.Members.Count; i++)
                 {
                     while (msgList[i].Count == 0) await Task.Delay(50);
                     var queryLastVote = CreatePaxosMessage(msgList[i][0]) as NextBallotMessage;
@@ -542,7 +544,7 @@ namespace PineRSL.Tests
                 }
 
                 // 1.1 first last vote message(with null vote) will not change state
-                for (int i = 1; i < 5; i++)
+                for (int i = 0; i < 5; i++)
                 {
                     var lastVote = CreateLastVoteMessage(
                         NodeAddress.Serialize(cluster.Members[i]),
@@ -550,19 +552,27 @@ namespace PineRSL.Tests
                         1/*decreeNo*/, 2/*ballotNo*/,
                         0/*votedBallotNo*/, null/*votedDecree*/);
                     await proposer.HandlePaxosMessage(lastVote);
-                    if ( i >= 3)
+                    if ( i >= 2)
                     {
                         Assert.IsTrue(collectLastVoteTask.IsCompleted);
+                        Assert.IsTrue(propose.LastVoteMessages.Count >= 3);
                     }
                     else
                     {
                         Assert.IsFalse(collectLastVoteTask.IsCompleted);
+                        Assert.AreEqual(propose.LastVoteMessages.Count, i + 1);
+                        var returnedLastVote = propose.LastVoteMessages[i];
+                        VerifyLastVoteMessage(returnedLastVote, 1/*decreeNo*/, 2/*ballotNo*/, 0/*votedBallotNo*/, null/*votedContent*/);
                     }
-                    Assert.AreEqual(propose.LastVoteMessages.Count, i);
 
-                    var returnedLastVote = propose.LastVoteMessages[i-1];
-                    VerifyLastVoteMessage(returnedLastVote, 1/*decreeNo*/, 2/*ballotNo*/, 0/*votedBallotNo*/, null/*votedContent*/);
-                    VerifyPropose(propose, 2/*lastTriedBallot*/, ProposeState.QueryLastVote, decreeContent);
+                    if (i >= 2)
+                    {
+                        VerifyPropose(propose, 2/*lastTriedBallot*/, ProposeState.BeginNewBallot, decreeContent);
+                    }
+                    else
+                    {
+                        VerifyPropose(propose, 2/*lastTriedBallot*/, ProposeState.WaitForLastVote, decreeContent);
+                    }
                     Assert.IsTrue(proposerNote.GetCommittedDecreeCount() == 0);
                 }
                 var collectLastVoteResult = await collectLastVoteTask;
@@ -590,7 +600,7 @@ namespace PineRSL.Tests
                     new PaxosDecree() { Content = decreeContent },
                     1);
 
-                for (int i = 1; i < cluster.Members.Count; i++)
+                for (int i = 0; i < cluster.Members.Count; i++)
                 {
                     while (msgList[i].Count == 0) await Task.Delay(50);
                     var queryLastVote = CreatePaxosMessage(msgList[i][0]) as NextBallotMessage;
@@ -599,10 +609,10 @@ namespace PineRSL.Tests
                 }
 
                 // 1.1 first last vote message(with null vote) will not change state
-                for (int i = 1; i < 5; i++)
+                for (int i = 0; i < 5; i++)
                 {
                     LastVoteMessage lastVote = null;
-                    if (i == 3)
+                    if (i == 2)
                     {
                         lastVote = CreateLastVoteMessage(
                             NodeAddress.Serialize(cluster.Members[i]),
@@ -610,7 +620,7 @@ namespace PineRSL.Tests
                             1/*decreeNo*/, 4/*ballotNo*/,
                             3/*votedBallotNo*/, decreeContent1/*votedDecree*/);
                     }
-                    else if (i == 2)
+                    else if (i == 1)
                     {
                         lastVote = CreateLastVoteMessage(
                             NodeAddress.Serialize(cluster.Members[i]),
@@ -628,38 +638,41 @@ namespace PineRSL.Tests
                     }
 
                     await proposer.HandlePaxosMessage(lastVote);
-                    if (i >= 3)
+                    if (i >= 2)
                     {
                         Assert.IsTrue(collectLastVoteTask.IsCompleted);
+                        Assert.AreEqual(propose.LastVoteMessages.Count, 3);
                     }
                     else
                     {
                         Assert.IsFalse(collectLastVoteTask.IsCompleted);
+                        Assert.AreEqual(propose.LastVoteMessages.Count, i + 1);
                     }
-                    Assert.AreEqual(propose.LastVoteMessages.Count, i);
 
-                    var returnedLastVote = propose.LastVoteMessages[i - 1];
 
-                    if (i == 3)
+                    if (i == 2)
                     {
+                        var returnedLastVote = propose.LastVoteMessages[i];
                         VerifyLastVoteMessage(returnedLastVote, 1/*decreeNo*/, 4/*ballotNo*/, 3/*votedBallotNo*/, decreeContent1/*votedContent*/);
                     }
-                    else if (i == 2)
+                    else if (i == 1)
                     {
+                        var returnedLastVote = propose.LastVoteMessages[i];
                         VerifyLastVoteMessage(returnedLastVote, 1/*decreeNo*/, 4/*ballotNo*/, 2/*votedBallotNo*/, decreeContent/*votedContent*/);
                     }
-                    else
+                    else if (i == 0)
                     {
+                        var returnedLastVote = propose.LastVoteMessages[i];
                         VerifyLastVoteMessage(returnedLastVote, 1/*decreeNo*/, 4/*ballotNo*/, 0/*votedBallotNo*/, null/*votedContent*/);
                     }
 
-                    if (i <=2)
+                    if (i <= 1)
                     {
-                        VerifyPropose(propose, 4/*lastTriedBallot*/, ProposeState.QueryLastVote, decreeContent);
+                        VerifyPropose(propose, 4/*lastTriedBallot*/, ProposeState.WaitForLastVote, decreeContent);
                     }
                     else
                     {
-                        VerifyPropose(propose, 4/*lastTriedBallot*/, ProposeState.QueryLastVote, decreeContent1);
+                        VerifyPropose(propose, 4/*lastTriedBallot*/, ProposeState.BeginNewBallot, decreeContent1);
                     }
                     Assert.IsTrue(proposerNote.GetCommittedDecreeCount() == 0);
                 }
@@ -688,7 +701,7 @@ namespace PineRSL.Tests
                     new PaxosDecree() { Content = decreeContent },
                     1);
 
-                for (int i = 1; i < cluster.Members.Count; i++)
+                for (int i = 0; i < cluster.Members.Count; i++)
                 {
                     while (msgList[i].Count == 0) await Task.Delay(50);
                     var queryLastVote = CreatePaxosMessage(msgList[i][0]) as NextBallotMessage;
@@ -696,10 +709,10 @@ namespace PineRSL.Tests
                     msgList[i].Clear();
                 }
 
-                for (int i = 1; i < 5; i++)
+                for (int i = 0; i < 5; i++)
                 {
                     LastVoteMessage lastVote = null;
-                    if (i == 2)
+                    if (i == 1)
                     {
                         lastVote = CreateLastVoteMessage(
                             NodeAddress.Serialize(cluster.Members[i]),
@@ -718,7 +731,7 @@ namespace PineRSL.Tests
                     }
 
                     await proposer.HandlePaxosMessage(lastVote);
-                    if (i >= 2)
+                    if (i >= 1)
                     {
                         Assert.IsTrue(collectLastVoteTask.IsCompleted);
                         //Assert.AreEqual(propose.LastVoteMessages.Count, 2);
@@ -740,13 +753,13 @@ namespace PineRSL.Tests
                     else
                     {
                         Assert.IsFalse(collectLastVoteTask.IsCompleted);
-                        Assert.AreEqual(propose.LastVoteMessages.Count, i);
+                        Assert.AreEqual(propose.LastVoteMessages.Count, i + 1);
 
-                        var returnedLastVote = propose.LastVoteMessages[i - 1];
+                        var returnedLastVote = propose.LastVoteMessages[i];
 
                         VerifyLastVoteMessage(returnedLastVote, 1/*decreeNo*/, 4/*ballotNo*/, 0/*votedBallotNo*/, null/*votedContent*/);
 
-                        VerifyPropose(propose, 4/*lastTriedBallot*/, ProposeState.QueryLastVote, decreeContent);
+                        VerifyPropose(propose, 4/*lastTriedBallot*/, ProposeState.WaitForLastVote, decreeContent);
 
                         Assert.IsTrue(proposerNote.GetCommittedDecreeCount() == 0);
                     }
@@ -779,7 +792,7 @@ namespace PineRSL.Tests
                     new PaxosDecree() { Content = decreeContent },
                     1);
 
-                for (int i = 1; i < cluster.Members.Count; i++)
+                for (int i = 0; i < cluster.Members.Count; i++)
                 {
                     while (msgList[i].Count == 0) await Task.Delay(50);
                     var queryLastVote = CreatePaxosMessage(msgList[i][0]) as NextBallotMessage;
@@ -787,9 +800,9 @@ namespace PineRSL.Tests
                     msgList[i].Clear();
                 }
 
-                for (int i = 1; i < 5; i++)
+                for (int i = 0; i < 5; i++)
                 {
-                    if (i == 2)
+                    if (i == 1)
                     {
                         var stateMsg = CreateStaleMessage(
                             NodeAddress.Serialize(cluster.Members[i]),
@@ -808,7 +821,7 @@ namespace PineRSL.Tests
                         await proposer.HandlePaxosMessage(lastVote);
                     }
 
-                    if (i >= 2)
+                    if (i >= 1)
                     {
                         Assert.IsTrue(collectLastVoteTask.IsCompleted);
                         break;
@@ -817,13 +830,13 @@ namespace PineRSL.Tests
                     {
                         Assert.IsFalse(collectLastVoteTask.IsCompleted);
                     }
-                    Assert.AreEqual(propose.LastVoteMessages.Count, i);
+                    Assert.AreEqual(propose.LastVoteMessages.Count, i + 1);
 
-                    var returnedLastVote = propose.LastVoteMessages[i - 1];
+                    var returnedLastVote = propose.LastVoteMessages[i];
 
                     VerifyLastVoteMessage(returnedLastVote, 1/*decreeNo*/, 4/*ballotNo*/, 2/*votedBallotNo*/, decreeContent1/*votedContent*/);
 
-                    VerifyPropose(propose, 4/*lastTriedBallot*/, ProposeState.QueryLastVote, decreeContent1);
+                    VerifyPropose(propose, 4/*lastTriedBallot*/, ProposeState.WaitForLastVote, decreeContent1);
                     Assert.IsTrue(proposerNote.GetCommittedDecreeCount() == 0);
                 }
                 var collectLastVoteResult = await collectLastVoteTask;
@@ -878,7 +891,7 @@ namespace PineRSL.Tests
                 await proposer.HandlePaxosMessage(votemsg);
                 // nothing changed
                 Assert.AreEqual(propose.VotedMessages.Count, 0);
-                Assert.AreEqual(propose.State, ProposeState.QueryLastVote);
+                Assert.AreEqual(propose.State, ProposeState.WaitForLastVote);
 
                 proposeManager.Reset();
             }
@@ -954,13 +967,14 @@ namespace PineRSL.Tests
                         NodeAddress.Serialize(cluster.Members[0]),
                         1/*decreeNo*/, 3/*ballotNo*/);
                     await proposer.HandlePaxosMessage(voteMsg);
-                    Assert.AreEqual(propose.VotedMessages.Count, i);
                     if (i < 3)
                     {
+                        Assert.AreEqual(propose.VotedMessages.Count, i);
                         Assert.IsFalse(beginBallotTask.IsCompleted);
                     }
                     else
                     {
+                        Assert.AreEqual(propose.VotedMessages.Count, 3);
                         await Task.Delay(500);
                         Assert.IsTrue(beginBallotTask.IsCompleted);
                     }
@@ -1038,12 +1052,12 @@ namespace PineRSL.Tests
                 var beginBallotResult = await beginBallotTask;
                 var nextAction = await beginBallotResult.OngoingPropose.GetNextAction();
                 Assert.AreEqual(nextAction, Propose.NextAction.CollectLastVote);
-                VerifyPropose(propose, 3, ProposeState.BeginNewBallot, decreeContent1);
+                VerifyPropose(propose, 4, ProposeState.QueryLastVote, decreeContent1); // ballot already updated to ballot returned by stale message
                 Assert.AreEqual(propose.LastVoteMessages.Count, 0);
                 Assert.AreEqual(propose.VotedMessages.Count, 1);
 
                 propose.PrepareNewBallot(propose.Decree);
-                VerifyPropose(propose, 5, ProposeState.QueryLastVote, decreeContent1);
+                VerifyPropose(propose, 5, ProposeState.WaitForLastVote, decreeContent1);
 
             }
 

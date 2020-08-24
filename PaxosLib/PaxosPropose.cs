@@ -10,12 +10,28 @@ using System.Threading.Tasks;
 namespace PineRSL.Paxos.Protocol
 {
 
+    //                                                                commited returned
+    //                                       |--------------------------------------------------------------------------------
+    //                                       |                                                                              \|/
+    // init ->  collect_last_vote -> wait_for_last_vote -> beginnewballot -> wait_for_new_ballot_result ->ReadyCommit -->  committed
+    //            /|\  /|\                   |                                    | |                                       /|\
+    //             |    ---------------------|                                    | |----------------------------------------|
+    //             |              timeout                                         |     others has new propose and committed
+    //             |                                                              |
+    //             |______________________________________________________________|
+    //              stale message indicate ballot already occupied by new proposer
+
     public enum ProposeState
     {
         Init,               // init
         QueryLastVote,      // query exiting vote
+        WaitForLastVote,
         BeginNewBallot,     // prepare commit
+        WaitForNewBallotVote,
+        ReadyToCommit,
         Commited            // done
+
+
     }
 
     public class ProposePhaseResult
@@ -41,6 +57,29 @@ namespace PineRSL.Paxos.Protocol
         private ProposeState _state = ProposeState.Init;
 
 
+        public class LastVoteMessageResult
+        {
+            public enum ResultAction { None, DecreeCommitted, DecreeCheckpointed, NewBallotReadyToBegin };
+            public ResultAction Action { get; set; }
+            public PaxosDecree NewBallotDecree { get; set; }
+            public ulong NextBallotNo { get; set; }
+            public Propose CommittedPropose { get; set; }
+            public ulong CheckpointedDecreeNo { get; set; }
+        }
+
+        public class StateBallotMessageResult
+        {
+            public bool NeedToCollectLastVote { get; set; }
+            public ulong NextBallotNo { get; set; }
+            public Propose OngoingPropose { get; set; }
+        }
+
+        public class VoteMessageResult
+        {
+            public enum ResultAction { None, ReadyToCommit };
+            public ResultAction Action { get; set; }
+        };
+
         public Propose(ulong clusterSize)
         {
             _clusterSize = clusterSize;
@@ -51,6 +90,11 @@ namespace PineRSL.Paxos.Protocol
             await _lock.WaitAsync();
             var autoLock = new AutoLock(_lock);
             return autoLock;
+        }
+
+        public void PrepareCollectLastVoteMessage()
+        {
+            _state = ProposeState.QueryLastVote;
         }
 
 
@@ -72,37 +116,15 @@ namespace PineRSL.Paxos.Protocol
                 _lastVoteMessages.Clear();
                 _voteMessages.Clear();
                 _staleMessage.Clear();
-                _state = ProposeState.QueryLastVote;
+                _state = ProposeState.WaitForLastVote;
                 return _lastTriedBallotNo;
             }
         }
 
-        /// <summary>
-        /// Collect last vote received
-        /// </summary>
-        /// <param name="lastVoteMsg"></param>
-        /// <returns></returns>
-        public ulong AddLastVoteMessage(LastVoteMessage lastVoteMsg)
+        public void PrepareWaitingLastVoteMessage(TaskCompletionSource<ProposePhaseResult> result)
         {
-            lock(_subscribedCompletionSource)
-            {
-                _lastVoteMessages.Add(lastVoteMsg);
-
-                if (lastVoteMsg.Commited)
-                {
-                    _decree = new PaxosDecree(lastVoteMsg.VoteDecree);
-                }
-                else
-                {
-                    var maxVoteMsg = GetMaximumVote();
-                    if (maxVoteMsg != null)
-                    {
-                        _decree = new PaxosDecree(maxVoteMsg.VoteDecree);
-                    }
-
-                }
-                return (ulong)_lastVoteMessages.Count;
-            }
+            Result = result;
+            _state = ProposeState.WaitForLastVote;
         }
 
         /// <summary>
@@ -112,7 +134,7 @@ namespace PineRSL.Paxos.Protocol
         /// <returns></returns>
         public PaxosDecree BeginNewBallot(ulong ballotNo)
         {
-            lock(_subscribedCompletionSource)
+            lock (_subscribedCompletionSource)
             {
                 if (_lastTriedBallotNo != ballotNo)
                 {
@@ -125,7 +147,7 @@ namespace PineRSL.Paxos.Protocol
                 {
                     _decree = new PaxosDecree(maxVoteMsg.VoteDecree);
                 }
-                _state = ProposeState.BeginNewBallot;
+                _state = ProposeState.WaitForNewBallotVote;
 
                 _lastVoteMessages.Clear();
 
@@ -133,20 +155,12 @@ namespace PineRSL.Paxos.Protocol
             }
         }
 
-        /// <summary>
-        /// Collect received vote message
-        /// </summary>
-        /// <param name="voteMsg"></param>
-        /// <returns></returns>
-        public ulong AddVoteMessage(VoteMessage voteMsg)
+        public void PrepareWaitingVoteMessage(TaskCompletionSource<ProposePhaseResult> result)
         {
-            lock (_subscribedCompletionSource)
-            {
-                _voteMessages.Add(voteMsg);
-
-                return (ulong)_voteMessages.Count;
-            }
+            Result = result;
+            _state = ProposeState.WaitForNewBallotVote;
         }
+
 
         public bool Commit(ulong ballotNo)
         {
@@ -176,15 +190,173 @@ namespace PineRSL.Paxos.Protocol
             }
         }
 
-        public ulong AddStaleBallotMessage(StaleBallotMessage staleMessage)
+        /// <summary>
+        /// Collect last vote received
+        /// </summary>
+        /// <param name="lastVoteMsg"></param>
+        /// <returns></returns>
+        public LastVoteMessageResult AddLastVoteMessage(LastVoteMessage lastVoteMsg)
+        {
+            lock(_subscribedCompletionSource)
+            {
+                if (lastVoteMsg.BallotNo != _lastTriedBallotNo)
+                {
+                    // stale message, drop it
+                    return new LastVoteMessageResult()
+                    { Action = LastVoteMessageResult.ResultAction.None };
+                }
+
+                if (_state == ProposeState.WaitForLastVote)
+                {
+                    _lastVoteMessages.Add(lastVoteMsg);
+                    if (lastVoteMsg.Commited)
+                    {
+                        _state = ProposeState.ReadyToCommit;
+                        _decree = new PaxosDecree(lastVoteMsg.VoteDecree);
+
+                        // decree already committed
+                        if (lastVoteMsg.CheckpointedDecreNo >= lastVoteMsg.DecreeNo)
+                        {
+                            // decree checkpointed
+                            return new LastVoteMessageResult()
+                            {
+                                Action = LastVoteMessageResult.ResultAction.DecreeCheckpointed,
+                                NextBallotNo = lastVoteMsg.BallotNo,
+                                CheckpointedDecreeNo = lastVoteMsg.CheckpointedDecreNo,
+                                CommittedPropose = this
+                            };
+                        }
+
+                        return new LastVoteMessageResult()
+                        {
+                            Action = LastVoteMessageResult.ResultAction.DecreeCommitted,
+                            NextBallotNo = lastVoteMsg.BallotNo,
+                            CommittedPropose = this,
+                            CheckpointedDecreeNo = lastVoteMsg.CheckpointedDecreNo
+                        };
+                    }
+
+                    var maxVoteMsg = GetMaximumVote();
+                    if (maxVoteMsg != null)
+                    {
+                        _decree = new PaxosDecree(maxVoteMsg.VoteDecree);
+                    }
+
+                    if ((ulong)_lastVoteMessages.Count >= _clusterSize / 2 + 1)
+                    {
+                        _state = ProposeState.BeginNewBallot;
+
+                        return new LastVoteMessageResult()
+                        {
+                            Action = LastVoteMessageResult.ResultAction.NewBallotReadyToBegin,
+                            CommittedPropose = this,
+                            NextBallotNo = lastVoteMsg.BallotNo,
+                            CheckpointedDecreeNo = 0
+                        };
+                    }
+
+                }
+                // decree committed now is returned with LastVoteMessage, so WaitForNewBallotVote
+                // can also get LastVoteMessage.
+                // TODO: Separate LastVoteMessage with AlreadyCheckpointed message
+                else if (_state == ProposeState.WaitForNewBallotVote)
+                {
+                    // waitfornewballotvote
+                    if (lastVoteMsg.Commited)
+                    {
+                        _state = ProposeState.ReadyToCommit;
+                        _decree = new PaxosDecree(lastVoteMsg.VoteDecree);
+
+                        // decree already committed
+                        if (lastVoteMsg.CheckpointedDecreNo >= lastVoteMsg.DecreeNo)
+                        {
+                            // decree checkpointed
+                            return new LastVoteMessageResult()
+                            {
+                                Action = LastVoteMessageResult.ResultAction.DecreeCheckpointed,
+                                NextBallotNo = lastVoteMsg.BallotNo,
+                                CheckpointedDecreeNo = lastVoteMsg.CheckpointedDecreNo,
+                                CommittedPropose = this
+                            };
+                        }
+
+                        return new LastVoteMessageResult()
+                        {
+                            Action = LastVoteMessageResult.ResultAction.DecreeCommitted,
+                            NextBallotNo = lastVoteMsg.BallotNo,
+                            CommittedPropose = this,
+                            CheckpointedDecreeNo = lastVoteMsg.CheckpointedDecreNo
+                        };
+                    }
+                }
+
+                return new LastVoteMessageResult()
+                { Action = LastVoteMessageResult.ResultAction.None };
+            }
+        }
+
+        /// <summary>
+        /// Collect received vote message
+        /// </summary>
+        /// <param name="voteMsg"></param>
+        /// <returns></returns>
+        public VoteMessageResult AddVoteMessage(VoteMessage voteMsg)
         {
             lock (_subscribedCompletionSource)
             {
-                _staleMessage.Add(staleMessage);
+                if (_state != ProposeState.WaitForNewBallotVote)
+                {
+                    return new VoteMessageResult()
+                    { Action = VoteMessageResult.ResultAction.None };
+                }
 
-                return (ulong)_staleMessage.Count;
+                if (voteMsg.BallotNo != _lastTriedBallotNo)
+                {
+                    // stale message, drop it
+                    return new VoteMessageResult()
+                    { Action = VoteMessageResult.ResultAction.None };
+                }
+
+                _voteMessages.Add(voteMsg);
+                if ((ulong)_voteMessages.Count >= _clusterSize / 2 + 1)
+                {
+                    _state = ProposeState.ReadyToCommit;
+                    return new VoteMessageResult()
+                    { Action = VoteMessageResult.ResultAction.ReadyToCommit };
+                }
+
+                return new VoteMessageResult()
+                { Action = VoteMessageResult.ResultAction.None };
             }
         }
+
+        public StateBallotMessageResult AddStaleBallotMessage(StaleBallotMessage staleMessage)
+        {
+            // QueryLastVote || BeginNewBallot
+            lock (_subscribedCompletionSource)
+            {
+                if (_state != ProposeState.WaitForNewBallotVote &&
+                    _state != ProposeState.WaitForLastVote)
+                {
+                    return new StateBallotMessageResult()
+                    { NeedToCollectLastVote = false };
+                }
+                if (staleMessage.BallotNo != _lastTriedBallotNo)
+                {
+                    // stale message, drop it
+                    return new StateBallotMessageResult()
+                    { NeedToCollectLastVote = false };
+                }
+                _staleMessage.Add(staleMessage);
+
+                _state = ProposeState.QueryLastVote;
+                _lastTriedBallotNo = staleMessage.NextBallotNo;
+
+                return new StateBallotMessageResult()
+                { NeedToCollectLastVote = true, NextBallotNo = staleMessage.NextBallotNo, OngoingPropose = this };
+            }
+        }
+
 
         public enum NextAction { None, CollectLastVote, BeginBallot, Commit};
 
@@ -195,48 +367,13 @@ namespace PineRSL.Paxos.Protocol
                 switch (State)
                 {
                     case ProposeState.QueryLastVote:
-                        foreach (var lastVote in _lastVoteMessages)
-                        {
-                            if (lastVote.Commited)
-                            {
-                                return NextAction.Commit;
-                            }
-                        }
-
-                        if (_staleMessage.Count > 0)
-                        {
-                            return NextAction.CollectLastVote;
-                        }
-
-                        if (_lastVoteMessages.Count >= (int)_clusterSize / 2 + 1)
-                        {
-                            return NextAction.BeginBallot;
-                        }
-                        else
-                        {
-                            return NextAction.CollectLastVote;
-                        }
+                        return NextAction.CollectLastVote;
                     case ProposeState.BeginNewBallot:
-                        foreach (var lastVote in _lastVoteMessages)
-                        {
-                            if (lastVote.Commited)
-                            {
-                                return NextAction.Commit;
-                            }
-                        }
-                        if (_staleMessage.Count > 0)
-                        {
-                            return NextAction.CollectLastVote;
-                        }
-
-                        if (_voteMessages.Count >= (int)_clusterSize / 2 + 1)
-                        {
-                            return NextAction.Commit;
-                        }
-                        else
-                        {
-                            return NextAction.BeginBallot;
-                        }
+                        return NextAction.BeginBallot;
+                    case ProposeState.ReadyToCommit:
+                        return NextAction.Commit;
+                    default:
+                        break;
                 }
             }
 
@@ -334,29 +471,8 @@ namespace PineRSL.Paxos.Protocol
         {
             lock (_subscribedCompletionSource)
             {
-                // decree already committed in other nodes
-                if (State == ProposeState.QueryLastVote ||
-                    State == ProposeState.BeginNewBallot ||
-                    State == ProposeState.Init)
-                {
-                    foreach (var lastVote in _lastVoteMessages)
-                    {
-                        if (lastVote.Commited)
-                        {
-                            return true;
-                        }
-                    }
-                }
-
-                // ready to commit
-                if (State == ProposeState.BeginNewBallot && _voteMessages.Count >= (int)_clusterSize / 2 + 1)
-                {
-                    return true;
-                }
+                return State == ProposeState.ReadyToCommit;
             }
-
-            return false;
-
         }
 
     };

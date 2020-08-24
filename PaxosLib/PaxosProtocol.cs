@@ -627,30 +627,6 @@ namespace PineRSL.Paxos.Protocol
 
     public class ProposerRole : PaxosRole, IDisposable
     {
-        private class LastVoteMessageResult
-        {
-            public enum ResultAction { None, DecreeCommitted, DecreeCheckpointed, NewBallotReadyToBegin };
-            public ResultAction Action { get; set; }
-            public PaxosDecree NewBallotDecree { get; set; }
-            public ulong NextBallotNo { get; set; }
-            public Propose CommittedPropose { get; set; }
-            public ulong CheckpointedDecreeNo { get; set; }
-        }
-
-        private class StateBallotMessageResult
-        {
-            public bool NeedToCollectLastVote { get; set; }
-            public ulong NextBallotNo { get; set; }
-            public Propose OngoingPropose { get; set; }
-        }
-
-        private class VoteMessageResult
-        {
-            public enum ResultAction { None, ReadyToCommit };
-            public ResultAction Action { get; set; }
-        };
-
-
         private readonly NodeAddress _serverAddr;
         private readonly PaxosCluster _cluster;
 
@@ -940,6 +916,18 @@ namespace PineRSL.Paxos.Protocol
 
         }
 
+        //                                                                commited returned
+        //                                       |--------------------------------------------------------------------------------
+        //                                       |                                                                              \|/
+        // init ->  collect_last_vote -> wait_for_last_vote -> beginnewballot -> wait_for_new_ballot_result ->ReadyCommit -->  committed
+        //            /|\  /|\                   |                                    | |                                       /|\
+        //             |    ---------------------|                                    | |----------------------------------------|
+        //             |              timeout                                         |     others has new propose and committed
+        //             |                                                              |
+        //             |______________________________________________________________|
+        //              stale message indicate ballot already occupied by new proposer
+        
+
         public async Task<ProposeResult> Propose(PaxosDecree decree, ulong decreeNo)
         {
             var fakeMsg = new PaxosMessage();
@@ -972,122 +960,80 @@ namespace PineRSL.Paxos.Protocol
                         // get a unique decree no.
                         //
                         nextDecreeNo = _proposeManager.GetNextDecreeNo();
-                        _proposeManager.AddPropose(nextDecreeNo, (ulong)_cluster.Members.Count);
                     }
+                    else
+                    {
+                        nextDecreeNo = decreeNo;
+                    }
+                    _proposeManager.AddPropose(nextDecreeNo, (ulong)_cluster.Members.Count);
                     Logger.Log("Propose a new propose, decreNo{0}", nextDecreeNo);
 
-                    var lastVoteResult = await CollectLastVote(decree, nextDecreeNo);
-                    Logger.Log("Got last vote result: isCommitted{0}, checkpointDecreeNo{1}", lastVoteResult.IsCommitted, lastVoteResult.CheckpointedDecreeNo);
-                    /*
-                    _proposeManager.RemovePropose(nextDecreeNo);
+
+                    ProposePhaseResult result = null;
+                    var propose = _proposeManager.GetOngoingPropose(nextDecreeNo);
+                    do
+                    {
+                        switch (propose.State)
+                        {
+                            case ProposeState.Init:
+                                propose.PrepareCollectLastVoteMessage(); // move to query last vote state
+                                break;
+                            case ProposeState.QueryLastVote:
+                                result = await CollectLastVote(decree, nextDecreeNo);
+                                if (result.IsCommitted && result.CheckpointedDecreeNo >= nextDecreeNo)
+                                {
+                                    throw new Exception("Decree checkpointed");
+                                }
+                                break;
+                            case ProposeState.WaitForLastVote:
+                                break;
+                            case ProposeState.BeginNewBallot:
+                                result = await BeginNewBallot(nextDecreeNo, propose.GetNextBallot());
+                                break;
+                            case ProposeState.WaitForNewBallotVote:
+                                break;
+                            case ProposeState.ReadyToCommit:
+                                await CommitPropose(nextDecreeNo, propose.GetNextBallot());
+                                break;
+                            case ProposeState.Commited:
+                                // ready 
+                                break;
+                            default:
+                                break;
+                        }
+                        if (propose.State == ProposeState.Commited)
+                        {
+                            break;
+                        }
+                    } while (true);
+
+                    if (propose.State != ProposeState.Commited)
+                    {
+                        // fail to commit
+                        //return 
+                    }
+
+                    if (decree != propose.GetCommittedDecree())
+                    {
+                        if (decreeNo == 0)
+                        {
+                            continue;
+                        }
+                    }
+
                     return new ProposeResult()
                     {
+                        Decree = propose.GetCommittedDecree(),
                         DecreeNo = nextDecreeNo,
-                    };*/
+                        CollectLastVoteTimeInMs = collectLastVoteCostTimeInMs,
+                        CommitTimeInMs = commitCostTimeInMs,
+                        VoteTimeInMs = voteCostTimeInMs,
+                        GetProposeCostTime = propose.GetProposeCostTime,
+                        GetProposeLockCostTime = propose.GetProposeLockCostTime,
+                        PrepareNewBallotCostTime = propose.PrepareNewBallotCostTime,
+                        BroadcastQueryLastVoteCostTime = propose.BroadcastQueryLastVoteCostTime
+                    };
 
-                    if (lastVoteResult.IsCommitted && lastVoteResult.CheckpointedDecreeNo >= nextDecreeNo)
-                    {
-                        throw new Exception("Decree checkpointed");
-                    }
-
-                    DateTime collectLastVoteTime = DateTime.Now;
-                    collectLastVoteCostTimeInMs += collectLastVoteTime - start;
-                    var propose = _proposeManager.GetOngoingPropose(nextDecreeNo);
-                    if (lastVoteResult.IsCommitted)
-                    {
-                        //_proposeManager.RemovePropose(nextDecreeNo);
-
-                        // commit the propose
-                        await CommitPropose(nextDecreeNo, lastVoteResult.OngoingPropose.LastTriedBallot);
-
-                        // already committed
-                        if (decreeNo == 0)
-                        {
-                            continue;
-                        }
-
-                        return new ProposeResult()
-                        {
-                            Decree = lastVoteResult.CommittedDecree,
-                            DecreeNo = lastVoteResult.DecreeNo,
-                            CollectLastVoteTimeInMs = collectLastVoteCostTimeInMs,
-                            CommitTimeInMs = commitCostTimeInMs,
-                            VoteTimeInMs = voteCostTimeInMs,
-                            GetProposeCostTime = propose.GetProposeCostTime,
-                            GetProposeLockCostTime = propose.GetProposeLockCostTime,
-                            PrepareNewBallotCostTime = propose.PrepareNewBallotCostTime,
-                            BroadcastQueryLastVoteCostTime = propose.BroadcastQueryLastVoteCostTime
-                        };
-                    }
-
-                    var nextBallotNo = propose.GetNextBallot();
-                    // check if stale message received
-                    var nextAction = await propose.GetNextAction();
-                    Logger.Log("Next propose action {0}", nextAction);
-                    if (nextAction == Protocol.Propose.NextAction.CollectLastVote)
-                    {
-                        continue;
-                    }
-                    else if (nextAction == Protocol.Propose.NextAction.Commit)
-                    {
-                        await CommitPropose(lastVoteResult.DecreeNo, nextBallotNo);
-                        commitCostTimeInMs += DateTime.Now - collectLastVoteTime;
-                        if (decreeNo == 0)
-                        {
-                            Logger.Log("Commit decree{0} return from last vote, propose again", lastVoteResult.DecreeNo);
-                            continue;
-                        }
-
-                        Logger.Log("Commit decree{0} committed", lastVoteResult.DecreeNo);
-
-                        return new ProposeResult()
-                        {
-                            Decree = propose.GetCommittedDecree(),
-                            DecreeNo = lastVoteResult.DecreeNo,
-                            CollectLastVoteTimeInMs = collectLastVoteCostTimeInMs,
-                            CommitTimeInMs = commitCostTimeInMs,
-                            VoteTimeInMs = voteCostTimeInMs,
-                            GetProposeCostTime = propose.GetProposeCostTime,
-                            GetProposeLockCostTime = propose.GetProposeLockCostTime,
-                            PrepareNewBallotCostTime = propose.PrepareNewBallotCostTime,
-                            BroadcastQueryLastVoteCostTime = propose.BroadcastQueryLastVoteCostTime
-                        };
-                    }
-
-                    // begin new ballot
-                    Logger.Log("Prepre a new ballot");
-                    var newBallotResult = await BeginNewBallot(lastVoteResult.DecreeNo, nextBallotNo);
-                    var voteTime = DateTime.Now;
-                    voteCostTimeInMs += voteTime - collectLastVoteTime;
-                    propose = newBallotResult.OngoingPropose;
-                    nextBallotNo = propose.GetNextBallot();
-                    nextAction = await propose.GetNextAction();
-                    Logger.Log("Prepre a new ballot got result, next action:{0}", nextAction);
-                    if (nextAction == Protocol.Propose.NextAction.CollectLastVote)
-                    {
-                        Logger.Log("Prepre a new ballot result indicate need to recollect lastvote");
-                        continue;
-                    }
-                    else if (nextAction == Protocol.Propose.NextAction.Commit)
-                    {
-                        var beforeCommit = DateTime.Now;
-                        await CommitPropose(lastVoteResult.DecreeNo, nextBallotNo);
-                        commitCostTimeInMs += DateTime.Now - beforeCommit;
-                        Logger.Log("Decree committed");
-
-                        return new ProposeResult()
-                        {
-                            Decree = propose.GetCommittedDecree(),
-                            DecreeNo = lastVoteResult.DecreeNo,
-                            CollectLastVoteTimeInMs = collectLastVoteCostTimeInMs,
-                            CommitTimeInMs = commitCostTimeInMs,
-                            VoteTimeInMs = voteCostTimeInMs,
-                            GetProposeCostTime = propose.GetProposeCostTime,
-                            GetProposeLockCostTime = propose.GetProposeLockCostTime,
-                            PrepareNewBallotCostTime = propose.PrepareNewBallotCostTime,
-                            BroadcastQueryLastVoteCostTime = propose.BroadcastQueryLastVoteCostTime
-                        };
-                    }
                 } while (true);
             }
             finally
@@ -1169,11 +1115,11 @@ namespace PineRSL.Paxos.Protocol
             var result = await ProcessLastVoteMessageInternal(msg);
             switch (result.Action)
             {
-                case LastVoteMessageResult.ResultAction.None:
+                case Protocol.Propose.LastVoteMessageResult.ResultAction.None:
                     break;
-                case LastVoteMessageResult.ResultAction.DecreeCheckpointed:
-                case LastVoteMessageResult.ResultAction.DecreeCommitted:
-                case LastVoteMessageResult.ResultAction.NewBallotReadyToBegin:
+                case Protocol.Propose.LastVoteMessageResult.ResultAction.DecreeCheckpointed:
+                case Protocol.Propose.LastVoteMessageResult.ResultAction.DecreeCommitted:
+                case Protocol.Propose.LastVoteMessageResult.ResultAction.NewBallotReadyToBegin:
                     {
                         var propose = _proposeManager.GetOngoingPropose(msg.DecreeNo);
                         if (propose == null)
@@ -1182,15 +1128,15 @@ namespace PineRSL.Paxos.Protocol
                         }
                         using (var autolock = await propose.AcquireLock())
                         {
-                            if (propose.State == ProposeState.QueryLastVote)
+                            if (propose.State == ProposeState.BeginNewBallot)
                             {
                                 var phaseResult = new ProposePhaseResult()
                                 {
                                     DecreeNo = msg.DecreeNo,
                                     OngoingPropose = propose,
-                                    IsCommitted = (LastVoteMessageResult.ResultAction.DecreeCommitted == result.Action) ||
-                                    (LastVoteMessageResult.ResultAction.DecreeCheckpointed == result.Action),
-                                    CommittedDecree = (LastVoteMessageResult.ResultAction.DecreeCommitted == result.Action) ? propose.Decree : null,
+                                    IsCommitted = (Protocol.Propose.LastVoteMessageResult.ResultAction.DecreeCommitted == result.Action) ||
+                                    (Protocol.Propose.LastVoteMessageResult.ResultAction.DecreeCheckpointed == result.Action),
+                                    CommittedDecree = (Protocol.Propose.LastVoteMessageResult.ResultAction.DecreeCommitted == result.Action) ? propose.Decree : null,
                                     CheckpointedDecreeNo = result.CheckpointedDecreeNo
                                 };
 
@@ -1200,14 +1146,15 @@ namespace PineRSL.Paxos.Protocol
                                         result.CommittedPropose.Result.SetResult(phaseResult);
                                 }
                             }
-                            else if (propose.State == ProposeState.Commited)
+                            else if (propose.State == ProposeState.ReadyToCommit)
                             {
                                 var phaseResult = new ProposePhaseResult()
                                 {
                                     DecreeNo = msg.DecreeNo,
                                     OngoingPropose = propose,
                                     CommittedDecree = propose.GetCommittedDecree(),
-                                    IsCommitted = LastVoteMessageResult.ResultAction.DecreeCommitted == result.Action,
+                                    IsCommitted = (Protocol.Propose.LastVoteMessageResult.ResultAction.DecreeCommitted == result.Action ||
+                                        Protocol.Propose.LastVoteMessageResult.ResultAction.DecreeCheckpointed == result.Action),
                                     CheckpointedDecreeNo = result.CheckpointedDecreeNo
                                 };
 
@@ -1237,7 +1184,7 @@ namespace PineRSL.Paxos.Protocol
             var result = await ProcessVoteMessageInternal(msg);
             switch (result.Action)
             {
-                case VoteMessageResult.ResultAction.ReadyToCommit:
+                case Protocol.Propose.VoteMessageResult.ResultAction.ReadyToCommit:
                     {
                         var propose = _proposeManager.GetOngoingPropose(msg.DecreeNo);
                         if (propose == null)
@@ -1246,7 +1193,7 @@ namespace PineRSL.Paxos.Protocol
                         }
                         using (var autolock = await propose.AcquireLock())
                         {
-                            if (propose.State == ProposeState.BeginNewBallot)
+                            if (propose.State == ProposeState.ReadyToCommit)
                             {
                                 var newBallotResult = new ProposePhaseResult()
                                 { DecreeNo = msg.DecreeNo, OngoingPropose = _proposeManager.GetOngoingPropose(msg.DecreeNo) };
@@ -1355,6 +1302,9 @@ namespace PineRSL.Paxos.Protocol
                 var gotProposeLockCostTime = gotProposeLockTime - gotProposeTime;
                 propose.GetProposeLockCostTime += gotProposeLockCostTime;
 
+
+                // TODO: query the last vote from the node itself
+                /*
                 var proposeResult = await GetProposeResult(nextDecreeNo);
                 if (proposeResult != null)
                 {
@@ -1367,7 +1317,7 @@ namespace PineRSL.Paxos.Protocol
                         IsCommitted = true,
                         CommittedDecree = proposeResult.Decree
                     };
-                }
+                }*/
 
                 ballotNo = propose.PrepareNewBallot(decree);
 
@@ -1504,13 +1454,13 @@ namespace PineRSL.Paxos.Protocol
             return propose;
         }
 
-        private async Task<StateBallotMessageResult> ProcessStaleBallotMessageInternal(StaleBallotMessage msg)
+        private async Task<Propose.StateBallotMessageResult> ProcessStaleBallotMessageInternal(StaleBallotMessage msg)
         {
             // in case committed, ongoing propose could be cleaned
             var propose = _proposeManager.GetOngoingPropose(msg.DecreeNo);
             if (propose == null)
             {
-                return new StateBallotMessageResult()
+                return new Protocol.Propose.StateBallotMessageResult()
                 { NeedToCollectLastVote = false };
             }
 
@@ -1518,161 +1468,40 @@ namespace PineRSL.Paxos.Protocol
             ulong nextBallotNo = 0;
             using (var autoLock = await propose.AcquireLock())
             {
-                if (propose.State != ProposeState.QueryLastVote && propose.State != ProposeState.BeginNewBallot)
-                {
-                    return new StateBallotMessageResult()
-                    { NeedToCollectLastVote = false };
-                }
-
-                // other stale message may already started new ballot, abandon this message
-                if (propose.LastTriedBallot != msg.BallotNo)
-                {
-                    return new StateBallotMessageResult()
-                    { NeedToCollectLastVote = false };
-                }
-
-                propose.AddStaleBallotMessage(msg);
-
-
-                return new StateBallotMessageResult()
-                { NeedToCollectLastVote = true, NextBallotNo = nextBallotNo, OngoingPropose = propose };
+                return propose.AddStaleBallotMessage(msg);
             }
 
         }
 
-        private async Task<LastVoteMessageResult> ProcessLastVoteMessageInternal(LastVoteMessage msg)
+        private async Task<Propose.LastVoteMessageResult> ProcessLastVoteMessageInternal(LastVoteMessage msg)
         {
             // in case committed, ongoing propose could be cleaned
             var propose = _proposeManager.GetOngoingPropose(msg.DecreeNo);
             if (propose == null)
             {
-                return new LastVoteMessageResult()
-                { Action = LastVoteMessageResult.ResultAction.None };
+                return new Propose.LastVoteMessageResult()
+                { Action = Protocol.Propose.LastVoteMessageResult.ResultAction.None };
             }
 
             using (var autoLock = await propose.AcquireLock())
             {
-
-                //
-                // 1. decree passed, and begin to vote the ballot
-                // 2. decree committed
-                //
-                if (propose.State != ProposeState.QueryLastVote &&
-                    propose.State != ProposeState.BeginNewBallot)
-                {
-                    return new LastVoteMessageResult()
-                    { Action = LastVoteMessageResult.ResultAction.None };
-                }
-
-                if (propose.State == ProposeState.BeginNewBallot && !msg.Commited)
-                {
-                    // voter may find the decree committed by others
-                    // it will responed this beginnewballot with a
-                    // lastvote mssage, indicate the decree committed
-                    return new LastVoteMessageResult()
-                    { Action = LastVoteMessageResult.ResultAction.None };
-                }
-
-                //
-                // new ballot intialized, this lastvotemessage become stale message 
-                //
-                if (propose.LastTriedBallot != msg.BallotNo)
-                {
-                    return new LastVoteMessageResult()
-                    { Action = LastVoteMessageResult.ResultAction.None };
-                }
-
-                ulong lstVoteMsgCount = propose.AddLastVoteMessage(msg);
-                if (msg.Commited)
-                {
-                    /*
-                    if (propose.Commit(msg.BallotNo))
-                    {
-                        var committedDecree = propose.GetCommittedDecree();
-                        await _proposerNote.CommitDecree(msg.DecreeNo, committedDecree);
-                    }
-                    else
-                    {
-                        // somebody else already committed it
-                    }*/
-                    //await CommitProposeInLock(msg.DecreeNo, msg.BallotNo);
-
-
-                    // decree already committed
-                    if (msg.CheckpointedDecreNo >= msg.DecreeNo)
-                    {
-                        // decree checkpointed
-                        return new LastVoteMessageResult()
-                        {
-                            Action = LastVoteMessageResult.ResultAction.DecreeCheckpointed,
-                            NextBallotNo = msg.BallotNo,
-                            CheckpointedDecreeNo = msg.CheckpointedDecreNo,
-                            CommittedPropose = propose
-                        };
-                    }
-                    return new LastVoteMessageResult()
-                    {
-                        Action = LastVoteMessageResult.ResultAction.DecreeCommitted,
-                        NextBallotNo = msg.BallotNo,
-                        CommittedPropose = propose,
-                        CheckpointedDecreeNo = msg.CheckpointedDecreNo
-                    };
-                }
-
-                // TODO: check if message come from existing node
-                if (lstVoteMsgCount >= (ulong)_cluster.Members.Count / 2 + 1)
-                {
-                    // enough feedback got
-                    return new LastVoteMessageResult()
-                    {
-                        Action = LastVoteMessageResult.ResultAction.NewBallotReadyToBegin,
-                        CommittedPropose = propose,
-                        NextBallotNo = msg.BallotNo,
-                        CheckpointedDecreeNo = 0
-                    };
-                }
+                return propose.AddLastVoteMessage(msg);
             }
-
-            return new LastVoteMessageResult()
-            {Action = LastVoteMessageResult.ResultAction.None};
         }
 
-        private async Task<VoteMessageResult> ProcessVoteMessageInternal(VoteMessage msg)
+        private async Task<Propose.VoteMessageResult> ProcessVoteMessageInternal(VoteMessage msg)
         {
             var propose = _proposeManager.GetOngoingPropose(msg.DecreeNo);
             if (propose == null)
             {
                 // propose may already be committed
-                return new VoteMessageResult()
-                { Action = VoteMessageResult.ResultAction.None };
+                return new Propose.VoteMessageResult()
+                { Action = Protocol.Propose.VoteMessageResult.ResultAction.None };
             }
             using (var autoLock = await propose.AcquireLock())
             {
-                if (propose.State != ProposeState.BeginNewBallot)
-                {
-                    return new VoteMessageResult()
-                    { Action = VoteMessageResult.ResultAction.None };
-                }
-
-                if (propose.LastTriedBallot != msg.BallotNo)
-                {
-                    // not the vote ballot
-                    return new VoteMessageResult()
-                    { Action = VoteMessageResult.ResultAction.None };
-                }
-
-                // TODO: check if message come from existing node
-                var votesMsgCount = propose.AddVoteMessage(msg);
-
-                if (votesMsgCount >= (ulong)_cluster.Members.Count / 2 + 1)
-                {
-                    // enough feedback got, begin to commit
-                    return new VoteMessageResult()
-                    { Action = VoteMessageResult.ResultAction.ReadyToCommit };
-                }
+                return propose.AddVoteMessage(msg);
             }
-            return new VoteMessageResult()
-            { Action = VoteMessageResult.ResultAction.None };
         }
 
         private async Task<ProposeResult> GetProposeResult(ulong decreeNo)
@@ -1704,7 +1533,7 @@ namespace PineRSL.Paxos.Protocol
             {
                 if (node.Equals(_serverAddr))
                 {
-                    continue;
+                    //continue;
                 }
                 var task = Task.Run(async () =>
                 {
@@ -1727,7 +1556,7 @@ namespace PineRSL.Paxos.Protocol
             {
                 if (node.Equals(_serverAddr))
                 {
-                    continue;
+                    //continue;
                 }
                 var task = Task.Run(async () =>
                 {
