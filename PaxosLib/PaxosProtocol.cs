@@ -1100,7 +1100,9 @@ namespace PineRSL.Paxos.Protocol
                     { DecreeNo = msg.DecreeNo, OngoingPropose = _proposeManager.GetOngoingPropose(msg.DecreeNo) };
                     lock (result.OngoingPropose)
                     {
-                        if (!result.OngoingPropose.Result.Task.IsCompleted)
+                        if (result.OngoingPropose.Result != null &&
+                            result.OngoingPropose.Result.Task != null &&
+                            !result.OngoingPropose.Result.Task.IsCompleted)
                             result.OngoingPropose?.Result?.SetResult(lastVoteResult);
                     }
                 }

@@ -53,7 +53,6 @@ namespace PineRSL.Paxos.Protocol
         private ulong _clusterSize = 0;
         private ulong _lastTriedBallotNo = 0;
         private PaxosDecree _decree = null;
-        private PaxosDecree _originalDecree = null;
         private ProposeState _state = ProposeState.Init;
 
 
@@ -85,6 +84,14 @@ namespace PineRSL.Paxos.Protocol
             _clusterSize = clusterSize;
         }
 
+        public Propose(ulong clusterSize, ulong ballotNo, PaxosDecree decree, ProposeState state)
+        {
+            _clusterSize = clusterSize;
+            _lastTriedBallotNo = ballotNo;
+            _decree = decree;
+            _state = state;
+        }
+
         public async Task<AutoLock> AcquireLock()
         {
             await _lock.WaitAsync();
@@ -110,7 +117,6 @@ namespace PineRSL.Paxos.Protocol
             lock(_subscribedCompletionSource)
             {
                 _lastTriedBallotNo = GetNextBallot() + 1;
-                _originalDecree = decree;
                 _decree = decree;
 
                 _lastVoteMessages.Clear();
@@ -160,7 +166,6 @@ namespace PineRSL.Paxos.Protocol
             Result = result;
             _state = ProposeState.WaitForNewBallotVote;
         }
-
 
         public bool Commit(ulong ballotNo)
         {
@@ -351,6 +356,7 @@ namespace PineRSL.Paxos.Protocol
 
                 _state = ProposeState.QueryLastVote;
                 _lastTriedBallotNo = staleMessage.NextBallotNo;
+                _decree = null; // reset decree, need to collect
 
                 return new StateBallotMessageResult()
                 { NeedToCollectLastVote = true, NextBallotNo = staleMessage.NextBallotNo, OngoingPropose = this };
@@ -424,8 +430,6 @@ namespace PineRSL.Paxos.Protocol
         public TaskCompletionSource<ProposePhaseResult> Result { get; set; }
 
         public PaxosDecree Decree => _decree;
-
-        public PaxosDecree OriginalDecree => _originalDecree;
 
         public List<LastVoteMessage> LastVoteMessages => _lastVoteMessages;
 
@@ -525,6 +529,17 @@ namespace PineRSL.Paxos.Protocol
                 propose = new Propose(clusterSize);
                 _ongoingProposes.TryAdd(decreeNo, propose);
             }while(true);
+        }
+
+        /// <summary>
+        /// For test
+        /// </summary>
+        /// <param name="decreeNo"></param>
+        /// <param name="propose"></param>
+        public void AddPropose(ulong decreeNo, Propose propose)
+        {
+            RemovePropose(decreeNo);
+            _ongoingProposes.TryAdd(decreeNo, propose);
         }
 
         public void RemovePropose(ulong decreeNo)
