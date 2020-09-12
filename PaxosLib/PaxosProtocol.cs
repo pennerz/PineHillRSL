@@ -919,7 +919,7 @@ namespace PineRSL.Paxos.Protocol
         //                                                                commited returned
         //                                       |--------------------------------------------------------------------------------
         //                                       |                                                                              \|/
-        // init ->  collect_last_vote -> wait_for_last_vote -> beginnewballot -> wait_for_new_ballot_result ->ReadyCommit -->  committed
+        // init ->  collect_last_vote -> wait_for_last_vote -> beginnewballot -> wait_for_new_ballot_result ->ReadyCommit -->  committed  Checkpointed
         //            /|\  /|\                   |                                    | |                                       /|\
         //             |    ---------------------|                                    | |----------------------------------------|
         //             |              timeout                                         |     others has new propose and committed
@@ -980,10 +980,10 @@ namespace PineRSL.Paxos.Protocol
                                 break;
                             case ProposeState.QueryLastVote:
                                 result = await CollectLastVote(decree, nextDecreeNo);
-                                if (result.IsCommitted && result.CheckpointedDecreeNo >= nextDecreeNo)
-                                {
-                                    throw new Exception("Decree checkpointed");
-                                }
+                                //if (result.IsCommitted && result.CheckpointedDecreeNo >= nextDecreeNo)
+                                //{
+                                //    throw new Exception("Decree checkpointed");
+                                //}
                                 break;
                             case ProposeState.WaitForLastVote:
                                 break;
@@ -997,6 +997,9 @@ namespace PineRSL.Paxos.Protocol
                                 break;
                             case ProposeState.Commited:
                                 // ready 
+                                break;
+                            case ProposeState.DecreeCheckpointed:
+                                throw new Exception("Decree checkpointed");
                                 break;
                             default:
                                 break;
@@ -1086,133 +1089,78 @@ namespace PineRSL.Paxos.Protocol
 
         private async Task<bool> DeliverStaleBallotMessage(StaleBallotMessage msg)
         {
-            var result = await ProcessStaleBallotMessageInternal(msg);
-            if (result.NeedToCollectLastVote == false) //  no need to query last vote again
+            var messageReult = await ProcessStaleBallotMessageInternal(msg);
+            if(messageReult == Protocol.Propose.MessageHandleResult.Ready)
             {
-                return false;
-            }
-            using (var autolock = await result.OngoingPropose.AcquireLock())
-            {
-                if (result.OngoingPropose.State == ProposeState.QueryLastVote ||
-                    result.OngoingPropose.State == ProposeState.BeginNewBallot)
+                var propose = _proposeManager.GetOngoingPropose(msg.DecreeNo);
+                if (propose == null)
                 {
-                    var lastVoteResult = new ProposePhaseResult()
-                    { DecreeNo = msg.DecreeNo, OngoingPropose = _proposeManager.GetOngoingPropose(msg.DecreeNo) };
-                    lock (result.OngoingPropose)
+                    return false;
+                }
+                using (var autolock = await propose.AcquireLock())
+                {
+                    var result = new ProposePhaseResult()
+                    { };
+                    lock (propose)
                     {
-                        if (result.OngoingPropose.Result != null &&
-                            result.OngoingPropose.Result.Task != null &&
-                            !result.OngoingPropose.Result.Task.IsCompleted)
-                            result.OngoingPropose?.Result?.SetResult(lastVoteResult);
+                        if (propose.Result != null && propose.Result.Task != null &&
+                            !propose.Result.Task.IsCompleted)
+                            propose?.Result?.SetResult(result);
                     }
                 }
-
             }
-            //await BroadcastQueryLastVote(msg.DecreeNo, result.NextBallotNo);
             return true;
         }
 
         private async Task<bool> DeliverLastVoteMessage(LastVoteMessage msg)
         {
-            var result = await ProcessLastVoteMessageInternal(msg);
-            switch (result.Action)
+            var messageReult = await ProcessLastVoteMessageInternal(msg);
+            if (messageReult == Protocol.Propose.MessageHandleResult.Ready)
             {
-                case Protocol.Propose.LastVoteMessageResult.ResultAction.None:
-                    break;
-                case Protocol.Propose.LastVoteMessageResult.ResultAction.DecreeCheckpointed:
-                case Protocol.Propose.LastVoteMessageResult.ResultAction.DecreeCommitted:
-                case Protocol.Propose.LastVoteMessageResult.ResultAction.NewBallotReadyToBegin:
-                    {
-                        var propose = _proposeManager.GetOngoingPropose(msg.DecreeNo);
-                        if (propose == null)
-                        {
-                            return false;
-                        }
-                        using (var autolock = await propose.AcquireLock())
-                        {
-                            if (propose.State == ProposeState.BeginNewBallot)
-                            {
-                                var phaseResult = new ProposePhaseResult()
-                                {
-                                    DecreeNo = msg.DecreeNo,
-                                    OngoingPropose = propose,
-                                    IsCommitted = (Protocol.Propose.LastVoteMessageResult.ResultAction.DecreeCommitted == result.Action) ||
-                                    (Protocol.Propose.LastVoteMessageResult.ResultAction.DecreeCheckpointed == result.Action),
-                                    CommittedDecree = (Protocol.Propose.LastVoteMessageResult.ResultAction.DecreeCommitted == result.Action) ? propose.Decree : null,
-                                    CheckpointedDecreeNo = result.CheckpointedDecreeNo
-                                };
+                var propose = _proposeManager.GetOngoingPropose(msg.DecreeNo);
+                if (propose == null)
+                {
+                    return false;
+                }
+                using (var autolock = await propose.AcquireLock())
+                {
+                    // not care about the result anymore
+                    var phaseResult = new ProposePhaseResult();
 
-                                lock (result.CommittedPropose)
-                                {
-                                    if (result.CommittedPropose.Result != null && !result.CommittedPropose.Result.Task.IsCompleted)
-                                        result.CommittedPropose.Result.SetResult(phaseResult);
-                                }
-                            }
-                            else if (propose.State == ProposeState.ReadyToCommit)
-                            {
-                                var phaseResult = new ProposePhaseResult()
-                                {
-                                    DecreeNo = msg.DecreeNo,
-                                    OngoingPropose = propose,
-                                    CommittedDecree = propose.GetCommittedDecree(),
-                                    IsCommitted = (Protocol.Propose.LastVoteMessageResult.ResultAction.DecreeCommitted == result.Action ||
-                                        Protocol.Propose.LastVoteMessageResult.ResultAction.DecreeCheckpointed == result.Action),
-                                    CheckpointedDecreeNo = result.CheckpointedDecreeNo
-                                };
+                    if (propose.Result != null && !propose.Result.Task.IsCompleted)
+                        propose.Result.SetResult(phaseResult);
 
-                                lock (result.CommittedPropose)
-                                {
-                                    if (result.CommittedPropose.Result != null && !result.CommittedPropose.Result.Task.IsCompleted)
-                                        result.CommittedPropose.Result.SetResult(phaseResult);
-                                }
-                            }
-                            else
-                            {
-                                //Console.WriteLine("stale message");
+                }
 
-                            }
-
-                        }
-
-                    }
-                    break;
             }
-
             return true;
         }
 
         private async Task<bool> DeliverVoteMessage(VoteMessage msg)
         {
-            var result = await ProcessVoteMessageInternal(msg);
-            switch (result.Action)
+            var messageReult = await ProcessVoteMessageInternal(msg);
+            if (messageReult == Protocol.Propose.MessageHandleResult.Ready)
             {
-                case Protocol.Propose.VoteMessageResult.ResultAction.ReadyToCommit:
+                var propose = _proposeManager.GetOngoingPropose(msg.DecreeNo);
+                if (propose == null)
+                {
+                    return false;
+                }
+                using (var autolock = await propose.AcquireLock())
+                {
+                    if (propose.State == ProposeState.ReadyToCommit)
                     {
-                        var propose = _proposeManager.GetOngoingPropose(msg.DecreeNo);
-                        if (propose == null)
+                        var newBallotResult = new ProposePhaseResult()
+                        { };
+
+                        lock (propose)
                         {
-                            return false;
-                        }
-                        using (var autolock = await propose.AcquireLock())
-                        {
-                            if (propose.State == ProposeState.ReadyToCommit)
-                            {
-                                var newBallotResult = new ProposePhaseResult()
-                                { DecreeNo = msg.DecreeNo, OngoingPropose = _proposeManager.GetOngoingPropose(msg.DecreeNo) };
-
-                                lock (propose)
-                                {
-                                    if (propose.Result != null && !propose.Result.Task.IsCompleted)
-                                        propose.Result.SetResult(newBallotResult);
-
-                                }
-                            }
-
+                            if (propose.Result != null && !propose.Result.Task.IsCompleted)
+                                propose.Result.SetResult(newBallotResult);
                         }
                     }
-                    break;
+                }
             }
-
             return true;
         }
 
@@ -1358,10 +1306,6 @@ namespace PineRSL.Paxos.Protocol
                 // send alert
                 return new ProposePhaseResult()
                 {
-                    DecreeNo = decreeNo,
-                    OngoingPropose = null,
-                    IsCommitted = false,
-                    CommittedDecree = null
                 };
             }
 
@@ -1375,10 +1319,6 @@ namespace PineRSL.Paxos.Protocol
                     // sombody else is doing the job, this could not happend since the decree lock is locked
                     return new ProposePhaseResult()
                     {
-                        DecreeNo = decreeNo,
-                        OngoingPropose = null,
-                        IsCommitted = false,
-                        CommittedDecree = null
                     };
                 }
 
@@ -1456,18 +1396,16 @@ namespace PineRSL.Paxos.Protocol
             return propose;
         }
 
-        private async Task<Propose.StateBallotMessageResult> ProcessStaleBallotMessageInternal(StaleBallotMessage msg)
+        private async Task<Propose.MessageHandleResult> ProcessStaleBallotMessageInternal(StaleBallotMessage msg)
         {
             // in case committed, ongoing propose could be cleaned
             var propose = _proposeManager.GetOngoingPropose(msg.DecreeNo);
             if (propose == null)
             {
-                return new Protocol.Propose.StateBallotMessageResult()
-                { NeedToCollectLastVote = false };
+                return Protocol.Propose.MessageHandleResult.Continue;
             }
 
             // QueryLastVote || BeginNewBallot
-            ulong nextBallotNo = 0;
             using (var autoLock = await propose.AcquireLock())
             {
                 return propose.AddStaleBallotMessage(msg);
@@ -1475,14 +1413,13 @@ namespace PineRSL.Paxos.Protocol
 
         }
 
-        private async Task<Propose.LastVoteMessageResult> ProcessLastVoteMessageInternal(LastVoteMessage msg)
+        private async Task<Propose.MessageHandleResult> ProcessLastVoteMessageInternal(LastVoteMessage msg)
         {
             // in case committed, ongoing propose could be cleaned
             var propose = _proposeManager.GetOngoingPropose(msg.DecreeNo);
             if (propose == null)
             {
-                return new Propose.LastVoteMessageResult()
-                { Action = Protocol.Propose.LastVoteMessageResult.ResultAction.None };
+                return Protocol.Propose.MessageHandleResult.Continue;
             }
 
             using (var autoLock = await propose.AcquireLock())
@@ -1491,14 +1428,13 @@ namespace PineRSL.Paxos.Protocol
             }
         }
 
-        private async Task<Propose.VoteMessageResult> ProcessVoteMessageInternal(VoteMessage msg)
+        private async Task<Propose.MessageHandleResult> ProcessVoteMessageInternal(VoteMessage msg)
         {
             var propose = _proposeManager.GetOngoingPropose(msg.DecreeNo);
             if (propose == null)
             {
                 // propose may already be committed
-                return new Propose.VoteMessageResult()
-                { Action = Protocol.Propose.VoteMessageResult.ResultAction.None };
+                return Protocol.Propose.MessageHandleResult.Continue;
             }
             using (var autoLock = await propose.AcquireLock())
             {
