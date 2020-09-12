@@ -723,8 +723,39 @@ namespace PineRSL.Tests
             }
 
             // 4. wait_for_last_vote -> collect_last_vote (timeout)
+            {
+                var proposer = new ProposerRole(
+                    cluster.Members[0],
+                    cluster, rpcClient,
+                    proposerNote,
+                    proposeManager);
 
-            // TBD
+                ulong nextDecreeNo = 1;
+                ulong nextBallotNo = 3;
+                var propose = proposeManager.AddPropose(nextDecreeNo, (ulong)cluster.Members.Count);
+                propose.LastTriedBallot = nextBallotNo - 1;
+                propose.PrepareCollectLastVoteMessage(); //init -> QueryLastVote
+                Assert.AreEqual(propose.State, ProposeState.QueryLastVote);
+
+                string decreeContent = "test1";
+                var collectLastVoteTask = proposer.CollectLastVote(
+                    new PaxosDecree() { Content = decreeContent },
+                    nextDecreeNo);
+
+                for (int i = 0; i < cluster.Members.Count; i++)
+                {
+                    while (msgList[i].Count == 0) await Task.Delay(50);
+                    var queryLastVote = CreatePaxosMessage(msgList[i][0]) as NextBallotMessage;
+                    Assert.IsNotNull(queryLastVote);
+                    msgList[i].Clear();
+                }
+                Assert.AreEqual(propose.State, ProposeState.WaitForLastVote);
+                await Task.Delay(3000); // now time out is 2s
+                var collectLastVoteResult = await collectLastVoteTask;
+                Assert.AreEqual(propose.State, ProposeState.QueryLastVote);
+
+                proposeManager.Reset();
+            }
 
             // 5. wait_for_last_vote -> committed (others committed received)
             {
@@ -998,8 +1029,33 @@ namespace PineRSL.Tests
                 proposeManager.Reset();
             }
 
-            // 9. wait_for_new_ballot_result -> collect_last_vote (timeout)
-            // TBD
+            // 9. wait_for_new_ballot_result -> BeginNewBallot (timeout)
+            {
+                proposerNote.Clear();
+                proposeManager.Reset();
+                string decreeContent = "test1";
+
+                ulong nextDecreeNo = 1;
+                ulong nextBallotNo = 4;
+
+                var propose = new Propose((ulong)cluster.Members.Count, nextBallotNo,
+                    new PaxosDecree(decreeContent), ProposeState.WaitForNewBallotVote);
+                proposeManager.AddPropose(nextDecreeNo, propose);
+
+                var proposer = new ProposerRole(
+                    cluster.Members[0], cluster, rpcClient,
+                    proposerNote,
+                    proposeManager);
+
+                await Task.Delay(3000); // resp timout is 2s
+
+
+                Assert.AreEqual(propose.State, ProposeState.BeginNewBallot);
+
+
+                proposerNote.Clear();
+                proposeManager.Reset();
+            }
 
             // 10. wait_for_new_ballot_result -> committed (others committed received).
             {

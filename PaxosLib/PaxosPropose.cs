@@ -57,6 +57,7 @@ namespace PineRSL.Paxos.Protocol
         private ProposeState _state = ProposeState.Init;
         private IProposeStateChange _stateChangeNotifier = null;
         private ulong _checkpointDecreeNo = 0;
+        private System.Timers.Timer _respTimer = null;
 
         public enum MessageHandleResult { Ready, Continue};
 
@@ -71,6 +72,11 @@ namespace PineRSL.Paxos.Protocol
             _lastTriedBallotNo = ballotNo;
             _decree = decree;
             _state = state;
+            if (_state == ProposeState.WaitForLastVote ||
+                _state == ProposeState.WaitForNewBallotVote)
+            {
+                StartRespTimer();
+            }
         }
 
         public void SubscribeStateChangeNotifier(IProposeStateChange subscriber)
@@ -123,10 +129,50 @@ namespace PineRSL.Paxos.Protocol
                 _staleMessage.Clear();
                 _state = ProposeState.WaitForLastVote;
                 ballotNo = _lastTriedBallotNo;
+
+                // set timer
+                StartRespTimer();
+
             }
 
             var task = PublishStateChange();
             return ballotNo;
+        }
+
+        private async Task OnTimedEvent(Object source, System.Timers.ElapsedEventArgs e, ProposeState state)
+        {
+            MessageHandleResult result = MessageHandleResult.Continue;
+            using (var autolock = await AcquireLock())
+            {
+                if (state != _state)
+                {
+                    return;
+                }
+                switch (_state)
+                {
+                    case ProposeState.WaitForLastVote:
+                        _lastVoteMessages.Clear();
+                        _state = ProposeState.QueryLastVote;
+                        result = MessageHandleResult.Ready;
+                        break;
+                    case ProposeState.WaitForNewBallotVote:
+                        _voteMessages.Clear();
+                        _state = ProposeState.BeginNewBallot;
+                        result = MessageHandleResult.Ready;
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            // TODO: solve race for set the result
+            if (result == MessageHandleResult.Ready)
+            {
+                var phaseResult = new ProposePhaseResult();
+                if (Result != null && !Result.Task.IsCompleted)
+                    Result.SetResult(phaseResult);
+            }
+
         }
 
         /// <summary>
@@ -159,6 +205,8 @@ namespace PineRSL.Paxos.Protocol
                     _state = ProposeState.WaitForNewBallotVote;
 
                     _lastVoteMessages.Clear();
+
+                    StartRespTimer();
 
                     return _decree;
                 }
@@ -218,6 +266,31 @@ namespace PineRSL.Paxos.Protocol
             }
         }
 
+        private void CancelTimer()
+        {
+            if (_respTimer != null)
+            {
+                _respTimer.Stop();
+                _respTimer = null;
+            }
+        }
+
+        private void StartRespTimer()
+        {
+            _respTimer = new System.Timers.Timer(2000);
+
+            // Hook up the Elapsed event for the timer. 
+            _respTimer.Elapsed += async (sender, e) =>
+            {
+                await this.OnTimedEvent(sender, e, _state);
+            };
+
+            _respTimer.AutoReset = true;
+            _respTimer.Enabled = true;
+            _respTimer.Start();
+
+        }
+
         /// <summary>
         /// Collect last vote received
         /// </summary>
@@ -249,6 +322,7 @@ namespace PineRSL.Paxos.Protocol
 
                             // decree checkpointed
                         }
+                        CancelTimer();
                         return MessageHandleResult.Ready;
                     }
 
@@ -262,6 +336,7 @@ namespace PineRSL.Paxos.Protocol
                     {
                         _state = ProposeState.BeginNewBallot;
 
+                        CancelTimer();
                         return MessageHandleResult.Ready;
                     }
 
@@ -285,6 +360,7 @@ namespace PineRSL.Paxos.Protocol
                             _checkpointDecreeNo = lastVoteMsg.CheckpointedDecreNo;
                         }
 
+                        CancelTimer();
                         return MessageHandleResult.Ready;
                     }
                 }
@@ -317,6 +393,8 @@ namespace PineRSL.Paxos.Protocol
                 if ((ulong)_voteMessages.Count >= _clusterSize / 2 + 1)
                 {
                     _state = ProposeState.ReadyToCommit;
+
+                    CancelTimer();
                     return MessageHandleResult.Ready;
                 }
 
@@ -345,6 +423,7 @@ namespace PineRSL.Paxos.Protocol
                 _lastTriedBallotNo = staleMessage.NextBallotNo;
                 _decree = null; // reset decree, need to collect
 
+                CancelTimer();
                 return MessageHandleResult.Ready;
             }
         }
