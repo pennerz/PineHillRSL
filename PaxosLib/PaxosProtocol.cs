@@ -1129,7 +1129,6 @@ namespace PineRSL.Paxos.Protocol
 
                     if (propose.Result != null && !propose.Result.Task.IsCompleted)
                         propose.Result.SetResult(phaseResult);
-
                 }
 
             }
