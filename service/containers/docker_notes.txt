@@ -1,0 +1,9 @@
+docker network create -d nat --subnet=172.16.238.0/24 --gateway=172.16.238.1 pinertable_network
+
+docker build -t pennerz/pine_rtable_node5:v0.5 .
+
+docker run -it -p 1000 --name pinertablev0.5_5 --network pinertable_network --ip 172.16.238.14 pennerz/pine_rtable_node5:v0.5
+
+docker run -v c:\Users\[path]:c:\[containerPath]
+
+docker run -it -p 1000 --name pinertable_node5 --network pinertable_network --ip 172.16.238.14 -v C:\Users\pennerz\source\repos\PineRSL\containers\ReliableTableService\Node5:c:\Users\ContainerUser\pinetableservice pennerz/pine_rtable:v0.6

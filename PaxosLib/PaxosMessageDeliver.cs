@@ -1,9 +1,9 @@
-﻿using Paxos.Message;
-using Paxos.Protocol;
+﻿using PineRSL.Paxos.Message;
+using PineRSL.Paxos.Protocol;
 using System;
 using System.Threading.Tasks;
 
-namespace Paxos.Message
+namespace PineRSL.Paxos.Message
 {
     /// <summary>
     /// Deliver the paxos message to roles who will handle it
@@ -44,26 +44,39 @@ namespace Paxos.Message
             switch (message.MessageType)
             {
                 case PaxosMessageType.NEXTBALLOT:
-                    await _voterRole.DeliverNextBallotMessage(message as NextBallotMessage);
+                case PaxosMessageType.BEGINBALLOT:
+                //case PaxosMessageType.SUCCESS:
+                    await _voterRole.HandlePaxosMessage(message);
                     break;
                 case PaxosMessageType.LASTVOTE:
-                    await _proposerRole.DeliverLastVoteMessage(message as LastVoteMessage);
-                    break;
-                case PaxosMessageType.BEGINBALLOT:
-                    await _voterRole.DeliverBeginBallotMessage(message as BeginBallotMessage);
-                    break;
                 case PaxosMessageType.VOTE:
-                    await _proposerRole.DeliverVoteMessage(message as VoteMessage);
-                    break;
                 case PaxosMessageType.SUCCESS:
-                    await _voterRole.DeliverSuccessMessage(message as SuccessMessage);
-                    break;
                 case PaxosMessageType.STALEBALLOT:
-                    await _proposerRole.DeliverStaleBallotMessage(message as StaleBallotMessage);
+                    await _proposerRole.HandlePaxosMessage(message);
                     break;
                 default:
                     break;
             }
+        }
+
+        public async Task<PaxosMessage> Request(PaxosMessage request)
+        {
+            PaxosMessage resp = null;
+            switch (request.MessageType)
+            {
+                case PaxosMessageType.CheckpointSummaryReq:
+                case PaxosMessageType.CheckpointDataReq:
+                    {
+                        resp = await _proposerRole.HandleRequest(request);
+                        break;
+                    }
+            }
+            if (resp != null)
+            {
+                resp.SourceNode = request.TargetNode;
+                resp.TargetNode = request.SourceNode;
+            }
+            return resp;
         }
 
     }

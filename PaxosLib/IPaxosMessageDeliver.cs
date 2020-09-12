@@ -1,10 +1,9 @@
-﻿using Paxos.Message;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Paxos.Message
+namespace PineRSL.Paxos.Message
 {
     /// <summary>
     /// Paxos message deliver interface
@@ -20,5 +19,12 @@ namespace Paxos.Message
         /// <param name="message"></param>
 
         Task DeliverMessage(PaxosMessage message);
+
+        /// <summary>
+        /// Issue request, which need a response
+        /// </summary>
+        /// <param name="request"></param>
+        /// <returns></returns>
+        Task<PaxosMessage> Request(PaxosMessage request);
     }
 }

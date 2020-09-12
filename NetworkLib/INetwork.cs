@@ -6,10 +6,11 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
 
-namespace Paxos.Network
+namespace PineRSL.Network
 {
     public class NodeInfo : IEquatable<NodeInfo>
     {
+        private readonly string _name;
         public bool Equals(NodeInfo rhs)
         {
             return Name.Equals(rhs.Name);
@@ -20,9 +21,13 @@ namespace Paxos.Network
         }
         public override int GetHashCode()
         {
-            return 1;
+            return _name.GetHashCode();
         }
-        public string Name { get; set; }
+        public NodeInfo(string name)
+        {
+            _name = name;
+        }
+        public string Name => _name;
     }
 
     /// <summary>
@@ -30,6 +35,9 @@ namespace Paxos.Network
     /// </summary>
     public class NodeAddress : IEquatable<NodeAddress>
     {
+        private readonly NodeInfo _nodeInfo;
+        private readonly int _port;
+
         public bool Equals(NodeAddress rhs)
         {
             if (!Node.Equals(rhs.Node))
@@ -49,11 +57,31 @@ namespace Paxos.Network
 
         public override int GetHashCode()
         {
-            return 1;
+            return Node.GetHashCode() + Port.GetHashCode() * 100;
         }
 
-        public NodeInfo Node { get; set; }
-        public ushort Port { get; set; }
+        public NodeAddress(NodeInfo nodeInfo, int port)
+        {
+            _nodeInfo = nodeInfo;
+            _port = port;
+        }
+
+        public static string Serialize(NodeAddress addr)
+        {
+            return addr._nodeInfo.Name + "_" + addr._port.ToString();
+        }
+
+        public static NodeAddress DeSerialize(string str)
+        {
+            var index = str.IndexOf('_');
+            var nodeInfo = new NodeInfo(str.Substring(0, index));
+            var portStr = str.Substring(index + 1);
+            var port = int.Parse(portStr);
+            return new NodeAddress(nodeInfo, port);
+        }
+
+        public NodeInfo Node => _nodeInfo;
+        public int Port => _port;
     }
 
     /// <summary>
@@ -66,7 +94,9 @@ namespace Paxos.Network
         }
 
         public Guid ActivityId { get; set; }
-        public string Data { get; set; }
+        public DateTime DeliveredTime { get; set; }
+        public DateTime ReceivedTime { get; set; }
+        public byte[] Data { get; set; }
     }
 
     /// <summary>
@@ -80,7 +110,7 @@ namespace Paxos.Network
 
         Task SendMessage(NetworkMessage msg);
 
-        Task<NetworkMessage> ReceiveMessage();
+        Task<List<NetworkMessage>> ReceiveMessage();
     }
 
     /// <summary>
@@ -88,7 +118,8 @@ namespace Paxos.Network
     /// </summary>
     public interface IConnectionChangeNotification
     {
-        void OnNewConnection(IConnection newConnection);
+        void OnConnectionOpened(IConnection newConnection);
+        void OnConnectionClosed(IConnection closedConnection);
     }
 
     /// <summary>
@@ -108,7 +139,7 @@ namespace Paxos.Network
     public interface INetworkCreator
     {
         Task<INetworkServer> CreateNetworkServer(NodeAddress serverAddr);
-        Task<IConnection> CreateNetworkClient(NodeAddress localAddrr, NodeAddress serverAddr);
+        Task<IConnection> CreateNetworkClient(/*NodeAddress localAddrr, */NodeAddress serverAddr);
     }
 
     /// <summary>
@@ -132,12 +163,18 @@ namespace Paxos.Network
             return null;
         }
 
-        public static async Task<IConnection> CreateNetworkClient(NodeAddress localAddr, NodeAddress serverAddr)
+        public static async Task<IConnection> CreateNetworkClient(/*NodeAddress localAddr,*/ NodeAddress serverAddr)
         {
             if (_creator != null)
             {
-                var connection = await _creator.CreateNetworkClient(localAddr, serverAddr);
-                return connection;
+                try
+                {
+                    var connection = await _creator.CreateNetworkClient(/*localAddr, */serverAddr);
+                    return connection;
+                }
+                catch(Exception)
+                {
+                }
             }
             return null;
         }

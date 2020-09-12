@@ -1,8 +1,10 @@
-﻿using Paxos.Network;
-using Paxos.Message;
+﻿using PineRSL.Network;
+using PineRSL.Rpc;
+using PineRSL.Paxos.Message;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
-namespace Paxos.Rpc
+namespace PineRSL.Paxos.Rpc
 {
     public enum PaxosRpcMessageType
     {
@@ -12,7 +14,12 @@ namespace Paxos.Rpc
         BeginNewBallot,
         Vote,
         Successfull,
-        StaleBallot
+        StaleBallot,
+        Aggregated,
+        CheckpointSummaryRequest,
+        CheckpointSummaryResp,
+        CheckpointDataRequest,
+        CheckpointDataResp
     }
 
     /// <summary>
@@ -21,7 +28,7 @@ namespace Paxos.Rpc
     public class PaxosRpcMessage
     {
         public PaxosRpcMessageType MessageType { get; set; }
-        public string MessageContent { get; set; }
+        public byte[] MessageContent { get; set; }
     }
 
     /// <summary>
@@ -69,6 +76,43 @@ namespace Paxos.Rpc
                         }
                     }
                     break;
+                case PaxosRpcMessageType.Aggregated:
+                    if (_messageDeliver != null)
+                    {
+                        var aggregatedMsg = PaxosMessageFactory.CreatePaxosMessage(paxosRpcMessage) as AggregatedPaxosMessage;
+                        if (aggregatedMsg != null)
+                        {
+                            var taskList = new List<Task>();
+                            var taskWithRespList = new List<Task<PaxosMessage>>();
+                            foreach (var paxosMessage in aggregatedMsg.PaxosMessages)
+                            {
+                                var task = _messageDeliver?.DeliverMessage(paxosMessage);
+                                if (task != null)
+                                {
+                                    taskList.Add(task);
+                                }
+                            }
+                            await Task.WhenAll(taskList);
+                        }
+                        else
+                        {
+                            aggregatedMsg = null;
+                        }
+                    }
+                    break;
+                case PaxosRpcMessageType.CheckpointSummaryRequest:
+                case PaxosRpcMessageType.CheckpointDataRequest:
+                    {
+                        var paxosMessage = PaxosMessageFactory.CreatePaxosMessage(paxosRpcMessage);
+                        if (paxosMessage != null)
+                        {
+                            var resp = await _messageDeliver?.Request(paxosMessage);
+                            var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(resp);
+                            var rpcResp = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
+                            return rpcResp;
+                        }
+                        return null;
+                    }
                 default:
                     if (_rpcRequestHandler != null)
                     {
