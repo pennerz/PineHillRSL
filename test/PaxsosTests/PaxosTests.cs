@@ -503,34 +503,13 @@ namespace PineRSL.Tests
             //                    stale message                                   commited returned
             //                   |--------------|    |--------------------------------------------------------------------------------
             //                  \|/             |   |                                                                              \|/
-            // init ->  collect_last_vote -> wait_for_last_vote -> beginnewballot -> wait_for_new_ballot_result ->ReadyCommit -->  committed
+            //         collect_last_vote -> wait_for_last_vote -> beginnewballot -> wait_for_new_ballot_result ->ReadyCommit -->  committed
             //            /|\  /|\                   |                                    | |                                       /|\
             //             |    ---------------------|                                    | |----------------------------------------|
             //             |              timeout                                         |     others has new propose and committed
             //             |                                                              |
             //             |______________________________________________________________|
             //              stale message indicate ballot already occupied by new proposer
-
-            // 1. init -> collect_last_vote
-            {
-                var proposer = new ProposerRole(
-                    cluster.Members[0],
-                    cluster, rpcClient,
-                    proposerNote,
-                    proposeManager);
-
-                var propose = new Propose((ulong)cluster.Members.Count, 1/*ballotno*/, null, ProposeState.Init);
-                proposeManager.AddPropose(1/*decreeNo*/, propose);
-
-                Assert.AreEqual(propose.State, ProposeState.Init);
-
-                propose.PrepareCollectLastVoteMessage(); //init -> QueryLastVote
-
-                Assert.AreEqual(propose.State, ProposeState.QueryLastVote);
-
-                proposeManager.Reset();
-            }
-
 
             // 2. collect_last_vote -> wait_for_last_vote
             {
@@ -543,7 +522,6 @@ namespace PineRSL.Tests
                 ulong nextDecreeNo = 1;
                 var propose = proposeManager.AddPropose(nextDecreeNo, (ulong)cluster.Members.Count);
                 propose.LastTriedBallot = 1;
-                propose.PrepareCollectLastVoteMessage(); //init -> QueryLastVote
                 Assert.AreEqual(propose.State, ProposeState.QueryLastVote);
 
                 string decreeContent = "test1";
@@ -576,7 +554,6 @@ namespace PineRSL.Tests
                 ulong nextBallotNo = 2;
                 var propose = proposeManager.AddPropose(nextDecreeNo, (ulong)cluster.Members.Count);
                 propose.LastTriedBallot = nextBallotNo - 1;
-                propose.PrepareCollectLastVoteMessage(); //init -> QueryLastVote
                 Assert.AreEqual(propose.State, ProposeState.QueryLastVote);
 
                 string decreeContent = "test1";
@@ -630,7 +607,6 @@ namespace PineRSL.Tests
                 proposeManager.Reset();
             }
 
-
             // 3.2 more than one returned with voted decree, the decree with higher ballot no will be treated with voted decree
             {
                 var proposer = new ProposerRole(
@@ -643,7 +619,6 @@ namespace PineRSL.Tests
                 ulong nextBallotNo = 3;
                 var propose = proposeManager.AddPropose(nextDecreeNo, (ulong)cluster.Members.Count);
                 propose.LastTriedBallot = nextBallotNo - 1;
-                propose.PrepareCollectLastVoteMessage(); //init -> QueryLastVote
                 Assert.AreEqual(propose.State, ProposeState.QueryLastVote);
 
                 string decreeContent = "test1";
@@ -734,7 +709,6 @@ namespace PineRSL.Tests
                 ulong nextBallotNo = 3;
                 var propose = proposeManager.AddPropose(nextDecreeNo, (ulong)cluster.Members.Count);
                 propose.LastTriedBallot = nextBallotNo - 1;
-                propose.PrepareCollectLastVoteMessage(); //init -> QueryLastVote
                 Assert.AreEqual(propose.State, ProposeState.QueryLastVote);
 
                 string decreeContent = "test1";
@@ -769,7 +743,6 @@ namespace PineRSL.Tests
                 ulong nextBallotNo = 3;
                 var propose = proposeManager.AddPropose(nextDecreeNo, (ulong)cluster.Members.Count);
                 propose.LastTriedBallot = nextBallotNo - 1;
-                propose.PrepareCollectLastVoteMessage(); //init -> QueryLastVote
                 Assert.AreEqual(propose.State, ProposeState.QueryLastVote);
 
                 string decreeContent = "test1";
@@ -855,7 +828,6 @@ namespace PineRSL.Tests
                 ulong nextBallotNo = 3;
                 var propose = proposeManager.AddPropose(nextDecreeNo, (ulong)cluster.Members.Count);
                 propose.LastTriedBallot = nextBallotNo - 1;
-                propose.PrepareCollectLastVoteMessage(); //init -> QueryLastVote
                 Assert.AreEqual(propose.State, ProposeState.QueryLastVote);
 
                 string decreeContent = "test1";

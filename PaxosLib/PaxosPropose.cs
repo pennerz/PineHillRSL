@@ -13,7 +13,7 @@ namespace PineRSL.Paxos.Protocol
     //                                                                commited returned
     //                                       |--------------------------------------------------------------------------------
     //                                       |                                                                              \|/
-    // init ->  collect_last_vote -> wait_for_last_vote -> beginnewballot -> wait_for_new_ballot_result ->ReadyCommit -->  committed
+    //         collect_last_vote -> wait_for_last_vote -> beginnewballot -> wait_for_new_ballot_result ->ReadyCommit -->  committed
     //            /|\  /|\                   |                                    | |                                       /|\
     //             |    ---------------------|                                    | |----------------------------------------|
     //             |              timeout                                         |     others has new propose and committed
@@ -23,7 +23,6 @@ namespace PineRSL.Paxos.Protocol
 
     public enum ProposeState
     {
-        Init,               // init
         QueryLastVote,      // query exiting vote
         WaitForLastVote,
         BeginNewBallot,     // prepare commit
@@ -31,8 +30,6 @@ namespace PineRSL.Paxos.Protocol
         ReadyToCommit,
         Commited,            // done
         DecreeCheckpointed
-
-
     }
 
     public class ProposePhaseResult
@@ -54,7 +51,7 @@ namespace PineRSL.Paxos.Protocol
         private ulong _clusterSize = 0;
         private ulong _lastTriedBallotNo = 0;
         private PaxosDecree _decree = null;
-        private ProposeState _state = ProposeState.Init;
+        private ProposeState _state = ProposeState.QueryLastVote;
         private IProposeStateChange _stateChangeNotifier = null;
         private ulong _checkpointDecreeNo = 0;
         private System.Timers.Timer _respTimer = null;
@@ -79,29 +76,71 @@ namespace PineRSL.Paxos.Protocol
             }
         }
 
+        public ulong CheckpointedDecreeNo => _checkpointDecreeNo;
+
+        public ulong GetNextBallot()
+        {
+            lock (_subscribedCompletionSource)
+            {
+                ulong maximumBallotNo = 0;
+                foreach (var staleMsg in _staleMessage)
+                {
+                    if (staleMsg.NextBallotNo > maximumBallotNo)
+                    {
+                        maximumBallotNo = staleMsg.NextBallotNo;
+                    }
+                }
+
+                if (_lastTriedBallotNo > maximumBallotNo)
+                {
+                    maximumBallotNo = _lastTriedBallotNo;
+                }
+
+                return maximumBallotNo;
+            }
+        }
+
+
+        // propose data
+        public ProposeState State => _state;
+
+        public ulong LastTriedBallot { set { _lastTriedBallotNo = value; } get { return _lastTriedBallotNo; } }
+
+        public TaskCompletionSource<ProposePhaseResult> Result { get; set; }
+
+        public PaxosDecree Decree => _decree;
+
+        public List<LastVoteMessage> LastVoteMessages => _lastVoteMessages;
+
+        public List<VoteMessage> VotedMessages => _voteMessages;
+
+        // conters
+        public TimeSpan GetProposeCostTime { get; set; }
+        public TimeSpan GetProposeLockCostTime { get; set; }
+        public TimeSpan PrepareNewBallotCostTime { get; set; }
+        public TimeSpan BroadcastQueryLastVoteCostTime { get; set; }
+
+
+        /// <summary>
+        /// subscribe the state change notification
+        /// </summary>
+        /// <param name="subscriber"></param>
         public void SubscribeStateChangeNotifier(IProposeStateChange subscriber)
         {
             _stateChangeNotifier = subscriber;
             var task = PublishStateChange();
         }
 
+        /// <summary>
+        /// Acquire propose lock
+        /// </summary>
+        /// <returns></returns>
         public async Task<AutoLock> AcquireLock()
         {
             await _lock.WaitAsync();
             var autoLock = new AutoLock(_lock);
             return autoLock;
         }
-
-        public void PrepareCollectLastVoteMessage()
-        {
-            if (_state != ProposeState.Init)
-            {
-                return;
-            }
-            _state = ProposeState.QueryLastVote;
-            var task = PublishStateChange();
-        }
-
 
         /// <summary>
         /// Prepare new ballot for the propose
@@ -137,42 +176,6 @@ namespace PineRSL.Paxos.Protocol
 
             var task = PublishStateChange();
             return ballotNo;
-        }
-
-        private async Task OnTimedEvent(Object source, System.Timers.ElapsedEventArgs e, ProposeState state)
-        {
-            MessageHandleResult result = MessageHandleResult.Continue;
-            using (var autolock = await AcquireLock())
-            {
-                if (state != _state)
-                {
-                    return;
-                }
-                switch (_state)
-                {
-                    case ProposeState.WaitForLastVote:
-                        _lastVoteMessages.Clear();
-                        _state = ProposeState.QueryLastVote;
-                        result = MessageHandleResult.Ready;
-                        break;
-                    case ProposeState.WaitForNewBallotVote:
-                        _voteMessages.Clear();
-                        _state = ProposeState.BeginNewBallot;
-                        result = MessageHandleResult.Ready;
-                        break;
-                    default:
-                        break;
-                }
-            }
-
-            // TODO: solve race for set the result
-            if (result == MessageHandleResult.Ready)
-            {
-                var phaseResult = new ProposePhaseResult();
-                if (Result != null && !Result.Task.IsCompleted)
-                    Result.SetResult(phaseResult);
-            }
-
         }
 
         /// <summary>
@@ -218,7 +221,11 @@ namespace PineRSL.Paxos.Protocol
             }
         }
 
-
+        /// <summary>
+        /// Commit the propose
+        /// </summary>
+        /// <param name="ballotNo"></param>
+        /// <returns></returns>
         public bool Commit(ulong ballotNo)
         {
             try
@@ -258,6 +265,10 @@ namespace PineRSL.Paxos.Protocol
             }
         }
 
+        /// <summary>
+        /// Publish state change notification
+        /// </summary>
+        /// <returns></returns>
         public async Task PublishStateChange()
         {
             if (_stateChangeNotifier != null)
@@ -266,30 +277,6 @@ namespace PineRSL.Paxos.Protocol
             }
         }
 
-        private void CancelTimer()
-        {
-            if (_respTimer != null)
-            {
-                _respTimer.Stop();
-                _respTimer = null;
-            }
-        }
-
-        private void StartRespTimer()
-        {
-            _respTimer = new System.Timers.Timer(2000);
-
-            // Hook up the Elapsed event for the timer. 
-            _respTimer.Elapsed += async (sender, e) =>
-            {
-                await this.OnTimedEvent(sender, e, _state);
-            };
-
-            _respTimer.AutoReset = true;
-            _respTimer.Enabled = true;
-            _respTimer.Start();
-
-        }
 
         /// <summary>
         /// Collect last vote received
@@ -402,6 +389,11 @@ namespace PineRSL.Paxos.Protocol
             }
         }
 
+        /// <summary>
+        /// Add stale ballot message
+        /// </summary>
+        /// <param name="staleMessage"></param>
+        /// <returns></returns>
         public MessageHandleResult AddStaleBallotMessage(StaleBallotMessage staleMessage)
         {
             // QueryLastVote || BeginNewBallot
@@ -427,64 +419,6 @@ namespace PineRSL.Paxos.Protocol
                 return MessageHandleResult.Ready;
             }
         }
-
-        public ulong CheckpointedDecreeNo => _checkpointDecreeNo;
-
-        public ulong GetNextBallot()
-        {
-            lock(_subscribedCompletionSource)
-            {
-                ulong maximumBallotNo = 0;
-                foreach(var staleMsg in _staleMessage)
-                {
-                    if (staleMsg.NextBallotNo > maximumBallotNo)
-                    {
-                        maximumBallotNo = staleMsg.NextBallotNo;
-                    }
-                }
-
-                if (_lastTriedBallotNo > maximumBallotNo)
-                {
-                    maximumBallotNo = _lastTriedBallotNo;
-                }
-
-                return maximumBallotNo;
-            }
-        }
-
-        public PaxosDecree GetCommittedDecree()
-        {
-            lock (_subscribedCompletionSource)
-            {
-                // already committed
-                if (State == ProposeState.Commited)
-                {
-                    return _decree;
-                }
-            }
-
-            return null;
-        }
-
-        // propose data
-        public ProposeState State => _state;
-
-        public ulong LastTriedBallot { set { _lastTriedBallotNo = value; } get { return _lastTriedBallotNo; } }
-
-        public TaskCompletionSource<ProposePhaseResult> Result { get; set; }
-
-        public PaxosDecree Decree => _decree;
-
-        public List<LastVoteMessage> LastVoteMessages => _lastVoteMessages;
-
-        public List<VoteMessage> VotedMessages => _voteMessages;
-
-        // conters
-        public TimeSpan GetProposeCostTime { get; set; }
-        public TimeSpan GetProposeLockCostTime { get; set; }
-        public TimeSpan PrepareNewBallotCostTime { get; set; }
-        public TimeSpan BroadcastQueryLastVoteCostTime { get; set; }
-
 
         /// <summary>
         /// get the maximum vote in the ammon the lastvote messages
@@ -515,12 +449,77 @@ namespace PineRSL.Paxos.Protocol
             }
             return null;
         }
-        private bool IsReadyToCommit()
+
+        /// <summary>
+        /// Cancel the response timeout timer
+        /// </summary>
+        private void CancelTimer()
         {
-            lock (_subscribedCompletionSource)
+            if (_respTimer != null)
             {
-                return State == ProposeState.ReadyToCommit;
+                _respTimer.Stop();
+                _respTimer = null;
             }
+        }
+
+        /// <summary>
+        /// Start response timeout timer
+        /// </summary>
+        private void StartRespTimer()
+        {
+            _respTimer = new System.Timers.Timer(2000);
+
+            // Hook up the Elapsed event for the timer. 
+            _respTimer.Elapsed += async (sender, e) =>
+            {
+                await this.OnTimedEvent(_state);
+            };
+
+            _respTimer.AutoReset = true;
+            _respTimer.Enabled = true;
+            _respTimer.Start();
+
+        }
+
+        /// <summary>
+        /// Response timeout timer triggered
+        /// </summary>
+        /// <param name="state"></param>
+        /// <returns></returns>
+        private async Task OnTimedEvent(ProposeState state)
+        {
+            MessageHandleResult result = MessageHandleResult.Continue;
+            using (var autolock = await AcquireLock())
+            {
+                if (state != _state)
+                {
+                    return;
+                }
+                switch (_state)
+                {
+                    case ProposeState.WaitForLastVote:
+                        _lastVoteMessages.Clear();
+                        _state = ProposeState.QueryLastVote;
+                        result = MessageHandleResult.Ready;
+                        break;
+                    case ProposeState.WaitForNewBallotVote:
+                        _voteMessages.Clear();
+                        _state = ProposeState.BeginNewBallot;
+                        result = MessageHandleResult.Ready;
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            // TODO: solve race for set the result
+            if (result == MessageHandleResult.Ready)
+            {
+                var phaseResult = new ProposePhaseResult();
+                if (Result != null && !Result.Task.IsCompleted)
+                    Result.SetResult(phaseResult);
+            }
+
         }
 
     };

@@ -975,9 +975,6 @@ namespace PineRSL.Paxos.Protocol
                     {
                         switch (propose.State)
                         {
-                            case ProposeState.Init:
-                                propose.PrepareCollectLastVoteMessage(); // move to query last vote state
-                                break;
                             case ProposeState.QueryLastVote:
                                 result = await CollectLastVote(decree, nextDecreeNo);
                                 //if (result.IsCommitted && result.CheckpointedDecreeNo >= nextDecreeNo)
@@ -1016,7 +1013,7 @@ namespace PineRSL.Paxos.Protocol
                         //return 
                     }
 
-                    if (decree != propose.GetCommittedDecree())
+                    if (decree != propose.Decree)
                     {
                         if (decreeNo == 0)
                         {
@@ -1026,7 +1023,7 @@ namespace PineRSL.Paxos.Protocol
 
                     return new ProposeResult()
                     {
-                        Decree = propose.GetCommittedDecree(),
+                        Decree = propose.Decree,
                         DecreeNo = nextDecreeNo,
                         CollectLastVoteTimeInMs = collectLastVoteCostTimeInMs,
                         CommitTimeInMs = commitCostTimeInMs,
@@ -1344,18 +1341,18 @@ namespace PineRSL.Paxos.Protocol
                     return null;
                 }
 
-                position = await _proposerNote.CommitDecree(decreeNo, propose.GetCommittedDecree());
+                position = await _proposerNote.CommitDecree(decreeNo, propose.Decree);
             }
 
-            await NotifyLearnersResult(decreeNo, ballotNo, propose.GetCommittedDecree());
+            await NotifyLearnersResult(decreeNo, ballotNo, propose.Decree);
             _proposeManager.RemovePropose(decreeNo);
 
             if (_notificationSubscriber != null)
-                await _notificationSubscriber?.UpdateSuccessfullDecree(decreeNo, propose.GetCommittedDecree());
+                await _notificationSubscriber?.UpdateSuccessfullDecree(decreeNo, propose.Decree);
 
-            if (propose.GetCommittedDecree().Data != null)
+            if (propose.Decree.Data != null)
             {
-                _catchupLogSize += propose.GetCommittedDecree().Data.Length;
+                _catchupLogSize += propose.Decree.Data.Length;
             }
             // check if need to checkpoint
             // TODO, remvoe it from critical path
@@ -1375,17 +1372,17 @@ namespace PineRSL.Paxos.Protocol
                 return null;
             }
 
-            position = await _proposerNote.CommitDecree(decreeNo, propose.GetCommittedDecree());
+            position = await _proposerNote.CommitDecree(decreeNo, propose.Decree);
 
-            await NotifyLearnersResult(decreeNo, ballotNo, propose.GetCommittedDecree());
+            await NotifyLearnersResult(decreeNo, ballotNo, propose.Decree);
             _proposeManager.RemovePropose(decreeNo);
 
             if (_notificationSubscriber != null)
-                await _notificationSubscriber?.UpdateSuccessfullDecree(decreeNo, propose.GetCommittedDecree());
+                await _notificationSubscriber?.UpdateSuccessfullDecree(decreeNo, propose.Decree);
 
-            if (propose.GetCommittedDecree().Data != null)
+            if (propose.Decree.Data != null)
             {
-                _catchupLogSize += propose.GetCommittedDecree().Data.Length;
+                _catchupLogSize += propose.Decree.Data.Length;
             }
             // check if need to checkpoint
             // TODO, remvoe it from critical path
