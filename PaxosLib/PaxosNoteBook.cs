@@ -636,7 +636,7 @@ namespace PineRSL.Paxos.Notebook
         //private ConcurrentDictionary<ulong, Propose> _decreeState = new ConcurrentDictionary<ulong, Propose>();
         //private Ledger _ledger;
         private SemaphoreSlim _lock = new SemaphoreSlim(1);
-        private readonly ConcurrentDictionary<ulong, PaxosDecree> _committedDecrees = new ConcurrentDictionary<ulong, PaxosDecree>();
+        private readonly Dictionary<ulong, PaxosDecree> _committedDecrees = new Dictionary<ulong, PaxosDecree>();
         private ILogger _logger;
         private ILogger _metaLogger;
         private SlidingWindow _activePropose = new SlidingWindow(0, new RequestPositionItemComparer());
@@ -720,8 +720,14 @@ namespace PineRSL.Paxos.Notebook
                     continue;
                 }
                 var decree = new PaxosDecree(Encoding.UTF8.GetString(tmpRecord.DecreeContent));
-                _committedDecrees.AddOrUpdate(tmpRecord.DecreeNo, decree,
-                    (key, oldValue) => decree);
+                if (_committedDecrees.ContainsKey(tmpRecord.DecreeNo))
+                {
+                    _committedDecrees[tmpRecord.DecreeNo] = decree;
+                }
+                else
+                {
+                    _committedDecrees.TryAdd(tmpRecord.DecreeNo, decree);
+                }
             }
         }
 
@@ -729,12 +735,17 @@ namespace PineRSL.Paxos.Notebook
         /// Get the maximum committed decree no
         /// </summary>
         /// <returns></returns>
-        public ulong GetMaximumCommittedDecreeNo()
+        public async Task<ulong> GetMaximumCommittedDecreeNo()
         {
             ulong maximumCommittedDecreeNo = 0;
-            lock(_lock)
+            try
             {
-                maximumCommittedDecreeNo = GetMaximumCommittedDecreeNoNeedLock();
+                await _lock.WaitAsync();
+                maximumCommittedDecreeNo = GetMaximumCommittedDecreeNoWithoutLock();
+            }
+            finally
+            {
+                _lock.Release();
             }
             return maximumCommittedDecreeNo;
         }
@@ -745,13 +756,16 @@ namespace PineRSL.Paxos.Notebook
         /// </summary>
         /// <param name="decreeNo"></param>
         /// <returns></returns>
-        public Task<CommittedDecreeInfo> GetCommittedDecree(ulong decreeNo)
+        public async Task<CommittedDecreeInfo> GetCommittedDecree(ulong decreeNo)
         {
             // committed dcree can never be changed
             PaxosDecree committedDecree = null;
             var committedDecreeInfo = new CommittedDecreeInfo();
-            lock (_lock)
+
+            //lock (_lock)
+            try
             {
+                await _lock.WaitAsync();
                 if (ProposeRoleMetaRecord != null && ProposeRoleMetaRecord.DecreeNo > decreeNo)
                 {
                     committedDecreeInfo.CheckpointedDecreeNo = ProposeRoleMetaRecord.DecreeNo;
@@ -759,13 +773,20 @@ namespace PineRSL.Paxos.Notebook
 
                 if (decreeNo > committedDecreeInfo.CheckpointedDecreeNo)
                 {
-                    if (_committedDecrees.TryGetValue(decreeNo, out committedDecree))
-                    {
-                        committedDecreeInfo.CommittedDecree = committedDecree;
-                    }
+                    _committedDecrees.TryGetValue(decreeNo, out committedDecree);
                 }
             }
-            return Task.FromResult(committedDecreeInfo);
+            finally
+            {
+                _lock.Release();
+            }
+
+            if (committedDecree != null)
+            {
+                committedDecreeInfo.CommittedDecree = committedDecree;
+            }
+
+            return committedDecreeInfo;
         }
 
         public Task<AppendPosition> CommitDecree(ulong decreeNo, PaxosDecree commitedDecree)
@@ -773,12 +794,15 @@ namespace PineRSL.Paxos.Notebook
             return CommitDecreeInternal(decreeNo, commitedDecree);
         }
 
-        public Task<List<KeyValuePair<ulong, PaxosDecree>>> GetFollowingCommittedDecress(ulong beginDecreeNo)
+        public async Task<List<KeyValuePair<ulong, PaxosDecree>>> GetFollowingCommittedDecress(ulong beginDecreeNo)
         {
             var committedDecrees = new List<KeyValuePair<ulong, PaxosDecree>>();
-            lock (_lock)
+            //lock (_lock)
+            try
             {
-                for (ulong decreeNo = beginDecreeNo; decreeNo <= GetMaximumCommittedDecreeNo(); decreeNo++)
+                await _lock.WaitAsync();
+                var maxCommitedDecreNo = GetMaximumCommittedDecreeNoWithoutLock();
+                for (ulong decreeNo = beginDecreeNo; decreeNo <= maxCommitedDecreNo; decreeNo++)
                 {
                     PaxosDecree committedDecree = null;
                     if (_committedDecrees.TryGetValue(decreeNo, out committedDecree))
@@ -787,21 +811,31 @@ namespace PineRSL.Paxos.Notebook
                     }
                 }
             }
-            return Task.FromResult(committedDecrees.Count > 0 ? committedDecrees : null);
+            finally
+            {
+                _lock.Release();
+            }
+            return committedDecrees.Count > 0 ? committedDecrees : null;
         }
         public ulong GetCommittedDecreeCount()
         {
-            lock(_lock)
+            //lock(_lock)
             {
                 return (ulong)_committedDecrees.Count;
             }
         }
 
-        public void Clear()
+        public async Task Clear()
         {
-            lock(_lock)
+            //lock(_lock)
+            try
             {
+                await _lock.WaitAsync();
                 _committedDecrees.Clear();
+            }
+            finally
+            {
+                _lock.Release();
             }
         }
 
@@ -828,10 +862,16 @@ namespace PineRSL.Paxos.Notebook
             {
                 for(var itDecreeNo = baseDecreeNo; decreeNo < newBaseDecreNo; itDecreeNo++)
                 {
-                    lock(_lock)
+                    //lock(_lock)
+                    try
                     {
+                        await _lock.WaitAsync();
                         PaxosDecree paxosDecree = null;
-                        _committedDecrees.TryRemove(itDecreeNo, out paxosDecree);
+                        _committedDecrees.Remove(itDecreeNo, out paxosDecree);
+                    }
+                    finally
+                    {
+                        _lock.Release();
                     }
                 }
             }
@@ -868,9 +908,10 @@ namespace PineRSL.Paxos.Notebook
             return Task.FromResult(minPos);
         }
 
-        private ulong GetMaximumCommittedDecreeNoNeedLock()
+        private ulong GetMaximumCommittedDecreeNoWithoutLock()
         {
-            lock(_lock)
+            //lock(_lock)
+            try
             {
                 var maxDecreeNo = _committedDecrees.LastOrDefault().Key;
                 if (ProposeRoleMetaRecord != null && ProposeRoleMetaRecord.DecreeNo > maxDecreeNo)
@@ -878,6 +919,9 @@ namespace PineRSL.Paxos.Notebook
                     maxDecreeNo = ProposeRoleMetaRecord.DecreeNo;
                 }
                 return maxDecreeNo;
+            }
+            finally
+            {
             }
         }
         

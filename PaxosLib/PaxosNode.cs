@@ -111,7 +111,7 @@ namespace PineRSL.Paxos.Node
             _proposerNote = new ProposerNote(_proposeLogger, _metaLogger);
             await _proposerNote.Load();
 
-            _proposeManager = new ProposeManager(_proposerNote.GetMaximumCommittedDecreeNo());
+            _proposeManager = new ProposeManager(await _proposerNote.GetMaximumCommittedDecreeNo());
 
             _voterRole = new VoterRole(_serverAddr, _cluster, _rpcClient, _voterNote, _proposerNote);
             _proposerRole = new ProposerRole(

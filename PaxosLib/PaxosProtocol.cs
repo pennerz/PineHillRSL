@@ -332,7 +332,7 @@ namespace PineRSL.Paxos.Protocol
                         continue;
                     }
                     truncateRound = 0;
-                    var maxDecreeNo = _ledger.GetMaximumCommittedDecreeNo();
+                    var maxDecreeNo = await _ledger.GetMaximumCommittedDecreeNo();
                     var position = _note.GetMaxPositionForDecrees(maxDecreeNo);
                     _note.Truncate(maxDecreeNo, position);
                 }
@@ -684,7 +684,7 @@ namespace PineRSL.Paxos.Protocol
             do
             {
                 await _proposerNote.Load();
-                _proposeManager.ResetBaseDecreeNo(_proposerNote.GetMaximumCommittedDecreeNo());
+                _proposeManager.ResetBaseDecreeNo(await _proposerNote.GetMaximumCommittedDecreeNo());
                 if (_notificationSubscriber != null)
                 {
                     var metaRecord = _proposerNote.ProposeRoleMetaRecord;
@@ -767,7 +767,7 @@ namespace PineRSL.Paxos.Protocol
                 }
             }
 
-            if (latestCheckpoint != null && latestCheckpoint.CheckpointDecreeNo > this._proposerNote.GetMaximumCommittedDecreeNo() &&
+            if (latestCheckpoint != null && latestCheckpoint.CheckpointDecreeNo > await _proposerNote.GetMaximumCommittedDecreeNo() &&
                 !string.IsNullOrEmpty(latestCheckpoint.CheckpointFile))
             {
                 // get checkpoint from rmote node
@@ -880,7 +880,7 @@ namespace PineRSL.Paxos.Protocol
             try
             {
                 DecreeReadResult result = null;
-                var maximumCommittedDecreeNo = _proposerNote.GetMaximumCommittedDecreeNo();
+                var maximumCommittedDecreeNo = await _proposerNote.GetMaximumCommittedDecreeNo();
                 if (decreeNo > maximumCommittedDecreeNo)
                 {
                     result = new DecreeReadResult()

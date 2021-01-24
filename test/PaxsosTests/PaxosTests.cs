@@ -492,7 +492,7 @@ namespace PineRSL.Tests
             var logPrefix = Guid.NewGuid().ToString();
             var ledgerLogger = new FileLogger(".\\storage\\" + logPrefix + "logger.log");
             var proposerNote = new ProposerNote(ledgerLogger);
-            var proposeManager = new ProposeManager(proposerNote.GetMaximumCommittedDecreeNo() + 1);
+            var proposeManager = new ProposeManager(await proposerNote.GetMaximumCommittedDecreeNo() + 1);
 
             var rpcClient = new RpcClient();
 
@@ -1509,7 +1509,6 @@ namespace PineRSL.Tests
 
         }
 
-        /*
         [TestMethod()]
         public async Task StateMachinePefTest()
         {
@@ -1521,24 +1520,28 @@ namespace PineRSL.Tests
             var cluster = new PaxosCluster();
             for (int i = 0; i < 5; i++)
             {
-                var node = new NodeInfo("Node" + i.ToString());
-                cluster.Members.Add(node);
+                var node = new NodeInfo("127.0.0.1");
+                var nodeAddr = new NodeAddress(node, 88 + i);
+                cluster.Members.Add(nodeAddr);
             }
 
             var networkInfr = new TestNetworkInfr();
-            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
+            //NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
+            NetworkFactory.SetNetworkCreator(new TcpNetworkCreator());
 
             var tableNodeMap = new Dictionary<string, ReplicatedTable.ReplicatedTable>();
-            foreach (var nodeInfo in cluster.Members)
+            foreach (var nodeAddr in cluster.Members)
             {
-                var node = new ReplicatedTable.ReplicatedTable(cluster, nodeInfo);
-                tableNodeMap[nodeInfo.Name] = node;
+                var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
+                tableNodeMap[NodeAddress.Serialize(nodeAddr)] = node;
             }
 
             start = DateTime.Now;
 
             List<Task> taskList = new List<Task>();
-            var master = tableNodeMap[cluster.Members[0].Name];
+            var master = tableNodeMap[NodeAddress.Serialize(cluster.Members[0])];
+
+
             for (int i = 0; i < 100000; i++)
             {
                 var task =  master.InstertTable(new ReplicatedTableRequest() { Key = i.ToString(), Value = "test" + i.ToString() });
@@ -1562,6 +1565,7 @@ namespace PineRSL.Tests
             }
         }
 
+        /*
         [TestMethod()]
         public async Task PaxosPefTest()
         {

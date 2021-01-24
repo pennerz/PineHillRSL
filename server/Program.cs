@@ -137,15 +137,15 @@ namespace PineRSL.Server
                     {
                         var begin = DateTime.Now;
                         var result = await proposer.ProposeDecree(decree, 0/*nextDecreNo*/);
-                        //var proposeTime = DateTime.Now - begin;
-                        //proposeDecreeTime.Accumulate(proposeTime.TotalMilliseconds);
-                        //collectLastVoteTime.Accumulate(result.CollectLastVoteTimeInMs.TotalMilliseconds);
-                        //voteTime.Accumulate(result.VoteTimeInMs.TotalMilliseconds);
-                        //commitTime.Accumulate(result.CommitTimeInMs.TotalMilliseconds);
-                        //getProposeTime.Accumulate(result.GetProposeCostTime.TotalMilliseconds);
-                        //getProposeLockTime.Accumulate(result.GetProposeLockCostTime.TotalMilliseconds);
-                        //prepareNewBallotTime.Accumulate(result.PrepareNewBallotCostTime.TotalMilliseconds);
-                        //broadcaseQueryLastVoteTime.Accumulate(result.BroadcastQueryLastVoteCostTime.TotalMilliseconds);
+                        var proposeTime = DateTime.Now - begin;
+                        proposeDecreeTime.Accumulate(proposeTime.TotalMilliseconds);
+                        collectLastVoteTime.Accumulate(result.CollectLastVoteTimeInMs.TotalMilliseconds);
+                        voteTime.Accumulate(result.VoteTimeInMs.TotalMilliseconds);
+                        commitTime.Accumulate(result.CommitTimeInMs.TotalMilliseconds);
+                        getProposeTime.Accumulate(result.GetProposeCostTime.TotalMilliseconds);
+                        getProposeLockTime.Accumulate(result.GetProposeLockCostTime.TotalMilliseconds);
+                        prepareNewBallotTime.Accumulate(result.PrepareNewBallotCostTime.TotalMilliseconds);
+                        broadcaseQueryLastVoteTime.Accumulate(result.BroadcastQueryLastVoteCostTime.TotalMilliseconds);
 
 
                     });
@@ -207,6 +207,8 @@ namespace PineRSL.Server
 
         static async Task Main(string[] args)
         {
+            await Test(args);
+            /*
             var cfgFile = new FileStream(".\\config.json", FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite);
             var dataBuf = new byte[cfgFile.Length];
             var readLen = await cfgFile.ReadAsync(dataBuf, 0, (int)(cfgFile.Length));
@@ -235,7 +237,7 @@ namespace PineRSL.Server
             while (true)
             {
                 await Task.Delay(1000);
-            }
+            }*/
         }
     }
 }
