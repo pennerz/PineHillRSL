@@ -1,17 +1,17 @@
-﻿using PineRSL.ClientLib;
-using PineRSL.Rpc;
-using PineRSL.Network;
+﻿using PineHillRSL.ClientLib;
+using PineHillRSL.Rpc;
+using PineHillRSL.Network;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
-namespace PineRSL.ServerLib
+namespace PineHillRSL.ServerLib
 {
 
-    public class PineRSLServerRequestHandler : IRpcRequestHandler
+    public class PineHillRSLServerRequestHandler : IRpcRequestHandler
     {
         private ReplicatedTable.ReplicatedTable _rtable;
-        public PineRSLServerRequestHandler(ReplicatedTable.ReplicatedTable rTableNode)
+        public PineHillRSLServerRequestHandler(ReplicatedTable.ReplicatedTable rTableNode)
         {
             _rtable = rTableNode;
         }
@@ -25,7 +25,7 @@ namespace PineRSL.ServerLib
             }
             switch(rpcRequest.Type)
             {
-                case PineRSLRpcRequest.RequestType.InsertTable:
+                case PineHillRSLRpcRequest.RequestType.InsertTable:
                     if (_rtable == null)
                     {
                         return null;
@@ -36,9 +36,9 @@ namespace PineRSL.ServerLib
                         Value = ((InsertTableRequest)rpcRequest).Value
                     };
                     await _rtable.InstertTable(serverRequest);
-                    PineRSL.Common.Logger.Log($"Insert table row[key:{serverRequest.Key}, value:{serverRequest.Value}");
+                    PineHillRSL.Common.Logger.Log($"Insert table row[key:{serverRequest.Key}, value:{serverRequest.Value}");
                     return null;
-                case PineRSLRpcRequest.RequestType.Unknown:
+                case PineHillRSLRpcRequest.RequestType.Unknown:
                 default:
                     break;
             }
@@ -46,14 +46,14 @@ namespace PineRSL.ServerLib
         }
     }
 
-    public class PineRSLServer
+    public class PineHillRSLServer
     {
         private RpcServer _rpcserver;
-        private PineRSLServerRequestHandler _handler;
+        private PineHillRSLServerRequestHandler _handler;
 
-        public PineRSLServer(ReplicatedTable.ReplicatedTable rTableNode)
+        public PineHillRSLServer(ReplicatedTable.ReplicatedTable rTableNode)
         {
-            _handler = new PineRSLServerRequestHandler(rTableNode);
+            _handler = new PineHillRSLServerRequestHandler(rTableNode);
         }
 
         public async Task StartServer(NodeAddress serverAddr)

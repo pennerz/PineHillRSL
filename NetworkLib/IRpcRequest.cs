@@ -1,5 +1,5 @@
-﻿using PineRSL.Common;
-using PineRSL.Network;
+﻿using PineHillRSL.Common;
+using PineHillRSL.Network;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -11,7 +11,7 @@ using System.Text.Json;
 using System.Runtime.Serialization.Json;
 using System.Text.Json.Serialization;
 
-namespace PineRSL.Rpc
+namespace PineHillRSL.Rpc
 {
     /// <summary>
     /// Rpc message communicated between client and server

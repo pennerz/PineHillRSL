@@ -1,10 +1,10 @@
-﻿using PineRSL.Common;
-using PineRSL.Paxos.Request;
+﻿using PineHillRSL.Common;
+using PineHillRSL.Paxos.Request;
 using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace PineRSL.Paxos.Message
+namespace PineHillRSL.Paxos.Message
 {
     public enum PaxosMessageType
     {

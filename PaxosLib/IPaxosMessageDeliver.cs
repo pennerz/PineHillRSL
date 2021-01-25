@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace PineRSL.Paxos.Message
+namespace PineHillRSL.Paxos.Message
 {
     /// <summary>
     /// Paxos message deliver interface

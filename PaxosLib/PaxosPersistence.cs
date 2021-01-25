@@ -6,7 +6,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PineRSL.Paxos.Persistence
+namespace PineHillRSL.Paxos.Persistence
 {
     public class LogSizeThreshold
     {
@@ -192,7 +192,7 @@ namespace PineRSL.Paxos.Persistence
                     var fileIt = new FileLogEntryIterator(dataStream, _filePathPrefix, fileIndex, null, IteratorType.Default);
                     return await fileIt.Next();
                 }
-                catch (Exception e)
+                catch (Exception /*e*/)
                 {
                     return new FileLogEntryIterator(null, null, 0, null, IteratorType.End);
                 }
@@ -417,7 +417,7 @@ namespace PineRSL.Paxos.Persistence
                 fileIt = new FileLogEntryIterator(dataStream, _dataFilePath, fileIndex, null, IteratorType.Default);
                 return fileIt.Next();
             }
-            catch (Exception e)
+            catch (Exception /*e*/)
             {
 
             }

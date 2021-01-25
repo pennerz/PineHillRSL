@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace PineRSL.Tests
+namespace PineHillRSL.Tests
 {
     public enum  TestPerfCounterType
     {

@@ -6,7 +6,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
 
-namespace PineRSL.Network
+namespace PineHillRSL.Network
 {
     public class NodeInfo : IEquatable<NodeInfo>
     {

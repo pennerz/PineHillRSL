@@ -1,4 +1,4 @@
-﻿using PineRSL.Common;
+﻿using PineHillRSL.Common;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -9,7 +9,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
 
-namespace PineRSL.Network
+namespace PineHillRSL.Network
 {
 
     class NetworkMessageSerializer
@@ -231,7 +231,7 @@ namespace PineRSL.Network
     {
         public async Task<INetworkServer> CreateNetworkServer(NodeAddress serverAddr)
         {
-            var server = new PineRSL.Network.TcpServer();
+            var server = new PineHillRSL.Network.TcpServer();
             await server.StartServer(serverAddr);
             return server;
         }

@@ -1,10 +1,10 @@
-﻿using PineRSL.Common;
-using PineRSL.Network;
-using PineRSL.Paxos.Node;
-using PineRSL.Paxos.Protocol;
-using PineRSL.Paxos.Request;
-using PineRSL.ReplicatedTable;
-using PineRSL.Tests;
+﻿using PineHillRSL.Common;
+using PineHillRSL.Network;
+using PineHillRSL.Paxos.Node;
+using PineHillRSL.Paxos.Protocol;
+using PineHillRSL.Paxos.Request;
+using PineHillRSL.ReplicatedTable;
+using PineHillRSL.Tests;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -15,7 +15,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PineRSL.Client
+namespace PineHillRSL.Client
 {
     class Program
     {
@@ -29,7 +29,7 @@ namespace PineRSL.Client
 
             NetworkFactory.SetNetworkCreator(new TcpNetworkCreator());
 
-            var client = new ClientLib.PineRSLClient(clientCfg.ServiceServerAddrs);
+            var client = new ClientLib.PineHillRSLClient(clientCfg.ServiceServerAddrs);
             await client.InsertTable("1", "test1");
             await client.InsertTable("2", "test2");
             await client.InsertTable("3", "test3");

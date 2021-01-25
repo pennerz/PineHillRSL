@@ -1,15 +1,15 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
-using PineRSL.Common;
-using PineRSL.Network;
-using PineRSL.Paxos.Message;
-using PineRSL.Paxos.Node;
-using PineRSL.Paxos.Notebook;
-using PineRSL.Paxos.Protocol;
-using PineRSL.Paxos.Persistence;
-using PineRSL.Paxos.Request;
-using PineRSL.Paxos.Rpc;
-using PineRSL.Rpc;
-using PineRSL.ReplicatedTable;
+using PineHillRSL.Common;
+using PineHillRSL.Network;
+using PineHillRSL.Paxos.Message;
+using PineHillRSL.Paxos.Node;
+using PineHillRSL.Paxos.Notebook;
+using PineHillRSL.Paxos.Protocol;
+using PineHillRSL.Paxos.Persistence;
+using PineHillRSL.Paxos.Request;
+using PineHillRSL.Paxos.Rpc;
+using PineHillRSL.Rpc;
+using PineHillRSL.ReplicatedTable;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -19,7 +19,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PineRSL.Tests
+namespace PineHillRSL.Tests
 {
     [TestClass()]
     public class PaxosTests
@@ -371,7 +371,7 @@ namespace PineRSL.Tests
                 msgList.Clear();
 
                 // cleanup
-                proposerNote.Clear();
+                await proposerNote.Clear();
 
             }
 
@@ -914,7 +914,7 @@ namespace PineRSL.Tests
 
             // 7. beginnewballot -> wait_for_new_ballot_result
             {
-                proposerNote.Clear();
+                await proposerNote.Clear();
                 proposeManager.Reset();
                 string decreeContent = "test1";
 
@@ -940,13 +940,13 @@ namespace PineRSL.Tests
                 }
                 Assert.AreEqual(propose.State, ProposeState.WaitForNewBallotVote);
 
-                proposerNote.Clear();
+                await proposerNote.Clear();
                 proposeManager.Reset();
             }
 
             // 8. wait_for_new_ballot_result -> readyCommmit (enough vote msg received)
             {
-                proposerNote.Clear();
+                await proposerNote.Clear();
                 proposeManager.Reset();
                 string decreeContent = "test1";
 
@@ -997,13 +997,13 @@ namespace PineRSL.Tests
                 Assert.AreEqual(propose.Decree.Content, decreeContent);
 
 
-                proposerNote.Clear();
+                await proposerNote.Clear();
                 proposeManager.Reset();
             }
 
             // 9. wait_for_new_ballot_result -> BeginNewBallot (timeout)
             {
-                proposerNote.Clear();
+                await proposerNote.Clear();
                 proposeManager.Reset();
                 string decreeContent = "test1";
 
@@ -1025,13 +1025,13 @@ namespace PineRSL.Tests
                 Assert.AreEqual(propose.State, ProposeState.BeginNewBallot);
 
 
-                proposerNote.Clear();
+                await proposerNote.Clear();
                 proposeManager.Reset();
             }
 
             // 10. wait_for_new_ballot_result -> committed (others committed received).
             {
-                proposerNote.Clear();
+                await proposerNote.Clear();
                 proposeManager.Reset();
                 string decreeContent1 = "test0";
                 string decreeContent = "test1";
@@ -1076,13 +1076,13 @@ namespace PineRSL.Tests
                 Assert.AreEqual(propose.Decree.Content, decreeContent1);
 
 
-                proposerNote.Clear();
+                await proposerNote.Clear();
                 proposeManager.Reset();
             }
 
             // 11. wait_for_new_ballot_result -> collect_last_vote (stale message received)
             {
-                proposerNote.Clear();
+                await proposerNote.Clear();
                 proposeManager.Reset();
                 string decreeContent = "test1";
 
@@ -1125,7 +1125,7 @@ namespace PineRSL.Tests
                 Assert.AreEqual(propose.LastVoteMessages.Count, 0);
                 Assert.AreEqual(propose.VotedMessages.Count, 1);
 
-                proposerNote.Clear();
+                await proposerNote.Clear();
                 proposeManager.Reset();
             }
 
@@ -1415,11 +1415,11 @@ namespace PineRSL.Tests
             }
 
             var master = tableNodeMap[NodeAddress.Serialize(cluster.Members[0])];
-            var serviceServer = new PineRSL.ServerLib.PineRSLServer(master);
+            var serviceServer = new PineHillRSL.ServerLib.PineHillRSLServer(master);
             var serviceAddr = new NodeAddress(new NodeInfo("127.0.0.1"), 1000);
             await serviceServer.StartServer(serviceAddr);
 
-            var client = new ClientLib.PineRSLClient(null);
+            var client = new ClientLib.PineHillRSLClient(null);
             await client.InsertTable("1", "test1");
             await client.InsertTable("2", "test2");
             await client.InsertTable("3", "test3");
@@ -1512,6 +1512,7 @@ namespace PineRSL.Tests
         [TestMethod()]
         public async Task StateMachinePefTest()
         {
+            CleanupLogFiles(null);
             Dictionary<string, string> _table = new Dictionary<string, string>();
             var start = DateTime.Now;
             var end = DateTime.Now;

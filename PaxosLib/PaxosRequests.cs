@@ -1,9 +1,9 @@
-﻿using PineRSL.Common;
+﻿using PineHillRSL.Common;
 using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace PineRSL.Paxos.Request
+namespace PineHillRSL.Paxos.Request
 {
     /// <summary>
     /// Paxos decree

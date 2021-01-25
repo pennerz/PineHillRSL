@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace PineRSL.Server
+namespace PineHillRSL.Server
 {
     class ServerConfig
     {

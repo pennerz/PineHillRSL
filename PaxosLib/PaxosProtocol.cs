@@ -1,10 +1,10 @@
-﻿using PineRSL.Common;
-using PineRSL.Network;
-using PineRSL.Paxos.Message;
-using PineRSL.Paxos.Notebook;
-using PineRSL.Paxos.Request;
-using PineRSL.Paxos.Rpc;
-using PineRSL.Rpc;
+﻿using PineHillRSL.Common;
+using PineHillRSL.Network;
+using PineHillRSL.Paxos.Message;
+using PineHillRSL.Paxos.Notebook;
+using PineHillRSL.Paxos.Request;
+using PineHillRSL.Paxos.Rpc;
+using PineHillRSL.Rpc;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -13,7 +13,7 @@ using System.Threading.Tasks;
 using System.Linq;
 using System.IO;
 
-namespace PineRSL.Paxos.Protocol
+namespace PineHillRSL.Paxos.Protocol
 {
 
     public interface IPaxosNotification
@@ -997,7 +997,6 @@ namespace PineRSL.Paxos.Protocol
                                 break;
                             case ProposeState.DecreeCheckpointed:
                                 throw new Exception("Decree checkpointed");
-                                break;
                             default:
                                 break;
                         }

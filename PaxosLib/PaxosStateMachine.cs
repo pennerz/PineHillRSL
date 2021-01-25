@@ -1,15 +1,15 @@
-﻿using PineRSL.Common;
-using PineRSL.Paxos.Protocol;
-using PineRSL.Network;
-using PineRSL.Paxos.Node;
-using PineRSL.Paxos.Request;
+﻿using PineHillRSL.Common;
+using PineHillRSL.Paxos.Protocol;
+using PineHillRSL.Network;
+using PineHillRSL.Paxos.Node;
+using PineHillRSL.Paxos.Request;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PineRSL.StateMachine
+namespace PineHillRSL.StateMachine
 {
     public class StateMachineRequest
     {
@@ -82,6 +82,8 @@ namespace PineRSL.StateMachine
             _node = new PaxosNode(cluster, serverAddr);
             _node.SubscribeNotification(this);
 
+            _reqSlideWindow = new SlidingWindow(_node.MaxCommittedNo, null);
+
             MissedRequestTimeoutInSecond = 5 * 60;
 
             _matainTask = Task.Run(Mantain);
@@ -96,13 +98,14 @@ namespace PineRSL.StateMachine
             _exit.Dispose();
         }
 
-        public Task Load(string metaLog)
+        public async Task Load(string metaLog)
         {
             _metaLog = metaLog;
-            return _node?.Load(metaLog);
-        }
+            await _node?.Load(metaLog);
+            _reqSlideWindow = new SlidingWindow(_node.MaxCommittedNo, null);
+    }
 
-        public async Task Request(StateMachineRequest request)
+    public async Task Request(StateMachineRequest request)
         {
             /*
             while(_reqSlideWindow.GetPendingSequenceCount() > 200)
@@ -203,7 +206,7 @@ namespace PineRSL.StateMachine
                     request.SequenceId = result.DecreeNo;
                     break;
                 }
-                catch (Exception e)
+                catch (Exception /*e*/)
                 {
                 }
 

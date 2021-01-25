@@ -1,15 +1,15 @@
-﻿using PineRSL.Network;
-using PineRSL.Paxos.Message;
-using PineRSL.Paxos.Notebook;
-using PineRSL.Paxos.Persistence;
-using PineRSL.Paxos.Protocol;
-using PineRSL.Paxos.Request;
-using PineRSL.Paxos.Rpc;
-using PineRSL.Rpc;
+﻿using PineHillRSL.Network;
+using PineHillRSL.Paxos.Message;
+using PineHillRSL.Paxos.Notebook;
+using PineHillRSL.Paxos.Persistence;
+using PineHillRSL.Paxos.Protocol;
+using PineHillRSL.Paxos.Request;
+using PineHillRSL.Paxos.Rpc;
+using PineHillRSL.Rpc;
 using System;
 using System.Threading.Tasks;
 
-namespace PineRSL.Paxos.Node
+namespace PineHillRSL.Paxos.Node
 {
     public class PaxosNode : IDisposable
     {
@@ -176,6 +176,8 @@ namespace PineRSL.Paxos.Node
                 _proposerRole.NotifyLearners = value;
             }
         }
+
+        public ulong MaxCommittedNo => _proposerNote.GetMaximumCommittedDecreeNo().Result;
 
         private void Init()
         {

@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace PineRSL.Client
+namespace PineHillRSL.Client
 {
     class ClientConfig
     {

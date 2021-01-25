@@ -1,10 +1,10 @@
-﻿using PineRSL.Common;
-using PineRSL.Network;
-using PineRSL.Paxos.Node;
-using PineRSL.Paxos.Protocol;
-using PineRSL.Paxos.Request;
-using PineRSL.ReplicatedTable;
-using PineRSL.Tests;
+﻿using PineHillRSL.Common;
+using PineHillRSL.Network;
+using PineHillRSL.Paxos.Node;
+using PineHillRSL.Paxos.Protocol;
+using PineHillRSL.Paxos.Request;
+using PineHillRSL.ReplicatedTable;
+using PineHillRSL.Tests;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -15,7 +15,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PineRSL.Server
+namespace PineHillRSL.Server
 {
     class Program
     {
@@ -229,7 +229,7 @@ namespace PineRSL.Server
             Logger.Log($"RSL Node:[{serverAddr.Node.Name}:{serverAddr.Port}");
             var serverNode = new ReplicatedTable.ReplicatedTable(cluster, serverAddr);
 
-            var serviceServer = new PineRSL.ServerLib.PineRSLServer(serverNode);
+            var serviceServer = new PineHillRSL.ServerLib.PineHillRSLServer(serverNode);
             var serviceAddr = NodeAddress.DeSerialize(serverCfg.ServiceServerAddr);
             Logger.Log($"Service Node:[{serviceAddr.Node.Name}:{serviceAddr.Port}");
             await serviceServer.StartServer(serviceAddr);

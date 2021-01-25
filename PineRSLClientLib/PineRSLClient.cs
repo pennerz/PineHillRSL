@@ -1,17 +1,17 @@
-﻿using PineRSL.Rpc;
-using PineRSL.Network;
+﻿using PineHillRSL.Rpc;
+using PineHillRSL.Network;
 using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace PineRSL.ClientLib
+namespace PineHillRSL.ClientLib
 {
-    public class PineRSLRpcRequest : Common.ISer
+    public class PineHillRSLRpcRequest : Common.ISer
     {
         public enum RequestType {Unknown, InsertTable};
 
-        public PineRSLRpcRequest()
+        public PineHillRSLRpcRequest()
         {
             Type = RequestType.Unknown;
             TimeoutInMs = 30 * 1000;
@@ -31,7 +31,7 @@ namespace PineRSL.ClientLib
         }
     }
 
-    public class InsertTableRequest :  PineRSLRpcRequest
+    public class InsertTableRequest :  PineHillRSLRpcRequest
     {
         private string _key;
         private string _value;
@@ -75,7 +75,7 @@ namespace PineRSL.ClientLib
             {
                 return;
             }
-            var requestType = (PineRSLRpcRequest.RequestType)BitConverter.ToInt32(it.DataBuff, it.RecordOff);
+            var requestType = (PineHillRSLRpcRequest.RequestType)BitConverter.ToInt32(it.DataBuff, it.RecordOff);
             it = it.Next();
             if (it.Equals(itEnd))
             {
@@ -97,7 +97,7 @@ namespace PineRSL.ClientLib
 
     public class PineRequetMessageFactory
     {
-        public static PineRSLRpcRequest CreateRpcRequest(RpcMessage rpcRequest)
+        public static PineHillRSLRpcRequest CreateRpcRequest(RpcMessage rpcRequest)
         {
             var serializeBuf = new Common.SerializeBuffer();
             serializeBuf.ConcatenateBuff(rpcRequest.RequestContent);
@@ -107,7 +107,7 @@ namespace PineRSL.ClientLib
             {
                 return null;
             }
-            var requestType = (PineRSLRpcRequest.RequestType)BitConverter.ToInt32(it.DataBuff, it.RecordOff);
+            var requestType = (PineHillRSLRpcRequest.RequestType)BitConverter.ToInt32(it.DataBuff, it.RecordOff);
             it = it.Next();
             if (it.Equals(itEnd))
             {
@@ -117,15 +117,15 @@ namespace PineRSL.ClientLib
             Buffer.BlockCopy(it.DataBuff, it.RecordOff, messageContent, 0, it.RecordSize);
             switch (requestType)
             {
-                case PineRSLRpcRequest.RequestType.InsertTable:
+                case PineHillRSLRpcRequest.RequestType.InsertTable:
                     return Common.Serializer<InsertTableRequest>.Deserialize(messageContent);
-                case PineRSLRpcRequest.RequestType.Unknown:
+                case PineHillRSLRpcRequest.RequestType.Unknown:
                 default:
                     return null;
             }
         }
 
-        public static RpcMessage CreateRpcMessage(PineRSLRpcRequest rpcRequest)
+        public static RpcMessage CreateRpcMessage(PineHillRSLRpcRequest rpcRequest)
         {
             var rpcMsg = new RpcMessage();
             var serializeBuf = new Common.SerializeBuffer();
@@ -142,12 +142,12 @@ namespace PineRSL.ClientLib
     }
 
 
-    public class PineRSLClient
+    public class PineHillRSLClient
     {
         private RpcClient _rpcClient = new RpcClient();
         private List<NodeAddress> _svrAddrList = new List<NodeAddress>();
 
-        public PineRSLClient(List<string> serviceSvrList)
+        public PineHillRSLClient(List<string> serviceSvrList)
         {
             if (serviceSvrList == null)
             {
