@@ -1,0 +1,79 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v3.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v3.0": {
+      "PineRSLServerLib/1.0.0": {
+        "dependencies": {
+          "CommonLib": "1.0.0",
+          "NetworkLib": "1.0.0",
+          "PaxosLib": "1.0.0",
+          "PineRSLClientLib": "1.0.0"
+        },
+        "runtime": {
+          "PineRSLServerLib.dll": {}
+        }
+      },
+      "CommonLib/1.0.0": {
+        "runtime": {
+          "CommonLib.dll": {}
+        }
+      },
+      "NetworkLib/1.0.0": {
+        "dependencies": {
+          "CommonLib": "1.0.0"
+        },
+        "runtime": {
+          "NetworkLib.dll": {}
+        }
+      },
+      "PaxosLib/1.0.0": {
+        "dependencies": {
+          "NetworkLib": "1.0.0"
+        },
+        "runtime": {
+          "PaxosLib.dll": {}
+        }
+      },
+      "PineRSLClientLib/1.0.0": {
+        "dependencies": {
+          "CommonLib": "1.0.0",
+          "NetworkLib": "1.0.0"
+        },
+        "runtime": {
+          "PineRSLClientLib.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "PineRSLServerLib/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "CommonLib/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "NetworkLib/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "PaxosLib/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "PineRSLClientLib/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

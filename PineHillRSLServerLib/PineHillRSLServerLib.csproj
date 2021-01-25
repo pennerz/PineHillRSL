@@ -8,7 +8,7 @@
     <ProjectReference Include="..\CommonLib\CommonLib.csproj" />
     <ProjectReference Include="..\NetworkLib\NetworkLib.csproj" />
     <ProjectReference Include="..\PaxosLib\PaxosLib.csproj" />
-    <ProjectReference Include="..\PineRSLClientLib\PineRSLClientLib.csproj" />
+    <ProjectReference Include="..\PineHillRSLClientLib\PineHillRSLClientLib.csproj" />
   </ItemGroup>
 
 </Project>

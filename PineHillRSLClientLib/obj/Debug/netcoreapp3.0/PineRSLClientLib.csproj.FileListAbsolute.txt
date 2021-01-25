@@ -1,0 +1,14 @@
+C:\Users\pennerz\source\repos\PineRSL\PineRSLClientLib\bin\Debug\netcoreapp3.0\PineRSLClientLib.deps.json
+C:\Users\pennerz\source\repos\PineRSL\PineRSLClientLib\bin\Debug\netcoreapp3.0\PineRSLClientLib.dll
+C:\Users\pennerz\source\repos\PineRSL\PineRSLClientLib\bin\Debug\netcoreapp3.0\PineRSLClientLib.pdb
+C:\Users\pennerz\source\repos\PineRSL\PineRSLClientLib\bin\Debug\netcoreapp3.0\CommonLib.dll
+C:\Users\pennerz\source\repos\PineRSL\PineRSLClientLib\bin\Debug\netcoreapp3.0\NetworkLib.dll
+C:\Users\pennerz\source\repos\PineRSL\PineRSLClientLib\bin\Debug\netcoreapp3.0\CommonLib.pdb
+C:\Users\pennerz\source\repos\PineRSL\PineRSLClientLib\bin\Debug\netcoreapp3.0\NetworkLib.pdb
+C:\Users\pennerz\source\repos\PineRSL\PineRSLClientLib\obj\Debug\netcoreapp3.0\PineRSLClientLib.csprojAssemblyReference.cache
+C:\Users\pennerz\source\repos\PineRSL\PineRSLClientLib\obj\Debug\netcoreapp3.0\PineRSLClientLib.AssemblyInfoInputs.cache
+C:\Users\pennerz\source\repos\PineRSL\PineRSLClientLib\obj\Debug\netcoreapp3.0\PineRSLClientLib.AssemblyInfo.cs
+C:\Users\pennerz\source\repos\PineRSL\PineRSLClientLib\obj\Debug\netcoreapp3.0\PineRSLClientLib.csproj.CopyComplete
+C:\Users\pennerz\source\repos\PineRSL\PineRSLClientLib\obj\Debug\netcoreapp3.0\PineRSLClientLib.dll
+C:\Users\pennerz\source\repos\PineRSL\PineRSLClientLib\obj\Debug\netcoreapp3.0\PineRSLClientLib.pdb
+C:\Users\pennerz\source\repos\PineRSL\PineRSLClientLib\obj\Debug\netcoreapp3.0\PineRSLClientLib.csproj.CoreCompileInputs.cache

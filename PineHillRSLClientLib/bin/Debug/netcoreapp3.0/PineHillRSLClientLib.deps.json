@@ -1,0 +1,50 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v3.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v3.0": {
+      "PineHillRSLClientLib/1.0.0": {
+        "dependencies": {
+          "CommonLib": "1.0.0",
+          "NetworkLib": "1.0.0"
+        },
+        "runtime": {
+          "PineHillRSLClientLib.dll": {}
+        }
+      },
+      "CommonLib/1.0.0": {
+        "runtime": {
+          "CommonLib.dll": {}
+        }
+      },
+      "NetworkLib/1.0.0": {
+        "dependencies": {
+          "CommonLib": "1.0.0"
+        },
+        "runtime": {
+          "NetworkLib.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "PineHillRSLClientLib/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "CommonLib/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "NetworkLib/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

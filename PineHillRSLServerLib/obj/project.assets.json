@@ -1,0 +1,169 @@
+{
+  "version": 3,
+  "targets": {
+    ".NETCoreApp,Version=v3.0": {
+      "CommonLib/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v3.0",
+        "compile": {
+          "bin/placeholder/CommonLib.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/CommonLib.dll": {}
+        }
+      },
+      "NetworkLib/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v3.0",
+        "dependencies": {
+          "CommonLib": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/NetworkLib.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/NetworkLib.dll": {}
+        }
+      },
+      "PaxosLib/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v3.0",
+        "dependencies": {
+          "NetworkLib": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/PaxosLib.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/PaxosLib.dll": {}
+        }
+      },
+      "PineHillRSLClientLib/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v3.0",
+        "dependencies": {
+          "CommonLib": "1.0.0",
+          "NetworkLib": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/PineHillRSLClientLib.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/PineHillRSLClientLib.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "CommonLib/1.0.0": {
+      "type": "project",
+      "path": "../CommonLib/CommonLib.csproj",
+      "msbuildProject": "../CommonLib/CommonLib.csproj"
+    },
+    "NetworkLib/1.0.0": {
+      "type": "project",
+      "path": "../NetworkLib/NetworkLib.csproj",
+      "msbuildProject": "../NetworkLib/NetworkLib.csproj"
+    },
+    "PaxosLib/1.0.0": {
+      "type": "project",
+      "path": "../PaxosLib/PaxosLib.csproj",
+      "msbuildProject": "../PaxosLib/PaxosLib.csproj"
+    },
+    "PineHillRSLClientLib/1.0.0": {
+      "type": "project",
+      "path": "../PineHillRSLClientLib/PineHillRSLClientLib.csproj",
+      "msbuildProject": "../PineHillRSLClientLib/PineHillRSLClientLib.csproj"
+    }
+  },
+  "projectFileDependencyGroups": {
+    ".NETCoreApp,Version=v3.0": [
+      "CommonLib >= 1.0.0",
+      "NetworkLib >= 1.0.0",
+      "PaxosLib >= 1.0.0",
+      "PineHillRSLClientLib >= 1.0.0"
+    ]
+  },
+  "packageFolders": {
+    "C:\\Users\\pennerz\\.nuget\\packages\\": {}
+  },
+  "project": {
+    "version": "1.0.0",
+    "restore": {
+      "projectUniqueName": "C:\\Users\\pennerz\\source\\repos\\PineHillRSL\\PineHillRSLServerLib\\PineHillRSLServerLib.csproj",
+      "projectName": "PineHillRSLServerLib",
+      "projectPath": "C:\\Users\\pennerz\\source\\repos\\PineHillRSL\\PineHillRSLServerLib\\PineHillRSLServerLib.csproj",
+      "packagesPath": "C:\\Users\\pennerz\\.nuget\\packages\\",
+      "outputPath": "C:\\Users\\pennerz\\source\\repos\\PineHillRSL\\PineHillRSLServerLib\\obj\\",
+      "projectStyle": "PackageReference",
+      "configFilePaths": [
+        "C:\\Users\\pennerz\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+      ],
+      "originalTargetFrameworks": [
+        "netcoreapp3.0"
+      ],
+      "sources": {
+        "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+        "https://api.nuget.org/v3/index.json": {}
+      },
+      "frameworks": {
+        "netcoreapp3.0": {
+          "projectReferences": {
+            "C:\\Users\\pennerz\\source\\repos\\PineHillRSL\\CommonLib\\CommonLib.csproj": {
+              "projectPath": "C:\\Users\\pennerz\\source\\repos\\PineHillRSL\\CommonLib\\CommonLib.csproj"
+            },
+            "C:\\Users\\pennerz\\source\\repos\\PineHillRSL\\NetworkLib\\NetworkLib.csproj": {
+              "projectPath": "C:\\Users\\pennerz\\source\\repos\\PineHillRSL\\NetworkLib\\NetworkLib.csproj"
+            },
+            "C:\\Users\\pennerz\\source\\repos\\PineHillRSL\\PaxosLib\\PaxosLib.csproj": {
+              "projectPath": "C:\\Users\\pennerz\\source\\repos\\PineHillRSL\\PaxosLib\\PaxosLib.csproj"
+            },
+            "C:\\Users\\pennerz\\source\\repos\\PineHillRSL\\PineHillRSLClientLib\\PineHillRSLClientLib.csproj": {
+              "projectPath": "C:\\Users\\pennerz\\source\\repos\\PineHillRSL\\PineHillRSLClientLib\\PineHillRSLClientLib.csproj"
+            }
+          }
+        }
+      },
+      "warningProperties": {
+        "warnAsError": [
+          "NU1605"
+        ]
+      }
+    },
+    "frameworks": {
+      "netcoreapp3.0": {
+        "imports": [
+          "net461",
+          "net462",
+          "net47",
+          "net471",
+          "net472",
+          "net48"
+        ],
+        "assetTargetFallback": true,
+        "warn": true,
+        "downloadDependencies": [
+          {
+            "name": "Microsoft.AspNetCore.App.Ref",
+            "version": "[3.0.1, 3.0.1]"
+          },
+          {
+            "name": "Microsoft.NETCore.App.Ref",
+            "version": "[3.0.0, 3.0.0]"
+          },
+          {
+            "name": "Microsoft.WindowsDesktop.App.Ref",
+            "version": "[3.0.0, 3.0.0]"
+          }
+        ],
+        "frameworkReferences": {
+          "Microsoft.NETCore.App": {
+            "privateAssets": "all"
+          }
+        },
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\3.1.402\\RuntimeIdentifierGraph.json"
+      }
+    }
+  }
+}

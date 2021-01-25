@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "dgSpecHash": "MeQd0/SMuvG8n1gGFxphhChwDTxaUNwWcJmNHpBwqOCRreW4CSZuVET6Mw8JqaMfJUjhH1rbdykpCGrdNspnYQ==",
+  "success": true,
+  "projectFilePath": "C:\\Users\\pennerz\\source\\repos\\PineHillRSL\\PineHillRSLServerLib\\PineHillRSLServerLib.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\pennerz\\.nuget\\packages\\microsoft.aspnetcore.app.ref\\3.0.1\\microsoft.aspnetcore.app.ref.3.0.1.nupkg.sha512",
+    "C:\\Users\\pennerz\\.nuget\\packages\\microsoft.netcore.app.ref\\3.0.0\\microsoft.netcore.app.ref.3.0.0.nupkg.sha512",
+    "C:\\Users\\pennerz\\.nuget\\packages\\microsoft.windowsdesktop.app.ref\\3.0.0\\microsoft.windowsdesktop.app.ref.3.0.0.nupkg.sha512"
+  ],
+  "logs": []
+}

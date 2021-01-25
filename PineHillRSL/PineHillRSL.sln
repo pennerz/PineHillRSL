@@ -11,17 +11,17 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NetworkLib", "..\NetworkLib
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CommonLib", "..\CommonLib\CommonLib.csproj", "{C840B5D9-6664-407D-A526-77A44BEF20BF}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PineRSLServer", "..\server\PineRSLServer.csproj", "{53F6E1EC-0CB7-49FE-A3A3-25A889AF8F28}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PineHillRSLServer", "..\server\PineHillRSLServer.csproj", "{53F6E1EC-0CB7-49FE-A3A3-25A889AF8F28}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PineRSLClientLib", "..\PineRSLClientLib\PineRSLClientLib.csproj", "{D46BF8C3-BDB2-4732-9F9D-AF0EC3914829}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PineHillRSLClientLib", "..\PineHillRSLClientLib\PineHillRSLClientLib.csproj", "{D46BF8C3-BDB2-4732-9F9D-AF0EC3914829}"
 	ProjectSection(ProjectDependencies) = postProject
 		{5C21B167-D89F-43B2-AEE3-9C994B18ED2E} = {5C21B167-D89F-43B2-AEE3-9C994B18ED2E}
 		{C840B5D9-6664-407D-A526-77A44BEF20BF} = {C840B5D9-6664-407D-A526-77A44BEF20BF}
 	EndProjectSection
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PineRSLServerLib", "..\PineRSLServerLib\PineRSLServerLib.csproj", "{C347C8F9-D81A-4578-BE75-367E6937155A}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PineHillRSLServerLib", "..\PineHillRSLServerLib\PineHillRSLServerLib.csproj", "{C347C8F9-D81A-4578-BE75-367E6937155A}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PineRSLClientCLI", "..\client\PineRSLClientCLI.csproj", "{21669D6C-057C-4194-9E97-28C746FAE9A2}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PineHillRSLClientCLI", "..\client\PineHillRSLClientCLI.csproj", "{21669D6C-057C-4194-9E97-28C746FAE9A2}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
