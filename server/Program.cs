@@ -84,7 +84,7 @@ namespace PineHillRSL.Server
                 await Task.WhenAll(taskList);
                 foreach (var node in tableNodeMap)
                 {
-                    node.Value.Dispose();
+                    await node.Value.DisposeAsync();
                 }
 
             }
@@ -200,7 +200,7 @@ namespace PineHillRSL.Server
 
                 foreach (var node in nodeMap)
                 {
-                    node.Value.Dispose();
+                    await node.Value.DisposeAsync();
                 }
             }
         }

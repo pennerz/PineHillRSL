@@ -10,9 +10,21 @@ namespace PineHillRSL.Paxos.Persistence
 {
     public class LogSizeThreshold
     {
-        public const int LogFileSizeThreshold = 1024 * 1024;
-        public const int CommitLogFileCheckpointThreshold = 10 * 1024;
-        public const int MetaLogTruncateThreshold = 1024;
+        private const ulong DefLogFileSizeThreshold = 1024 * 1024;
+        private const ulong DefCommitLogFileCheckpointThreshold = 10 * 1024;
+        private const ulong DefMetaLogTruncateThreshold = 1024;
+
+        public static ulong LogFileSizeThreshold { get; set; } = DefLogFileSizeThreshold;
+        public static ulong CommitLogFileCheckpointThreshold { get; set; } = DefCommitLogFileCheckpointThreshold;
+        public static ulong MetaLogTruncateThreshold { get; set; } = DefMetaLogTruncateThreshold;
+
+        public static void ResetDefault()
+        {
+            LogFileSizeThreshold = DefLogFileSizeThreshold;
+            CommitLogFileCheckpointThreshold = DefCommitLogFileCheckpointThreshold;
+            MetaLogTruncateThreshold = DefMetaLogTruncateThreshold;
+        }
+
     }
 
     public class LogEntry
@@ -87,7 +99,7 @@ namespace PineHillRSL.Paxos.Persistence
         Task<ILogEntryIterator> Next();
     }
 
-    public interface ILogger : IDisposable
+    public interface ILogger : IAsyncDisposable
     {
         Task<ILogEntryIterator> Begin();
         Task<ILogEntryIterator> End();
@@ -321,7 +333,10 @@ namespace PineHillRSL.Paxos.Persistence
                             {
                                 _truncateRequestList.RemoveAt(0);
                             }
-                            truncateRequest.Result.SetResult(true);
+                            var task1 = Task.Run(() =>
+                            {
+                                truncateRequest.Result.SetResult(true);
+                            });
 
                         }
                     }
@@ -397,11 +412,11 @@ namespace PineHillRSL.Paxos.Persistence
             });
         }
 
-        public void Dispose()
+        public async ValueTask DisposeAsync()
         {
             IsStop = true;
             _pendingRequestLock.Release();
-            _appendTask.Wait();
+            await _appendTask;
             _dataStream?.Close();
             _dataStream?.Dispose();
         }

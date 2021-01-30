@@ -34,7 +34,7 @@ namespace PineHillRSL.Paxos.Protocol
         public List<NodeAddress> Members => _members;
     }
 
-    public abstract class PaxosRole : IDisposable
+    public abstract class PaxosRole : IAsyncDisposable
     {
         private class PaxosMessageQeuue
         {
@@ -141,9 +141,9 @@ namespace PineHillRSL.Paxos.Protocol
             _rpcClient = rpcClient;
         }
 
-        public void Dispose()
+        public virtual ValueTask DisposeAsync()
         {
-
+            return default;
         }
 
         public bool Stop { get; set; }
@@ -292,7 +292,7 @@ namespace PineHillRSL.Paxos.Protocol
     /// CommitDecree            Save the decree
     /// </summary>
     ///
-    public class VoterRole : PaxosRole, IDisposable
+    public class VoterRole : PaxosRole, IAsyncDisposable
     {
         private readonly NodeAddress _serverAddr;
         private readonly VoterNote _note;
@@ -300,6 +300,7 @@ namespace PineHillRSL.Paxos.Protocol
         private IPaxosNotification _notificationSubscriber;
         private Task _truncateLogTask = null;
         private bool _exit = false;
+        private CancellationTokenSource _cancel = new CancellationTokenSource();
 
         private List<PaxosMessage> _ongoingMessages = new List<PaxosMessage>();
 
@@ -325,7 +326,14 @@ namespace PineHillRSL.Paxos.Protocol
                 int truncateRound = 0;
                 while(!_exit)
                 {
-                    await Task.Delay(1000);
+                    try
+                    {
+                        await Task.Delay(1000, _cancel.Token);
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        return;
+                    }
                     if (truncateRound < 600)
                     {
                         truncateRound++;
@@ -339,14 +347,14 @@ namespace PineHillRSL.Paxos.Protocol
             });
         }
 
-        public new void Dispose()
+        public new async ValueTask DisposeAsync()
         {
             _exit = true;
             Stop = true;
-            base.Dispose();
+            _cancel.Cancel();
+            await base.DisposeAsync();
 
-            _truncateLogTask.Wait();
-
+            await _truncateLogTask;
         }
 
         public void SubscribeNotification(IPaxosNotification listener)
@@ -625,7 +633,7 @@ namespace PineHillRSL.Paxos.Protocol
     ///     
     /// </summary>
 
-    public class ProposerRole : PaxosRole, IDisposable
+    public class ProposerRole : PaxosRole, IAsyncDisposable
     {
         private readonly NodeAddress _serverAddr;
         private readonly PaxosCluster _cluster;
@@ -636,7 +644,7 @@ namespace PineHillRSL.Paxos.Protocol
         IPaxosNotification _notificationSubscriber;
 
         private List<PaxosMessage> _ongoingRequests = new List<PaxosMessage>();
-        private int _catchupLogSize = 0;
+        private ulong _catchupLogSize = 0;
 
         public enum DataSource { Local, Cluster};
 
@@ -661,10 +669,10 @@ namespace PineHillRSL.Paxos.Protocol
             NotifyLearners = true;
         }
 
-        public new void Dispose()
+        public new async ValueTask DisposeAsync()
         {
             Stop = true;
-            base.Dispose();
+            await base.DisposeAsync();
             while(true)
             {
                 lock(_ongoingRequests)
@@ -674,7 +682,7 @@ namespace PineHillRSL.Paxos.Protocol
                         break;
                     }
                 }
-                Thread.Sleep(1000);
+                await Task.Delay(100);
             }
         }
 
@@ -734,7 +742,7 @@ namespace PineHillRSL.Paxos.Protocol
                 catchupLogSize = 0;
                 // check if need to continue
             } while (true);
-            _catchupLogSize = catchupLogSize;
+            _catchupLogSize = (ulong)catchupLogSize;
         }
 
         private async Task<bool> LoadCheckpointFromRemoteNodes()
@@ -1167,7 +1175,7 @@ namespace PineHillRSL.Paxos.Protocol
             if (_notificationSubscriber != null)
                 await _notificationSubscriber.UpdateSuccessfullDecree(msg.DecreeNo, new PaxosDecree(msg.Decree));
 
-            _catchupLogSize += msg.Decree.Length;
+            _catchupLogSize += (ulong)msg.Decree.Length;
 
             // check if need to checkpoint
             // TODO, remvoe it from critical path
@@ -1351,7 +1359,7 @@ namespace PineHillRSL.Paxos.Protocol
 
             if (propose.Decree.Data != null)
             {
-                _catchupLogSize += propose.Decree.Data.Length;
+                _catchupLogSize += (ulong)propose.Decree.Data.Length;
             }
             // check if need to checkpoint
             // TODO, remvoe it from critical path
@@ -1381,7 +1389,7 @@ namespace PineHillRSL.Paxos.Protocol
 
             if (propose.Decree.Data != null)
             {
-                _catchupLogSize += propose.Decree.Data.Length;
+                _catchupLogSize += (ulong)propose.Decree.Data.Length;
             }
             // check if need to checkpoint
             // TODO, remvoe it from critical path

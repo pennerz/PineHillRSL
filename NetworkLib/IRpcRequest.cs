@@ -145,7 +145,7 @@ namespace PineHillRSL.Rpc
     /// <summary>
     /// Rpc client interface
     /// </summary>
-    public interface IRpcClient : IDisposable
+    public interface IRpcClient : IAsyncDisposable
     {
         Task<RpcMessage> SendRequest(NodeAddress targetNode, RpcMessage request);
     }
@@ -153,7 +153,7 @@ namespace PineHillRSL.Rpc
     /// <summary>
     /// Rpc server interface
     /// </summary>
-    public interface IRpcServer : IDisposable
+    public interface IRpcServer : IAsyncDisposable
     {
         void RegisterRequestHandler(IRpcRequestHandler requestHandler);
     }

@@ -153,7 +153,7 @@ namespace PineHillRSL.Tests
 
             foreach (var node in nodeMap)
             {
-                node.Value.Dispose();
+                await node.Value.DisposeAsync();
             }
         }
 
@@ -213,7 +213,7 @@ namespace PineHillRSL.Tests
 
             foreach (var node in nodeMap)
             {
-                node.Value.Dispose();
+                await node.Value.DisposeAsync();
             }
         }
 
@@ -224,7 +224,7 @@ namespace PineHillRSL.Tests
             for (int i = 0; i < 5; i++)
             {
                 var node = new NodeInfo("127.0.0.1");
-                var nodeAddr = new NodeAddress(node, 88 + i);
+                var nodeAddr = new NodeAddress(node, 108 + i);
                 cluster.Members.Add(nodeAddr);
             }
 
@@ -466,7 +466,7 @@ namespace PineHillRSL.Tests
             for (int i = 0; i < 5; i++)
             {
                 var node = new NodeInfo("127.0.0.1");
-                var nodeAddr = new NodeAddress(node, 88 + i);
+                var nodeAddr = new NodeAddress(node, 118 + i);
                 cluster.Members.Add(nodeAddr);
             }
 
@@ -1141,7 +1141,7 @@ namespace PineHillRSL.Tests
             for (int i = 0; i < 5; i++)
             {
                 var node = new NodeInfo("127.0.0.1");
-                var nodeAddr = new NodeAddress(node, 88 + i);
+                var nodeAddr = new NodeAddress(node, 128 + i);
                 cluster.Members.Add(nodeAddr);
             }
 
@@ -1164,10 +1164,7 @@ namespace PineHillRSL.Tests
 
             foreach (var node in tableNodeMap)
             {
-                await Task.Run(() =>
-                {
-                    node.Value.Dispose();
-                });
+                await node.Value.DisposeAsync();
             }
         }
 
@@ -1185,7 +1182,7 @@ namespace PineHillRSL.Tests
             for (int i = 0; i < 5; i++)
             {
                 var node = new NodeInfo("127.0.0.1");
-                var nodeAddr = new NodeAddress(node, 88 + i);
+                var nodeAddr = new NodeAddress(node, 138 + i);
                 cluster.Members.Add(nodeAddr);
 
                 var instanceName = NodeAddress.Serialize(nodeAddr);
@@ -1219,10 +1216,7 @@ namespace PineHillRSL.Tests
 
             foreach (var node in tableNodeMap)
             {
-                await Task.Run(() =>
-                {
-                    node.Value.Dispose();
-                });
+                await node.Value.DisposeAsync();
             }
 
 
@@ -1254,10 +1248,7 @@ namespace PineHillRSL.Tests
 
             foreach (var node in tableNodeMap)
             {
-                await Task.Run(() =>
-                {
-                    node.Value.Dispose();
-                });
+                await node.Value.DisposeAsync();
             }
         }
 
@@ -1275,7 +1266,7 @@ namespace PineHillRSL.Tests
             for (int i = 0; i < 5; i++)
             {
                 var node = new NodeInfo("127.0.0.1");
-                var nodeAddr = new NodeAddress(node, 88 + i);
+                var nodeAddr = new NodeAddress(node, 148 + i);
                 cluster.Members.Add(nodeAddr);
             }
 
@@ -1311,10 +1302,7 @@ namespace PineHillRSL.Tests
 
             foreach(var node in tableNodeMap)
             {
-                await Task.Run(() =>
-                {
-                    node.Value.Dispose();
-                });
+                await node.Value.DisposeAsync();
             }
 
             var unHealthyNodeAddr = cluster.Members[unHealthyNodeIndex];
@@ -1381,10 +1369,7 @@ namespace PineHillRSL.Tests
 
             foreach (var node in tableNodeMap)
             {
-                await Task.Run(() =>
-                {
-                    node.Value.Dispose();
-                });
+                await node.Value.DisposeAsync();
             }
 
             CleanupLogFiles(unhealthInstanceName);
@@ -1399,7 +1384,7 @@ namespace PineHillRSL.Tests
             for (int i = 0; i < 5; i++)
             {
                 var node = new NodeInfo("127.0.0.1");
-                var nodeAddr = new NodeAddress(node, 88 + i);
+                var nodeAddr = new NodeAddress(node, 158 + i);
                 cluster.Members.Add(nodeAddr);
             }
 
@@ -1426,10 +1411,7 @@ namespace PineHillRSL.Tests
 
             foreach (var node in tableNodeMap)
             {
-                await Task.Run(() =>
-                {
-                    node.Value.Dispose();
-                });
+                await node.Value.DisposeAsync();
             }
         }
 
@@ -1512,21 +1494,26 @@ namespace PineHillRSL.Tests
         [TestMethod()]
         public async Task StateMachinePefTest()
         {
+            Trace.WriteLine("Begin StateMachinePerfTest");
+            Console.WriteLine("Begin StateMachinePerfTest");
             CleanupLogFiles(null);
             Dictionary<string, string> _table = new Dictionary<string, string>();
             var start = DateTime.Now;
             var end = DateTime.Now;
             var costTime = (end - start).TotalMilliseconds;
 
+            LogSizeThreshold.CommitLogFileCheckpointThreshold = 100 * 1024;
+
+            Trace.WriteLine("Cleaned log files");
             var cluster = new PaxosCluster();
             for (int i = 0; i < 5; i++)
             {
                 var node = new NodeInfo("127.0.0.1");
-                var nodeAddr = new NodeAddress(node, 88 + i);
+                var nodeAddr = new NodeAddress(node, 168 + i);
                 cluster.Members.Add(nodeAddr);
             }
 
-            var networkInfr = new TestNetworkInfr();
+            //var networkInfr = new TestNetworkInfr();
             //NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
             NetworkFactory.SetNetworkCreator(new TcpNetworkCreator());
 
@@ -1536,34 +1523,50 @@ namespace PineHillRSL.Tests
                 var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
                 tableNodeMap[NodeAddress.Serialize(nodeAddr)] = node;
             }
+            Trace.WriteLine("All cluster nodes intialized");
 
             start = DateTime.Now;
 
             List<Task> taskList = new List<Task>();
             var master = tableNodeMap[NodeAddress.Serialize(cluster.Members[0])];
 
-
+            var finishedRequestCount = 0;
             for (int i = 0; i < 100000; i++)
             {
                 var task =  master.InstertTable(new ReplicatedTableRequest() { Key = i.ToString(), Value = "test" + i.ToString() });
                 taskList.Add(task);
-                if (taskList.Count > 20000)
+                if (taskList.Count > 200)
                 {
-                    await Task.WhenAll(taskList);
+                    //await Task.WhenAll(taskList);
+                    while(taskList.Count > 0)
+                    {
+                        var finishedTask = await Task.WhenAny(taskList);
+                        taskList.Remove(finishedTask);
+                        finishedRequestCount++;
+                    }
+                    Trace.WriteLine($"Finished {finishedRequestCount} rows");
                     taskList.Clear();
                 }
             }
-            await Task.WhenAll(taskList);
+            while (taskList.Count > 0)
+            {
+                var finishedTask = await Task.WhenAny(taskList);
+                taskList.Remove(finishedTask);
+                finishedRequestCount++;
+            }
+            Trace.WriteLine($"Finished {finishedRequestCount} rows");
+            //await Task.WhenAll(taskList);
 
             end = DateTime.Now;
 
             costTime = (end - start).TotalMilliseconds;
-            Console.WriteLine("TPS: {0}", 10000 * 1000 / costTime);
+            Trace.WriteLine($"TPS: {10000 * 1000 / costTime}");
 
             foreach (var node in tableNodeMap)
             {
-                node.Value.Dispose();
+                await node.Value.DisposeAsync();
             }
+            LogSizeThreshold.ResetDefault();
         }
 
         /*
@@ -1731,7 +1734,7 @@ namespace PineHillRSL.Tests
 
             foreach (var node in nodeMap)
             {
-                node.Value.Dispose();
+                await node.Value.DisposeAsync();
             }
         }
         [TestMethod()]

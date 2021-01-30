@@ -220,7 +220,7 @@ namespace PineHillRSL.Paxos.Notebook
 
 
     }
-    public class VoterNote : IDisposable
+    public class VoterNote : IAsyncDisposable
     {
         // persistent module
         private readonly ILogger _logger;
@@ -233,6 +233,7 @@ namespace PineHillRSL.Paxos.Notebook
 
         private UInt64 _maxDecreeNo = 0;
         private AppendPosition _lastAppendPosition;
+        private CancellationTokenSource _cancel = new CancellationTokenSource();
 
         private bool _isStop = false;
         private Task _positionCheckpointTask;
@@ -245,7 +246,14 @@ namespace PineHillRSL.Paxos.Notebook
             {
                 do
                 {
-                    await Task.Delay(100000);
+                    try
+                    {
+                        await Task.Delay(100000, _cancel.Token);
+                    }
+                    catch(TaskCanceledException)
+                    {
+                        return;
+                    }
 
                     UInt64 maxDecreeNo = 0;
                     AppendPosition lastAppendPosition;
@@ -268,8 +276,12 @@ namespace PineHillRSL.Paxos.Notebook
             });
         }
 
-        public virtual void Dispose()
-        { }
+        public async ValueTask DisposeAsync()
+        {
+            _isStop = true;
+            _cancel.Cancel();
+            await _positionCheckpointTask;
+        }
 
         public async Task Load()
         {
@@ -611,7 +623,7 @@ namespace PineHillRSL.Paxos.Notebook
         }
 
     }
-    public class ProposerNote : IDisposable
+    public class ProposerNote : IAsyncDisposable
     {
         public class CommittedDecreeInfo
         {
@@ -645,6 +657,7 @@ namespace PineHillRSL.Paxos.Notebook
         private List<Tuple<ulong, AppendPosition>> _checkpointPositionList = new List<Tuple<ulong, AppendPosition>>();
         private bool _isStop = false;
         private MetaNote _metaNote = null;
+        private CancellationTokenSource _cancel = new CancellationTokenSource();
 
         public ProposerNote(ILogger logger, ILogger metaLogger = null)
         {
@@ -662,7 +675,14 @@ namespace PineHillRSL.Paxos.Notebook
             {
                 do
                 {
-                    await Task.Delay(1000);
+                    try
+                    {
+                        await Task.Delay(1000, _cancel.Token);
+                    }
+                    catch(TaskCanceledException)
+                    {
+                        return;
+                    }
 
                     UInt64 minDecreeNo = 0;
                     object minValue = null;
@@ -681,9 +701,11 @@ namespace PineHillRSL.Paxos.Notebook
             });
         }
 
-        public virtual void Dispose()
+        public async ValueTask DisposeAsync()
         {
             _isStop = true;
+            _cancel.Cancel();
+            await _positionCheckpointTask;
         }
 
         public async Task Load()

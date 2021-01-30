@@ -450,7 +450,7 @@ namespace PineHillRSL.Rpc
     /// <summary>
     /// Rpc client, used by components which need to generate rpc request.
     /// </summary>
-    public class RpcClient : IRpcClient, IRpcNodeEventHandler
+    public class RpcClient : IRpcClient, IRpcNodeEventHandler, IAsyncDisposable
     {
         private ConcurrentDictionary<Guid, TaskCompletionSource<RpcMessage>> _ongoingRequests = new ConcurrentDictionary<Guid, TaskCompletionSource<RpcMessage>>();
         //private NodeAddress _localAddr;
@@ -548,9 +548,9 @@ namespace PineHillRSL.Rpc
             return await _node.GetConnection(serverAddr);
         }
 
-        public void Dispose()
+        public ValueTask DisposeAsync()
         {
-
+            return default;
         }
 
     }
@@ -644,9 +644,9 @@ namespace PineHillRSL.Rpc
             }
         }
 
-        public void Dispose()
+        public virtual ValueTask DisposeAsync()
         {
-
+            return default;
         }
     }
 

@@ -52,7 +52,7 @@ namespace PineHillRSL.StateMachine
         }
     }
 
-    public abstract class PaxosStateMachine : IDisposable, IPaxosNotification
+    public abstract class PaxosStateMachine : IAsyncDisposable, IPaxosNotification
     {
         private PaxosNode _node;
         private PaxosCluster _cluster;
@@ -90,11 +90,15 @@ namespace PineHillRSL.StateMachine
 
         }
 
-        public void Dispose()
+        public async ValueTask DisposeAsync()
         {
             _exit.Cancel();
-            _matainTask?.Wait();
-            _node?.Dispose();
+            if (_matainTask != null)
+                await _matainTask;
+
+            if (_node != null)
+                await _node.DisposeAsync();
+
             _exit.Dispose();
         }
 
@@ -103,9 +107,9 @@ namespace PineHillRSL.StateMachine
             _metaLog = metaLog;
             await _node?.Load(metaLog);
             _reqSlideWindow = new SlidingWindow(_node.MaxCommittedNo, null);
-    }
+        }
 
-    public async Task Request(StateMachineRequest request)
+        public async Task Request(StateMachineRequest request)
         {
             /*
             while(_reqSlideWindow.GetPendingSequenceCount() > 200)
@@ -211,7 +215,7 @@ namespace PineHillRSL.StateMachine
                 }
 
                 //
-                _node.Dispose();
+                await _node.DisposeAsync();
 
                 _node = new PaxosNode(_cluster, _serverAddr);
                 _node.SubscribeNotification(this);

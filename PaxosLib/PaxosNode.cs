@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 
 namespace PineHillRSL.Paxos.Node
 {
-    public class PaxosNode : IDisposable
+    public class PaxosNode : IAsyncDisposable
     {
         private bool _inLoading = false;
         private VoterRole _voterRole;
@@ -64,9 +64,9 @@ namespace PineHillRSL.Paxos.Node
 
         }
 
-        public void Dispose()
+        public async ValueTask DisposeAsync()
         {
-            Cleanup();
+            await Cleanup();
         }
 
         public void SubscribeNotification(IPaxosNotification listener)
@@ -78,10 +78,8 @@ namespace PineHillRSL.Paxos.Node
 
         public async Task Load(string metaLog, ProposerRole.DataSource datasource = ProposerRole.DataSource.Local)
         {
-            await Task.Run(() =>
-            {
-                _metaLogger?.Dispose();
-            });
+            if (_metaLogger != null)
+                await _metaLogger.DisposeAsync();
             _metaLogger = new FileLogger(metaLog);
 
             //
@@ -94,15 +92,12 @@ namespace PineHillRSL.Paxos.Node
             var proposerLog = fileBase + ".proposerlog";
             var voterLog = fileBase + ".voterlog";
 
-            await Task.Run(() =>
-            {
-                _proposeLogger?.Dispose();
-            });
+            if (_proposeLogger != null)
+                await _proposeLogger.DisposeAsync();
             _proposeLogger = new FileLogger(proposerLog);
-            await Task.Run(() =>
-            {
-                _voterLogger?.Dispose();
-            });
+
+            if (_voterLogger != null)
+                await _voterLogger.DisposeAsync();
             _voterLogger = new FileLogger(voterLog);
 
             _voterNote = new VoterNote(_voterLogger);
@@ -198,30 +193,42 @@ namespace PineHillRSL.Paxos.Node
             Common.Logger.Log($"RSL Node Loaded");
         }
 
-        private void Cleanup()
+        private async Task Cleanup()
         {
-            _rpcClient?.Dispose();
+            if (_rpcClient != null)
+                await _rpcClient.DisposeAsync();
             _rpcClient = null;
-            _rpcServer?.Dispose();
+            if (_rpcServer != null)
+                await _rpcServer.DisposeAsync();
             _rpcServer = null;
 
-            _voterRole?.Dispose();
+            if (_voterRole != null)
+                await _voterRole.DisposeAsync();
             _voterRole = null;
 
-            _proposerRole?.Dispose();
+            if (_proposerRole != null)
+                await _proposerRole.DisposeAsync();
             _proposerRole = null;
 
-            _metaLogger?.Dispose();
-            _metaLogger = null;
-            _proposeLogger?.Dispose();
-            _proposeLogger = null;
-            _voterLogger?.Dispose();
-            _voterLogger = null;
-
-            _voterNote?.Dispose();
+            if (_voterNote != null)
+                await _voterNote.DisposeAsync();
             _voterNote = null;
-            _proposerNote?.Dispose();
+
+            if (_proposerNote != null)
+                await _proposerNote.DisposeAsync();
             _proposerNote = null;
+
+            if (_metaLogger != null)
+                await _metaLogger.DisposeAsync();
+            _metaLogger = null;
+
+            if (_proposeLogger != null)
+                await _proposeLogger.DisposeAsync();
+            _proposeLogger = null;
+
+            if (_voterLogger != null)
+                await _voterLogger.DisposeAsync();
+            _voterLogger = null;
 
             _proposeManager?.Dispose();
             _proposeManager = null;
