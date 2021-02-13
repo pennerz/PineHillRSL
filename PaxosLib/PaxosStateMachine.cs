@@ -203,9 +203,18 @@ namespace PineHillRSL.StateMachine
                 {
                     var result = await _node.ProposeDecree(new PaxosDecree() { Content = StateMachineRequestSerializer.Serialize(request) }, 0);
                     var proposeTime = DateTime.Now - begin;
+                    StatisticCounter.ReportCounter((int)PerCounter.NetworkPerfCounterType.ProposeTime, (Int64)proposeTime.TotalMilliseconds);
                     if (proposeTime.TotalMilliseconds > 500)
                     {
-                        Console.WriteLine("too slow");
+                        Console.WriteLine($"Propose request too slow, time:{proposeTime.TotalMilliseconds}ms");
+                        Console.WriteLine($"    CollectLastVoteTimeInMs:{result.CollectLastVoteTimeInMs.TotalMilliseconds}ms");
+                        Console.WriteLine($"    VoteTimeInMs:{result.VoteTimeInMs.TotalMilliseconds}ms");
+                        Console.WriteLine($"    CommitTimeInMs:{result.CommitTimeInMs.TotalMilliseconds}ms");
+                        Console.WriteLine($"    GetProposeCostTime:{result.GetProposeCostTime.TotalMilliseconds}ms");
+                        Console.WriteLine($"    GetProposeLockCostTime:{result.GetProposeLockCostTime.TotalMilliseconds}ms");
+                        Console.WriteLine($"    PrepareNewBallotCostTime:{result.PrepareNewBallotCostTime.TotalMilliseconds}ms");
+                        Console.WriteLine($"    BroadcastQueryLastVoteCostTime:{result.BroadcastQueryLastVoteCostTime.TotalMilliseconds}ms");
+                        Console.WriteLine($"    CollectLastVoteTimeInMs:{result.CollectLastVoteTimeInMs.TotalMilliseconds}ms");
                     }
                     request.SequenceId = result.DecreeNo;
                     break;

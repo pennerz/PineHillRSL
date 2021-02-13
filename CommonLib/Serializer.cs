@@ -250,7 +250,7 @@ namespace PineHillRSL.Common
             var totalCostTime = DateTime.Now - begin;
             if (totalCostTime.TotalMilliseconds > 500)
             {
-                //Console.WriteLine("serialize too slow");
+                Console.WriteLine($"serialize too slow, {totalCostTime.TotalMilliseconds}ms");
             }
             return str;
         }

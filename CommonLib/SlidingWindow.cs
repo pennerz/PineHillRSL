@@ -61,6 +61,10 @@ namespace PineHillRSL.Common
                     return null;
                 }
 
+                //var item1 = _itemList.Values[0];
+                //_itemList.RemoveAt(0);
+                //return item1;
+
                 if (_itemList.Keys[0] < _lastReadySeq + 1)
                 {
                     _itemList.RemoveAt(0);

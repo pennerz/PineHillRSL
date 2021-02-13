@@ -4,6 +4,7 @@ using PineHillRSL.Paxos.Node;
 using PineHillRSL.Paxos.Protocol;
 using PineHillRSL.Paxos.Request;
 using PineHillRSL.ReplicatedTable;
+using PineHillRSL.Paxos.Persistence;
 using PineHillRSL.Tests;
 using System;
 using System.Collections.Generic;
@@ -205,9 +206,116 @@ namespace PineHillRSL.Server
             }
         }
 
+
+        private static void CleanupLogFiles(string nodeName)
+        {
+            List<string> paths = new List<string>(Directory.EnumerateFiles(".\\storage"));
+            foreach (var path in paths)
+            {
+                if (string.IsNullOrEmpty(nodeName) || path.IndexOf(nodeName) != -1)
+                {
+                    File.Delete(path);
+                }
+            }
+
+        }
+
+        public static async Task StateMachinePefTest()
+        {
+            //ThreadPool.SetMinThreads(100, 100);
+            System.Net.ServicePointManager.DefaultConnectionLimit = 200;
+            Trace.WriteLine("Begin StateMachinePerfTest");
+            Console.WriteLine("Begin StateMachinePerfTest");
+            CleanupLogFiles(null);
+            Dictionary<string, string> _table = new Dictionary<string, string>();
+            var start = DateTime.Now;
+            var end = DateTime.Now;
+            var costTime = (end - start).TotalMilliseconds;
+
+            LogSizeThreshold.CommitLogFileCheckpointThreshold = 100 * 1024;
+
+            Trace.WriteLine("Cleaned log files");
+            var cluster = new PaxosCluster();
+            for (int i = 0; i < 5; i++)
+            {
+                var node = new NodeInfo("127.0.0.1");
+                var nodeAddr = new NodeAddress(node, 168 + i);
+                cluster.Members.Add(nodeAddr);
+            }
+
+            //var networkInfr = new TestNetworkInfr();
+            //NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
+            NetworkFactory.SetNetworkCreator(new TcpNetworkCreator());
+
+            var tableNodeMap = new Dictionary<string, ReplicatedTable.ReplicatedTable>();
+            foreach (var nodeAddr in cluster.Members)
+            {
+                var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
+                tableNodeMap[NodeAddress.Serialize(nodeAddr)] = node;
+            }
+            Trace.WriteLine("All cluster nodes intialized");
+
+            start = DateTime.Now;
+
+            List<Task> taskList = new List<Task>();
+            var master = tableNodeMap[NodeAddress.Serialize(cluster.Members[0])];
+
+            var totoalCount = 200000;
+            var finishedRequestCount = 0;
+            for (int i = 0; i < totoalCount; i++)
+            {
+                var task = master.InstertTable(new ReplicatedTableRequest() { Key = i.ToString(), Value = "test" + i.ToString() });
+                taskList.Add(task);
+                if (taskList.Count > 100)
+                {
+                    //await Task.WhenAll(taskList);
+                    while (taskList.Count > 0)
+                    {
+                        var finishedTask = await Task.WhenAny(taskList);
+                        taskList.Remove(finishedTask);
+                        finishedRequestCount++;
+                    }
+                    Trace.WriteLine($"Finished {finishedRequestCount} rows");
+                    taskList.Clear();
+                }
+            }
+            while (taskList.Count > 0)
+            {
+                var finishedTask = await Task.WhenAny(taskList);
+                taskList.Remove(finishedTask);
+                finishedRequestCount++;
+            }
+            Trace.WriteLine($"Finished {finishedRequestCount} rows");
+            //await Task.WhenAll(taskList);
+
+            end = DateTime.Now;
+
+            costTime = (end - start).TotalMilliseconds;
+            Console.WriteLine($"TPS: {totoalCount * 1000 / costTime}");
+
+            var avgTransmitTime = StatisticCounter.GetCounterAvg((int)PerCounter.NetworkPerfCounterType.NetworkMessageTransmitTime);
+            var maxTransmitTime = StatisticCounter.GetMaximumValue((int)PerCounter.NetworkPerfCounterType.NetworkMessageTransmitTime);
+            Console.WriteLine($"Transmit Time: avg: {avgTransmitTime}ms, maximum:{maxTransmitTime}ms");
+
+            var avgRcvMsgDelayedTime = StatisticCounter.GetCounterAvg((int)PerCounter.NetworkPerfCounterType.NetworkMessageRecvDelayedTime);
+            var maxRcvMsgDelayedTime = StatisticCounter.GetMaximumValue((int)PerCounter.NetworkPerfCounterType.NetworkMessageRecvDelayedTime);
+            Console.WriteLine($"Received Message Delayed Time: avg: {avgRcvMsgDelayedTime}ms, maximum:{maxRcvMsgDelayedTime}ms");
+
+            var avgProposeTime = StatisticCounter.GetCounterAvg((int)PerCounter.NetworkPerfCounterType.ProposeTime);
+            var maxProposeTime = StatisticCounter.GetMaximumValue((int)PerCounter.NetworkPerfCounterType.ProposeTime);
+            Console.WriteLine($"Propose Time: avg: {avgRcvMsgDelayedTime}ms, maximum:{maxRcvMsgDelayedTime}ms");
+
+            foreach (var node in tableNodeMap)
+            {
+                await node.Value.DisposeAsync();
+            }
+            LogSizeThreshold.ResetDefault();
+        }
+
         static async Task Main(string[] args)
         {
-            await Test(args);
+            await StateMachinePefTest();
+            //await Test(args);
             /*
             var cfgFile = new FileStream(".\\config.json", FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite);
             var dataBuf = new byte[cfgFile.Length];

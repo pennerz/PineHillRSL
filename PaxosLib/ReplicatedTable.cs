@@ -22,6 +22,12 @@ namespace PineHillRSL.ReplicatedTable
         public string Key { get; set; }
         public string Value { get; set; }
 
+        public DateTime CreatedTime { get; set; } = DateTime.Now;
+
+        public DateTime BeginProcessTime { get; set; } = DateTime.MaxValue;
+
+        public DateTime FinishProcessTime { get; set; } = DateTime.MaxValue;
+
         public TaskCompletionSource<bool> Result { get; set; }
 
     }
@@ -30,6 +36,12 @@ namespace PineHillRSL.ReplicatedTable
     {
         List<ReplicatedTableRequest> _batchRequest = new List<ReplicatedTableRequest>();
         public List<ReplicatedTableRequest> Requests => _batchRequest;
+
+        public DateTime CreatedTime { get; set; } = DateTime.Now;
+
+        public DateTime BeginProcessTime { get; set; } = DateTime.MaxValue;
+
+        public DateTime FinishTime { get; set; } = DateTime.MaxValue;
     }
 
     class RequestSerializer
@@ -105,7 +117,25 @@ namespace PineHillRSL.ReplicatedTable
 
     public class ReplicatedTable : StateMachine.PaxosStateMachine
     {
-        Dictionary<string, string> _table = new Dictionary<string, string>();
+        class Row
+        {
+            private string _value;
+            public string Key { get; set; }
+            public string Value
+            {
+                get
+                {
+                    return _value;
+                }
+                set
+                {
+                    _value = value;
+                    Checkpointed = false;
+                }
+            }
+            public bool Checkpointed { get; set; } = false;
+        }
+        Dictionary<string, Row> _table = new Dictionary<string, Row>();
         List<ReplicatedTableRequest> _queueRequests = new List<ReplicatedTableRequest>();
         ConcurrentDictionary<object, BatchRplicatedTableRequest> _pendingRequests = new ConcurrentDictionary<object, BatchRplicatedTableRequest>();
         SemaphoreSlim _tableUpdateLock = new SemaphoreSlim(1);
@@ -138,7 +168,7 @@ namespace PineHillRSL.ReplicatedTable
             {
                 if (_table.ContainsKey(key))
                 {
-                    return _table[key];
+                    return _table[key].Value;
                 }
                 else
                 {
@@ -149,7 +179,11 @@ namespace PineHillRSL.ReplicatedTable
 
         protected Task ProcessRequest()
         {
-            if (_pendingRequests.Count > 200)
+            if (_pendingRequests.Count > 10)
+            {
+                Console.WriteLine($"Pending requests: {_pendingRequests.Count}");
+            }
+            if (_pendingRequests.Count > 100)
             {
                 return Task.CompletedTask;
             }
@@ -163,27 +197,32 @@ namespace PineHillRSL.ReplicatedTable
                     {
                         if (_queueRequests.Count > 500 || _pendingRequests.Count == 0)
                         {
-                            foreach (var req in _queueRequests)
-                            {
-                                batchRequest.Requests.Add(req);
-                            }
+                            batchRequest.Requests.AddRange(_queueRequests);
                             _queueRequests.Clear();
-                            _pendingRequests.TryAdd(batchRequest, batchRequest);
                         }
                     }
-                    BatchRplicatedTableRequest outBatchRequest = null;
-                    if (batchRequest.Requests.Count == 0)
+                    if (batchRequest.Requests.Count > 0)
                     {
-                        _pendingRequests.TryRemove(batchRequest, out outBatchRequest);
+                        _pendingRequests.TryAdd(batchRequest, batchRequest);
+                    }
+                    else
+                    {
                         return;
                     }
+                    BatchRplicatedTableRequest outBatchRequest = null;
                     var request = new StateMachine.StateMachineRequest();
                     request.Content = RequestSerializer.Serialize(batchRequest);
                     await Request(request);
                     _pendingRequests.TryRemove(batchRequest, out outBatchRequest);
+                    batchRequest.FinishTime = DateTime.Now;
                     foreach (var req in batchRequest.Requests)
                     {
-                        req.Result.SetResult(true);
+                        var task = Task.Run(() =>
+                        {
+                            req.BeginProcessTime = batchRequest.CreatedTime;
+                            req.FinishProcessTime = DateTime.Now;
+                            req.Result.SetResult(true);
+                        });
                     }
                 }
             });
@@ -208,11 +247,16 @@ namespace PineHillRSL.ReplicatedTable
                     {
                         if (_table.ContainsKey(tableRequst.Key))
                         {
-                            _table[tableRequst.Key] = tableRequst.Value;
+                            _table[tableRequst.Key].Value = tableRequst.Value;
                         }
                         else
                         {
-                            _table.Add(tableRequst.Key, tableRequst.Value);
+                            _table.Add(tableRequst.Key,
+                                new Row()
+                                {
+                                    Key = tableRequst.Key,
+                                    Value = tableRequst.Value
+                                });
                         }
                     }
                     _lastestSeqNo = request.SequenceId;
@@ -227,11 +271,16 @@ namespace PineHillRSL.ReplicatedTable
                     {
                         if (_table.ContainsKey(tableRequest.Key))
                         {
-                            _table[tableRequest.Key] = tableRequest.Value;
+                            _table[tableRequest.Key].Value = tableRequest.Value;
                         }
                         else
                         {
-                            _table.Add(tableRequest.Key, tableRequest.Value);
+                            _table.Add(tableRequest.Key,
+                                new Row()
+                                {
+                                    Key = tableRequest.Key,
+                                    Value = tableRequest.Value
+                                });
                         }
                         _lastestSeqNo = request.SequenceId;
                     }
@@ -243,18 +292,43 @@ namespace PineHillRSL.ReplicatedTable
         protected override async Task<UInt64> OnCheckpoint(Stream checkpointStream)
         {
             var databuf = new byte[1024 * 4096]; // 4M buffer
+            var datalen = 0;
             UInt64 checkpointedSeqNo = 0;
             await _tableUpdateLock.WaitAsync();
             var autoLock = new AutoLock(_tableUpdateLock);
             using (autoLock)
             {
-                foreach(var row in _table)
+                foreach(var item in _table)
                 {
-                    int datalen = 0;
-                    while(!SerializeRow(row.Key, row.Value, databuf, out datalen))
+                    int recordLen = 0;
+                    var row = item.Value;
+                    if (row.Checkpointed)
                     {
-                        databuf = new byte[databuf.Length * 2];
+                        continue;
                     }
+
+                    while(!SerializeRow(row.Key, row.Value, databuf, datalen, out recordLen))
+                    {
+                        if (datalen == 0)
+                        {
+                            // buffer not enough for one row
+                            databuf = new byte[databuf.Length * 2];
+                        }
+                        else
+                        {
+                            await checkpointStream.WriteAsync(databuf, 0, datalen);
+                            datalen = 0;
+                            break;
+                        }
+                    }
+                    datalen += recordLen;
+                    if (datalen > databuf.Length)
+                    {
+                        Console.WriteLine("Fatal error");
+                    }
+                }
+                if (datalen > 0)
+                {
                     await checkpointStream.WriteAsync(databuf, 0, datalen);
                 }
 
@@ -292,7 +366,19 @@ namespace PineHillRSL.ReplicatedTable
                     string val;
                     if (DeSerializeRow(databuf, readlen + sizeof(int), out key, out val))
                     {
-                        _table.Add(key, val);
+                        if (_table.ContainsKey(key))
+                        {
+                            _table[key].Value = val;
+                        }
+                        else
+                        {
+                            _table.Add(key,
+                                new Row()
+                                {
+                                    Key = key,
+                                    Value = val
+                                });
+                        }
                     }
 
                 } while (true);
@@ -302,7 +388,7 @@ namespace PineHillRSL.ReplicatedTable
         }
 
 
-        private static bool SerializeRow(string key, string val, byte[] databuf, out int len)
+        private static bool SerializeRow(string key, string val, byte[] databuf, int dataOff, out int len)
         {
             // recordSizexxxx#xxxx
             var separatorData = Encoding.UTF8.GetBytes("#");
@@ -310,13 +396,13 @@ namespace PineHillRSL.ReplicatedTable
             var valData = Encoding.UTF8.GetBytes(val);
             int recordSize = separatorData.Length + keyData.Length + valData.Length;
             var sizeData = BitConverter.GetBytes(recordSize);
-            if (databuf.Length < recordSize + sizeData.Length)
+            if (databuf.Length < dataOff + recordSize + sizeData.Length)
             {
                 len = 0;
                 return false;
             }
-            int sizeInBuf = 0;
-            System.Buffer.BlockCopy(sizeData, 0, databuf, 0, sizeData.Length);
+            int sizeInBuf = dataOff;
+            System.Buffer.BlockCopy(sizeData, 0, databuf, sizeInBuf, sizeData.Length);
             sizeInBuf += sizeData.Length;
             System.Buffer.BlockCopy(keyData, 0, databuf, sizeInBuf, keyData.Length);
             sizeInBuf += keyData.Length;
@@ -324,7 +410,7 @@ namespace PineHillRSL.ReplicatedTable
             sizeInBuf += separatorData.Length;
             System.Buffer.BlockCopy(valData, 0, databuf, sizeInBuf, valData.Length);
             sizeInBuf += valData.Length;
-            len = sizeInBuf;
+            len = sizeInBuf - dataOff;
             return true;
         }
         private static bool DeSerializeRow(byte[] databuf, int len, out string key, out string val)

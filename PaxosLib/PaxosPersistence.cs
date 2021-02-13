@@ -11,7 +11,7 @@ namespace PineHillRSL.Paxos.Persistence
     public class LogSizeThreshold
     {
         private const ulong DefLogFileSizeThreshold = 1024 * 1024;
-        private const ulong DefCommitLogFileCheckpointThreshold = 10 * 1024;
+        private const ulong DefCommitLogFileCheckpointThreshold = 100 * 1024 * 1024;
         private const ulong DefMetaLogTruncateThreshold = 1024;
 
         public static ulong LogFileSizeThreshold { get; set; } = DefLogFileSizeThreshold;
@@ -397,7 +397,7 @@ namespace PineHillRSL.Paxos.Persistence
                         var notifyTime = DateTime.Now - begin;
                         if (notifyTime.TotalMilliseconds > 500)
                         {
-                            //Console.WriteLine("too slow");
+                            Console.WriteLine($"notify request finish, too slow,{notifyTime.TotalMilliseconds}ms, reqcount={finishedReqList.Count} ");
                         }
                     });
                     var notifyRequesTime = DateTime.Now - begin - getBufTime - writeStreamTime;
@@ -405,7 +405,7 @@ namespace PineHillRSL.Paxos.Persistence
                     var totoalTime = DateTime.Now - begin;
                     if (totoalTime.TotalMilliseconds > 500)
                     {
-                        //Console.WriteLine("too slow");
+                        Console.WriteLine($"Log flush too slow, totaltime:{totoalTime.TotalMilliseconds}ms");
                     }
                 } while (!IsStop);
                 return;
@@ -515,7 +515,7 @@ namespace PineHillRSL.Paxos.Persistence
             var appendTime = DateTime.Now - begin;
             if (appendTime.TotalMilliseconds > 500)
             {
-                //Console.WriteLine("too slow");
+                Console.WriteLine($"loglger:;append, too slow, {appendTime.TotalMilliseconds}ms");
             }
 
             return appendPosition;

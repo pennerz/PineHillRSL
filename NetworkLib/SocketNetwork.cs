@@ -169,6 +169,7 @@ namespace PineHillRSL.Network
 
                 var tcpPack = new TcpPacket(packBuffer);
                 var msg = NetworkMessageBuilder.BuildNetworkMessage(tcpPack);
+                msg.ReceivedTime = DateTime.Now;
                 result.Add(msg);
             } while (networkStream.DataAvailable);
 

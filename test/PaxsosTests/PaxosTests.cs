@@ -1494,6 +1494,8 @@ namespace PineHillRSL.Tests
         [TestMethod()]
         public async Task StateMachinePefTest()
         {
+            //ThreadPool.SetMinThreads(100, 100);
+            System.Net.ServicePointManager.DefaultConnectionLimit = 200;
             Trace.WriteLine("Begin StateMachinePerfTest");
             Console.WriteLine("Begin StateMachinePerfTest");
             CleanupLogFiles(null);
@@ -1535,7 +1537,7 @@ namespace PineHillRSL.Tests
             {
                 var task =  master.InstertTable(new ReplicatedTableRequest() { Key = i.ToString(), Value = "test" + i.ToString() });
                 taskList.Add(task);
-                if (taskList.Count > 200)
+                if (taskList.Count > 150)
                 {
                     //await Task.WhenAll(taskList);
                     while(taskList.Count > 0)

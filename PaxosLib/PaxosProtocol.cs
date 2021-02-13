@@ -36,17 +36,68 @@ namespace PineHillRSL.Paxos.Protocol
 
     public abstract class PaxosRole : IAsyncDisposable
     {
-        private class PaxosMessageQeuue
+        private class PaxosMessageQeuue : IAsyncDisposable
         {
             private SemaphoreSlim _lock = new SemaphoreSlim(3);
             private readonly RpcClient _rpcClient;
             private readonly NodeAddress _serverAddr;
             private List<PaxosMessage> _messageQueue = new List<PaxosMessage>();
+            private Task _sendMsgTask = null;
+            private bool _exit = false;
 
             public PaxosMessageQeuue(NodeAddress serverAddr, RpcClient rpcClient)
             {
                 _serverAddr = serverAddr;
                 _rpcClient = rpcClient;
+
+                /*
+                _sendMsgTask = Task.Run(async () =>
+                {
+                    while(true)
+                    {
+                        try
+                        {
+                            await _lock.WaitAsync();
+                            if (_exit)
+                            {
+                                break;
+                            }
+                            do
+                            {
+                                var paxosMsg = PopMessage();
+                                if (paxosMsg == null)
+                                {
+                                    continue;
+                                }
+
+                                var task = Task.Run(() =>
+                                {
+                                    paxosMsg.SourceNode = NodeAddress.Serialize(_serverAddr);
+                                    var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(paxosMsg);
+                                    var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
+                                    rpcMsg.NeedResp = false;
+                                    var remoteAddr = NodeAddress.DeSerialize(paxosMsg.TargetNode);
+
+                                    var task = _rpcClient.SendRequest(remoteAddr, rpcMsg);
+
+                                });
+
+                            } while (true);
+                        }
+                        catch(Exception)
+                        {
+                        }
+
+                    }
+                });
+                */
+            }
+
+            public  async ValueTask DisposeAsync()
+            {
+                _exit = true;
+                //_lock.Release(1);
+                //await _sendMsgTask;
             }
 
             public void AddPaxosMessage(PaxosMessage paxosMessage)
@@ -56,7 +107,6 @@ namespace PineHillRSL.Paxos.Protocol
                 {
                     _messageQueue.Add(paxosMessage);
                 }
-
                 if (_lock.CurrentCount > 0)
                 {
                     var task = Task.Run(async () =>
@@ -96,6 +146,10 @@ namespace PineHillRSL.Paxos.Protocol
                 List<PaxosMessage> consumedMessages = null;
                 lock(_lock)
                 {
+                    if (_messageQueue.Count == 0)
+                    {
+                        return null;
+                    }
                     consumedMessages = _messageQueue;
                     _messageQueue = msgQueue;
                 }
@@ -141,9 +195,12 @@ namespace PineHillRSL.Paxos.Protocol
             _rpcClient = rpcClient;
         }
 
-        public virtual ValueTask DisposeAsync()
+        public async ValueTask DisposeAsync()
         {
-            return default;
+            foreach(var msgQueue in _paxosMessageList)
+            {
+                await msgQueue.Value.DisposeAsync();
+            }
         }
 
         public bool Stop { get; set; }
@@ -945,7 +1002,7 @@ namespace PineHillRSL.Paxos.Protocol
                 {
                     return null;
                 }
-                _ongoingRequests.Add(fakeMsg);
+                _ongoingRequests.Add(fakeMsg);  // for count ongoing requests in paxos protocol
             }
 
             try
@@ -976,7 +1033,7 @@ namespace PineHillRSL.Paxos.Protocol
                     _proposeManager.AddPropose(nextDecreeNo, (ulong)_cluster.Members.Count);
                     Logger.Log("Propose a new propose, decreNo{0}", nextDecreeNo);
 
-
+                    System.Diagnostics.Stopwatch timer = null;
                     ProposePhaseResult result = null;
                     var propose = _proposeManager.GetOngoingPropose(nextDecreeNo);
                     do
@@ -984,7 +1041,10 @@ namespace PineHillRSL.Paxos.Protocol
                         switch (propose.State)
                         {
                             case ProposeState.QueryLastVote:
+                                timer = System.Diagnostics.Stopwatch.StartNew();
                                 result = await CollectLastVote(decree, nextDecreeNo);
+                                timer.Stop();
+                                collectLastVoteCostTimeInMs = timer.Elapsed;
                                 //if (result.IsCommitted && result.CheckpointedDecreeNo >= nextDecreeNo)
                                 //{
                                 //    throw new Exception("Decree checkpointed");
@@ -993,12 +1053,18 @@ namespace PineHillRSL.Paxos.Protocol
                             case ProposeState.WaitForLastVote:
                                 break;
                             case ProposeState.BeginNewBallot:
+                                timer = System.Diagnostics.Stopwatch.StartNew();
                                 result = await BeginNewBallot(nextDecreeNo, propose.GetNextBallot());
+                                timer.Stop();
+                                voteCostTimeInMs = timer.Elapsed;
                                 break;
                             case ProposeState.WaitForNewBallotVote:
                                 break;
                             case ProposeState.ReadyToCommit:
+                                timer = System.Diagnostics.Stopwatch.StartNew();
                                 await CommitPropose(nextDecreeNo, propose.GetNextBallot());
+                                timer.Stop();
+                                commitCostTimeInMs = timer.Elapsed;
                                 break;
                             case ProposeState.Commited:
                                 // ready 
