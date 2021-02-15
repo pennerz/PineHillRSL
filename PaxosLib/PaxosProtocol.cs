@@ -702,6 +702,7 @@ namespace PineHillRSL.Paxos.Protocol
 
         private List<PaxosMessage> _ongoingRequests = new List<PaxosMessage>();
         private ulong _catchupLogSize = 0;
+        private Task _checkpointTask = null;
 
         public enum DataSource { Local, Cluster};
 
@@ -730,7 +731,11 @@ namespace PineHillRSL.Paxos.Protocol
         {
             Stop = true;
             await base.DisposeAsync();
-            while(true)
+            if (_checkpointTask != null)
+            {
+                await _checkpointTask;
+            }
+            while (true)
             {
                 lock(_ongoingRequests)
                 {
@@ -1241,11 +1246,19 @@ namespace PineHillRSL.Paxos.Protocol
             if (_notificationSubscriber != null)
                 await _notificationSubscriber.UpdateSuccessfullDecree(msg.DecreeNo, new PaxosDecree(msg.Decree));
 
-            _catchupLogSize += (ulong)msg.Decree.Length;
+            if (msg.Decree != null)
+                _catchupLogSize += (ulong)msg.Decree.Length;
 
             // check if need to checkpoint
             // TODO, remvoe it from critical path
-            await TriggerCheckpoint();
+            lock(this)
+            {
+                if (_checkpointTask != null && !_checkpointTask.IsCompleted)
+                {
+                    return;
+                }
+                _checkpointTask = TriggerCheckpoint();
+            }
         }
 
         private Task<CheckpointSummaryResp> RequestCheckpointSummary()
@@ -1416,6 +1429,10 @@ namespace PineHillRSL.Paxos.Protocol
 
                 position = await _proposerNote.CommitDecree(decreeNo, propose.Decree);
             }
+            if (propose.Decree == null || propose.Decree.Data == null)
+            {
+                Console.WriteLine("error");
+            }
 
             await NotifyLearnersResult(decreeNo, ballotNo, propose.Decree);
             _proposeManager.RemovePropose(decreeNo);
@@ -1429,12 +1446,19 @@ namespace PineHillRSL.Paxos.Protocol
             }
             // check if need to checkpoint
             // TODO, remvoe it from critical path
-            await TriggerCheckpoint();
+            lock(this)
+            {
+                if (_checkpointTask == null || _checkpointTask.IsCompleted)
+                {
+                    _checkpointTask = TriggerCheckpoint(); // no need to wait
+                }
+            }
 
             // Max played 
             return propose;
         }
 
+        /*
         private async Task<Propose> CommitProposeInLock(ulong decreeNo, ulong ballotNo)
         {
             var propose = _proposeManager.GetOngoingPropose(decreeNo);
@@ -1458,12 +1482,17 @@ namespace PineHillRSL.Paxos.Protocol
                 _catchupLogSize += (ulong)propose.Decree.Data.Length;
             }
             // check if need to checkpoint
-            // TODO, remvoe it from critical path
-            await TriggerCheckpoint();
+            lock(this)
+            {
+                if (_checkpointTask == null || _checkpointTask.IsCompleted)
+                {
+                    _checkpointTask = TriggerCheckpoint();
+                }
+            }
 
             // Max played 
             return propose;
-        }
+        }*/
 
         private async Task<Propose.MessageHandleResult> ProcessStaleBallotMessageInternal(StaleBallotMessage msg)
         {

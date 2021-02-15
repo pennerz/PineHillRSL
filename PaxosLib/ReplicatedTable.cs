@@ -117,7 +117,7 @@ namespace PineHillRSL.ReplicatedTable
 
     public class ReplicatedTable : StateMachine.PaxosStateMachine
     {
-        class Row
+        class Row : IComparable<Row>
         {
             private string _value;
             public string Key { get; set; }
@@ -130,16 +130,26 @@ namespace PineHillRSL.ReplicatedTable
                 set
                 {
                     _value = value;
-                    Checkpointed = false;
                 }
             }
-            public bool Checkpointed { get; set; } = false;
+
+            public string CheckpointingValue { get; set; }
+
+            public int CompareTo(Row rhs)
+            {
+                return this.Key.CompareTo(rhs.Key);
+            }
         }
-        Dictionary<string, Row> _table = new Dictionary<string, Row>();
+        //SortedDictionary<string, Row> _table = new SortedDictionary<string, Row>();
+        SortedSet<Row> _table = new SortedSet<Row>();
+
         List<ReplicatedTableRequest> _queueRequests = new List<ReplicatedTableRequest>();
         ConcurrentDictionary<object, BatchRplicatedTableRequest> _pendingRequests = new ConcurrentDictionary<object, BatchRplicatedTableRequest>();
         SemaphoreSlim _tableUpdateLock = new SemaphoreSlim(1);
         UInt64 _lastestSeqNo = 0;
+
+        bool _isCheckpointing = false;
+        UInt64 _checkpointSeqNo = 0;
 
         public ReplicatedTable(
             PaxosCluster cluster,
@@ -151,7 +161,21 @@ namespace PineHillRSL.ReplicatedTable
         public async Task InstertTable(ReplicatedTableRequest tableRequest)
         {
             tableRequest.Result = new TaskCompletionSource<bool>();
-            lock(_queueRequests)
+
+            // precondition check
+            /*
+            Row row = null;
+            if (_table.TryGetValue(tableRequest.Key, out row))
+            {
+                lock(row)
+                {
+                    // check etag
+
+                }
+            }*/
+
+
+            lock (_queueRequests)
             {
                 _queueRequests.Add(tableRequest);
             }
@@ -162,18 +186,24 @@ namespace PineHillRSL.ReplicatedTable
 
         public async Task<string> ReadTable(string key)
         {
+            var fakeRow = new Row()
+            { Key = key};
+
+            Row row;
             await _tableUpdateLock.WaitAsync();
             var autoLock = new AutoLock(_tableUpdateLock);
             using (autoLock)
             {
+                if (_table.TryGetValue(fakeRow, out row))
+                {
+                    return row.Value;
+                }
+                /*
                 if (_table.ContainsKey(key))
                 {
                     return _table[key].Value;
-                }
-                else
-                {
-                    return null;
-                }
+                }*/
+                return null;
             }
         }
 
@@ -235,28 +265,86 @@ namespace PineHillRSL.ReplicatedTable
             {
                 return;
             }
+            //bool checkpointing = false;
+            //await _tableUpdateLock.WaitAsync();
+            //var autoLock = new AutoLock(_tableUpdateLock);
+            //using (autoLock)
+            //{
+            //    checkpointing = _isCheckpointing;
+            //}
+
+            var fakeRow = new Row();
             var result = RequestSerializer.DeSerialize(request.Content);
             var batchRequest = result as BatchRplicatedTableRequest;
             if (batchRequest != null)
             {
+                var rowList = new List<Row>();
+                foreach(var req in batchRequest.Requests)
+                {
+                    rowList.Add(new Row()
+                    {
+                        Key = req.Key,
+                        Value = req.Value
+                    });
+
+                }
+                DateTime beforeWait = DateTime.Now;
                 await _tableUpdateLock.WaitAsync();
+                StatisticCounter.ReportCounter((int)PerCounter.NetworkPerfCounterType.TableLockWaitTime,
+                    (int)(DateTime.Now - beforeWait).TotalMilliseconds);
+
                 var autoLock = new AutoLock(_tableUpdateLock);
                 using (autoLock)
+                //lock(_tableUpdateLock)
                 {
-                    foreach (var tableRequst in batchRequest.Requests)
+                    for (int i = 0; i < rowList.Count; ++i)
                     {
+                        var tableRequst = batchRequest.Requests[i];
+                        var row = rowList[i];
+
+
+                        /*
                         if (_table.ContainsKey(tableRequst.Key))
                         {
-                            _table[tableRequst.Key].Value = tableRequst.Value;
+                            var row = _table[tableRequst.Key];
+                            lock(row)
+                            {
+                                if (_isCheckpointing && _table[tableRequst.Key].CheckpointingValue == null)
+                                {
+                                    _table[tableRequst.Key].CheckpointingValue = _table[tableRequst.Key].Value;
+                                }
+                                _table[tableRequst.Key].Value = tableRequst.Value;
+                            }
                         }
                         else
                         {
-                            _table.Add(tableRequst.Key,
+                            if (!_table.TryAdd(
+                                tableRequst.Key,
                                 new Row()
                                 {
                                     Key = tableRequst.Key,
-                                    Value = tableRequst.Value
-                                });
+                                    Value = tableRequst.Value,
+                                    CheckpointingValue = ""
+                                }))
+                            {
+                                // should not happen
+                            }
+                        }*/
+                        Row resultRow = null;
+                        if (_table.TryGetValue(row, out resultRow))
+                        {
+                            lock (resultRow)
+                            {
+                                if (_isCheckpointing && resultRow.CheckpointingValue == null)
+                                {
+                                    resultRow.CheckpointingValue = resultRow.Value;
+                                }
+                                resultRow.Value = tableRequst.Value;
+                            }
+                        }
+                        else
+                        {
+                            _table.Add(row);
                         }
                     }
                     _lastestSeqNo = request.SequenceId;
@@ -265,25 +353,52 @@ namespace PineHillRSL.ReplicatedTable
             else
             {
                 var tableRequest = result as ReplicatedTableRequest;
-                if (tableRequest != null)
+                var row = new Row()
                 {
-                    lock (_tableUpdateLock)
+                    Key = tableRequest.Key,
+                    Value = tableRequest.Value
+                };
+
+                await _tableUpdateLock.WaitAsync();
+                var autoLock = new AutoLock(_tableUpdateLock);
+                using (autoLock)
+                {
+                    /*
+                    if (_table.ContainsKey(tableRequest.Key))
                     {
-                        if (_table.ContainsKey(tableRequest.Key))
-                        {
-                            _table[tableRequest.Key].Value = tableRequest.Value;
-                        }
-                        else
-                        {
-                            _table.Add(tableRequest.Key,
-                                new Row()
-                                {
-                                    Key = tableRequest.Key,
-                                    Value = tableRequest.Value
-                                });
-                        }
-                        _lastestSeqNo = request.SequenceId;
+                        _table[tableRequest.Key].Value = tableRequest.Value;
                     }
+                    else
+                    {
+                        if (!_table.TryAdd(tableRequest.Key,
+                            new Row()
+                            {
+                                Key = tableRequest.Key,
+                                Value = tableRequest.Value,
+                                CheckpointingValue = ""
+                            }))
+                        {
+                            // should not happen
+                        }
+                    }*/
+                    Row resultRow = null;
+                    if (_table.TryGetValue(row, out resultRow))
+                    {
+                        lock (resultRow)
+                        {
+                            if (_isCheckpointing && row.CheckpointingValue == null)
+                            {
+                            resultRow.CheckpointingValue = resultRow.Value;
+                            }
+                        resultRow.Value = tableRequest.Value;
+                        }
+                    }
+                    else
+                    {
+                        _table.Add(row);
+                    }
+
+                    _lastestSeqNo = request.SequenceId;
                 }
             }
             return ;
@@ -292,22 +407,90 @@ namespace PineHillRSL.ReplicatedTable
         protected override async Task<UInt64> OnCheckpoint(Stream checkpointStream)
         {
             var databuf = new byte[1024 * 4096]; // 4M buffer
+            StatisticCounter.ReportCounter((int)PerCounter.NetworkPerfCounterType.CheckpointCount, 1);
             var datalen = 0;
             UInt64 checkpointedSeqNo = 0;
             await _tableUpdateLock.WaitAsync();
             var autoLock = new AutoLock(_tableUpdateLock);
             using (autoLock)
             {
-                foreach(var item in _table)
+                // TODO: handle previous checkpoint not finish issue
+                _isCheckpointing = true;
+                _checkpointSeqNo = _lastestSeqNo;
+            }
+
+            Row low = null;
+            List<Row> copyRows = new List<Row>();
+            do
+            {
+                await _tableUpdateLock.WaitAsync();
+                var begin = DateTime.Now;
+                autoLock = new AutoLock(_tableUpdateLock);
+                using (autoLock)
                 {
-                    int recordLen = 0;
-                    var row = item.Value;
-                    if (row.Checkpointed)
+                    SortedSet<Row> copyView = null;
+                    if (low == null)
+                    {
+                        copyView = _table;
+                    }
+                    else
+                    {
+                        copyView = _table.GetViewBetween(low, _table.Max);
+                    }
+
+                    if (copyView.Count == 0)
+                    {
+                        break;
+                    }
+                    if (copyView.Count == 1 && copyView.Contains(low))
+                    {
+                        break;
+                    }
+
+                    foreach(var row in copyView)
+                    {
+                        if (low != null && row.Key.Equals(low.Key))
+                        {
+                            continue;
+                        }
+                        low = row;
+                        copyRows.Add(row);
+                        if (copyRows.Count > 100 * 1024)
+                        {
+                            break;
+                        }
+                    }
+                    StatisticCounter.ReportCounter((int)PerCounter.NetworkPerfCounterType.CheckpointTableLockTime,
+                        (int)(DateTime.Now - begin).TotalMilliseconds);
+                }
+
+                // write the rows
+                int recordLen = 0;
+                foreach(var row in copyRows)
+                {
+                    string rowVal = null;
+                    //await _tableUpdateLock.WaitAsync();
+                    //autoLock = new AutoLock(_tableUpdateLock);
+                    //using (autoLock)
+                    lock(row)
+                    {
+                        if (row.CheckpointingValue != null)
+                        {
+                            rowVal = row.CheckpointingValue;
+                        }
+                        else
+                        {
+                            rowVal = row.Value;
+                        }
+                        // reset checkpoint value
+                        row.CheckpointingValue = null;
+                    }
+                    if (rowVal.Equals(""))
                     {
                         continue;
                     }
 
-                    while(!SerializeRow(row.Key, row.Value, databuf, datalen, out recordLen))
+                    while (!SerializeRow(row.Key, rowVal, databuf, datalen, out recordLen))
                     {
                         if (datalen == 0)
                         {
@@ -317,6 +500,8 @@ namespace PineHillRSL.ReplicatedTable
                         else
                         {
                             await checkpointStream.WriteAsync(databuf, 0, datalen);
+                            StatisticCounter.ReportCounter((int)PerCounter.NetworkPerfCounterType.CheckpointDataSize,
+                                datalen);
                             datalen = 0;
                             break;
                         }
@@ -327,13 +512,71 @@ namespace PineHillRSL.ReplicatedTable
                         Console.WriteLine("Fatal error");
                     }
                 }
-                if (datalen > 0)
+
+                copyRows.Clear();
+
+            } while (true);
+            /*
+            foreach(var item in _table)
+            {
+                int recordLen = 0;
+                var row = item.Value;
+                string rowVal = null;
+                //await _tableUpdateLock.WaitAsync();
+                //autoLock = new AutoLock(_tableUpdateLock);
+                //using (autoLock)
+                //lock(row)
                 {
-                    await checkpointStream.WriteAsync(databuf, 0, datalen);
+                    if  (row.CheckpointingValue != null)
+                    {
+                        rowVal = row.CheckpointingValue;
+                    }
+                    else
+                    {
+                        rowVal = row.Value;
+                    }
+                }
+                if (rowVal.Equals(""))
+                {
+                    continue;
                 }
 
-                checkpointedSeqNo = _lastestSeqNo;
+                while(!SerializeRow(row.Key, rowVal, databuf, datalen, out recordLen))
+                {
+                    if (datalen == 0)
+                    {
+                        // buffer not enough for one row
+                        databuf = new byte[databuf.Length * 2];
+                    }
+                    else
+                    {
+                        await checkpointStream.WriteAsync(databuf, 0, datalen);
+                        datalen = 0;
+                        break;
+                    }
+                }
+                datalen += recordLen;
+                if (datalen > databuf.Length)
+                {
+                    Console.WriteLine("Fatal error");
+                }
+            }*/
+
+            if (datalen > 0)
+            {
+                await checkpointStream.WriteAsync(databuf, 0, datalen);
+                StatisticCounter.ReportCounter((int)PerCounter.NetworkPerfCounterType.CheckpointDataSize,
+                    datalen);
             }
+            checkpointedSeqNo = _checkpointSeqNo;
+            await _tableUpdateLock.WaitAsync();
+            autoLock = new AutoLock(_tableUpdateLock);
+            using (autoLock)
+            {
+                _isCheckpointing = false;
+                _checkpointSeqNo = 0;
+            }
+
             return checkpointedSeqNo;
         }
 
@@ -366,19 +609,38 @@ namespace PineHillRSL.ReplicatedTable
                     string val;
                     if (DeSerializeRow(databuf, readlen + sizeof(int), out key, out val))
                     {
+                        var row = new Row()
+                        {
+                            Key = key,
+                            Value = val
+                        };
+
+                        Row result = null;
+                        if (_table.TryGetValue(row, out result))
+                        {
+                            lock(result)
+                            {
+                                result.Value = val;
+                            }
+                        }
+                        else
+                        {
+                            _table.Add(row);
+                        }
+                        /*
                         if (_table.ContainsKey(key))
                         {
                             _table[key].Value = val;
                         }
                         else
                         {
-                            _table.Add(key,
+                            _table.TryAdd(key,
                                 new Row()
                                 {
                                     Key = key,
                                     Value = val
                                 });
-                        }
+                        }*/
                     }
 
                 } while (true);

@@ -232,7 +232,7 @@ namespace PineHillRSL.Server
             var end = DateTime.Now;
             var costTime = (end - start).TotalMilliseconds;
 
-            LogSizeThreshold.CommitLogFileCheckpointThreshold = 100 * 1024;
+            LogSizeThreshold.CommitLogFileCheckpointThreshold = 10 * 1024 * 1024;
 
             Trace.WriteLine("Cleaned log files");
             var cluster = new PaxosCluster();
@@ -260,7 +260,7 @@ namespace PineHillRSL.Server
             List<Task> taskList = new List<Task>();
             var master = tableNodeMap[NodeAddress.Serialize(cluster.Members[0])];
 
-            var totoalCount = 200000;
+            var totoalCount = 2400000;
             var finishedRequestCount = 0;
             for (int i = 0; i < totoalCount; i++)
             {
@@ -291,7 +291,7 @@ namespace PineHillRSL.Server
             end = DateTime.Now;
 
             costTime = (end - start).TotalMilliseconds;
-            Console.WriteLine($"TPS: {totoalCount * 1000 / costTime}");
+            Console.WriteLine($"TPS: {totoalCount / costTime * 1000 }");
 
             var avgTransmitTime = StatisticCounter.GetCounterAvg((int)PerCounter.NetworkPerfCounterType.NetworkMessageTransmitTime);
             var maxTransmitTime = StatisticCounter.GetMaximumValue((int)PerCounter.NetworkPerfCounterType.NetworkMessageTransmitTime);
@@ -303,12 +303,28 @@ namespace PineHillRSL.Server
 
             var avgProposeTime = StatisticCounter.GetCounterAvg((int)PerCounter.NetworkPerfCounterType.ProposeTime);
             var maxProposeTime = StatisticCounter.GetMaximumValue((int)PerCounter.NetworkPerfCounterType.ProposeTime);
-            Console.WriteLine($"Propose Time: avg: {avgRcvMsgDelayedTime}ms, maximum:{maxRcvMsgDelayedTime}ms");
+            Console.WriteLine($"Propose Time: avg: {avgProposeTime}ms, maximum:{maxProposeTime}ms");
+
+            var avgProposeTableLockWaitTime = StatisticCounter.GetCounterAvg((int)PerCounter.NetworkPerfCounterType.TableLockWaitTime);
+            var maxProposeTableLockWaitTime = StatisticCounter.GetMaximumValue((int)PerCounter.NetworkPerfCounterType.TableLockWaitTime);
+            Console.WriteLine($"Propose Table lock wait Time: avg: {avgProposeTableLockWaitTime}ms, maximum:{maxProposeTableLockWaitTime}ms");
+
+            var checkpointData = StatisticCounter.GetCounterSum((int)PerCounter.NetworkPerfCounterType.CheckpointDataSize);
+            var checkpointCount = StatisticCounter.GetCounterSum((int)PerCounter.NetworkPerfCounterType.CheckpointCount);
+            Console.WriteLine($"Checkpoint count: {checkpointCount}, datasize:{checkpointData}");
+
+            var avgCheckpointTableLockTime = StatisticCounter.GetCounterAvg((int)PerCounter.NetworkPerfCounterType.CheckpointTableLockTime);
+            var maxCheckpointTableLockTime = StatisticCounter.GetMaximumValue((int)PerCounter.NetworkPerfCounterType.CheckpointTableLockTime);
+            var sumCheckpointTableLockTime = StatisticCounter.GetCounterSum((int)PerCounter.NetworkPerfCounterType.CheckpointTableLockTime);
+            var checkpointTableLockCount = StatisticCounter.GetCounterCount((int)PerCounter.NetworkPerfCounterType.CheckpointTableLockTime);
+            Console.WriteLine($"Checkpoint Table lock Time: avg: {avgCheckpointTableLockTime}ms, maximum:{maxCheckpointTableLockTime}ms, sum:{sumCheckpointTableLockTime}ms, count:{checkpointTableLockCount}");
 
             foreach (var node in tableNodeMap)
             {
                 await node.Value.DisposeAsync();
             }
+            Console.WriteLine($"Finish");
+
             LogSizeThreshold.ResetDefault();
         }
 

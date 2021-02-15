@@ -6,6 +6,7 @@ namespace PineHillRSL.PerCounter
     {
         Base = 10000,
         ProposeTime,
+        TableLockWaitTime,
         RpcConnectionLockWaitTime,
         NetworkMessageProcessTaskCreationTime,
         NetworkMessageRecvWaitTime,
@@ -14,5 +15,8 @@ namespace PineHillRSL.PerCounter
         NetworkMessageBatchCount,
         NetworkMessageProcessTime,
         ConcurrentNetworkTaskCount,
+        CheckpointTableLockTime,
+        CheckpointDataSize,
+        CheckpointCount,
     }
 }

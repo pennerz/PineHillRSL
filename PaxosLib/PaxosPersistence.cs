@@ -11,7 +11,7 @@ namespace PineHillRSL.Paxos.Persistence
     public class LogSizeThreshold
     {
         private const ulong DefLogFileSizeThreshold = 1024 * 1024;
-        private const ulong DefCommitLogFileCheckpointThreshold = 100 * 1024 * 1024;
+        private const ulong DefCommitLogFileCheckpointThreshold = 1* 1024;
         private const ulong DefMetaLogTruncateThreshold = 1024;
 
         public static ulong LogFileSizeThreshold { get; set; } = DefLogFileSizeThreshold;

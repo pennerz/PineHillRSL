@@ -28,7 +28,7 @@ namespace PineHillRSL.Common
             {
                 Interlocked.Increment(ref _count);
                 var result = Interlocked.Add(ref _value, val);
-                if (result > _maxvalue)
+                if (val > _maxvalue)
                 {
                     _maxvalue = result;
                 }
@@ -94,6 +94,16 @@ namespace PineHillRSL.Common
             return counter.MaximumValue;
         }
 
+        public Int64 GetCounterCount(int counterType)
+        {
+            var counter = GetCounter(counterType);
+            if (counter == null)
+            {
+                return 0;
+            }
+            return counter.Count;
+        }
+
         private Counter GetCounter(int counterType)
         {
             Counter counter = null;
@@ -136,6 +146,11 @@ namespace PineHillRSL.Common
         public static void ReportCounter(int counterType, Int64 value)
         {
             PerfCounterManager.GetInst().Accumulate(counterType, value);
+        }
+
+        public static Int64 GetCounterCount(int counterType)
+        {
+            return PerfCounterManager.GetInst().GetCounterCount(counterType);
         }
 
         public static Int64 GetCounterSum(int counterType)
