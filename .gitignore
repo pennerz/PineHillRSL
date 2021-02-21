@@ -38,3 +38,5 @@
 /service/containers/ReliableTableService/Node2/netcoreapp3.0
 /client/bin/Debug/netcoreapp3.0
 /client/obj
+/service/containers/ReliableTableService/Node1/netcoreapp3.0
+/PineHillRSL/.vs/PineHillRSL/config/applicationhost.config

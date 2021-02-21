@@ -77,10 +77,10 @@ namespace PineHillRSL.Tests
             foreach (var nodeAddr in cluster.Members)
             {
                 var node = new PaxosNode(cluster, nodeAddr);
-                nodeMap[NodeAddress.Serialize(nodeAddr)] = node;
+                nodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(nodeAddr)] = node;
             }
 
-            var proposer = nodeMap[NodeAddress.Serialize(cluster.Members[0])];
+            var proposer = nodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(cluster.Members[0])];
             proposer.NotifyLearner = notifyLearner;
             var decree = new PaxosDecree()
             {
@@ -92,7 +92,7 @@ namespace PineHillRSL.Tests
             Assert.IsTrue(readReslut.Decree.Content.Equals("test"));
             Assert.IsTrue(readReslut.MaxDecreeNo == 1);
 
-            var proposer2 = nodeMap[NodeAddress.Serialize(cluster.Members[1])];
+            var proposer2 = nodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(cluster.Members[1])];
             proposer2.NotifyLearner = notifyLearner;
             var decree2 = new PaxosDecree()
             {
@@ -178,20 +178,20 @@ namespace PineHillRSL.Tests
             foreach (var nodeAddr in cluster.Members)
             {
                 var node = new PaxosNode(cluster, nodeAddr);
-                var instanceName = NodeAddress.Serialize(nodeAddr);
+                var instanceName = PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(nodeAddr);
                 nodeMap[instanceName] = node;
                 var metaLogFile = ".\\storage\\" + instanceName + ".meta";
                 await node.Load(metaLogFile);
             }
 
-            var proposer = nodeMap[NodeAddress.Serialize(cluster.Members[0])];
+            var proposer = nodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(cluster.Members[0])];
 
             var readReslut = await proposer.ReadDecree(1);
             Assert.IsTrue(readReslut.IsFound);
             Assert.IsTrue(readReslut.Decree.Content.Equals("test"));
             Assert.IsTrue(readReslut.MaxDecreeNo == 3);
 
-            var proposer2 = nodeMap[NodeAddress.Serialize(cluster.Members[1])];
+            var proposer2 = nodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(cluster.Members[1])];
 
             // this will get the committed decree in proposer1
             readReslut = await proposer2.ReadDecree(1);
@@ -1153,11 +1153,11 @@ namespace PineHillRSL.Tests
             foreach (var nodeAddr in cluster.Members)
             {
                 var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
-                tableNodeMap[NodeAddress.Serialize(nodeAddr)] = node;
+                tableNodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(nodeAddr)] = node;
             }
 
 
-            var master = tableNodeMap[NodeAddress.Serialize(cluster.Members[0])];
+            var master = tableNodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(cluster.Members[0])];
             await master.InstertTable(new ReplicatedTableRequest() { Key = "1", Value = "test1" });
             await master.InstertTable(new ReplicatedTableRequest() { Key = "2", Value = "test2" });
             await master.InstertTable(new ReplicatedTableRequest() { Key = "3", Value = "test3" });
@@ -1185,7 +1185,7 @@ namespace PineHillRSL.Tests
                 var nodeAddr = new NodeAddress(node, 138 + i);
                 cluster.Members.Add(nodeAddr);
 
-                var instanceName = NodeAddress.Serialize(nodeAddr);
+                var instanceName = PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(nodeAddr);
 
                 var metaLogFile = ".\\storage\\" + instanceName + ".meta";
                 var proposerLogFile = ".\\storage\\" + instanceName + ".proposerlog";
@@ -1201,13 +1201,13 @@ namespace PineHillRSL.Tests
             foreach (var nodeAddr in cluster.Members)
             {
                 var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
-                var instanceName = NodeAddress.Serialize(nodeAddr);
+                var instanceName = PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(nodeAddr);
                 tableNodeMap[instanceName] = node;
             }
 
             start = DateTime.Now;
 
-            var master = tableNodeMap[NodeAddress.Serialize(cluster.Members[0])];
+            var master = tableNodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(cluster.Members[0])];
             for (int i = 0; i < 500; i++)
             {
                 var task = master.InstertTable(new ReplicatedTableRequest() { Key = i.ToString(), Value = "test" + i.ToString() });
@@ -1229,7 +1229,7 @@ namespace PineHillRSL.Tests
             foreach (var nodeAddr in cluster.Members)
             {
                 var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
-                var nodeInstanceName = NodeAddress.Serialize(nodeAddr);
+                var nodeInstanceName = PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(nodeAddr);
                 tableNodeMap[nodeInstanceName] = node;
                 var proposerLogFile = ".\\storage\\" + nodeInstanceName + ".proposerlog";
                 var votedLogFile = ".\\storage\\" + nodeInstanceName + ".voterlog";
@@ -1241,7 +1241,7 @@ namespace PineHillRSL.Tests
 
             start = DateTime.Now;
 
-            master = tableNodeMap[NodeAddress.Serialize(cluster.Members[0])];
+            master = tableNodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(cluster.Members[0])];
 
             costTime = (end - start).TotalMilliseconds;
             Console.WriteLine("TPS: {0}", 10000 * 1000 / costTime);
@@ -1283,13 +1283,13 @@ namespace PineHillRSL.Tests
                 }
                 var nodeAddr = cluster.Members[i];
                 var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
-                var nodeInstanceName = NodeAddress.Serialize(nodeAddr);
+                var nodeInstanceName = PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(nodeAddr);
                 tableNodeMap[nodeInstanceName] = node;
             }
 
             start = DateTime.Now;
 
-            var master = tableNodeMap[NodeAddress.Serialize(cluster.Members[0])];
+            var master = tableNodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(cluster.Members[0])];
             for (int i = 0; i < 500; i++)
             {
                 var task = master.InstertTable(new ReplicatedTableRequest() { Key = i.ToString(), Value = "test" + i.ToString() });
@@ -1299,14 +1299,14 @@ namespace PineHillRSL.Tests
                     Console.WriteLine("break");
                 }
             }
-
+            await Task.Delay(5000); // checkpoint now is a sync task
             foreach(var node in tableNodeMap)
             {
                 await node.Value.DisposeAsync();
             }
 
             var unHealthyNodeAddr = cluster.Members[unHealthyNodeIndex];
-            var unhealthInstanceName = NodeAddress.Serialize(unHealthyNodeAddr);
+            var unhealthInstanceName = PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(unHealthyNodeAddr);
             var unHealthyNodeMetaLogFile = ".\\storage\\" + unhealthInstanceName + ".meta";
             var unHealthyNodeProposerLogFile = ".\\storage\\" + unhealthInstanceName + ".proposerlog";
             var unHealthyVotedLogFile = ".\\storage\\" + unhealthInstanceName + ".voterlog";
@@ -1323,14 +1323,14 @@ namespace PineHillRSL.Tests
                 {
                     continue;
                 }
-                tableNodeMap[NodeAddress.Serialize(cluster.Members[i])] = new ReplicatedTable.ReplicatedTable(cluster, cluster.Members[i]);
+                tableNodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(cluster.Members[i])] = new ReplicatedTable.ReplicatedTable(cluster, cluster.Members[i]);
             }
-            tableNodeMap[NodeAddress.Serialize(cluster.Members[unHealthyNodeIndex])] = new ReplicatedTable.ReplicatedTable(cluster, cluster.Members[unHealthyNodeIndex]);
+            tableNodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(cluster.Members[unHealthyNodeIndex])] = new ReplicatedTable.ReplicatedTable(cluster, cluster.Members[unHealthyNodeIndex]);
 
             for (int i = 0; i < cluster.Members.Count; ++i)
             {
                 var nodeAddr = cluster.Members[i];
-                var nodeInstanceName = NodeAddress.Serialize(nodeAddr);
+                var nodeInstanceName = PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(nodeAddr);
                 var node = tableNodeMap[nodeInstanceName];
                 var proposerLogFile = ".\\storage\\" + nodeInstanceName + ".proposerlog";
                 var votedLogFile = ".\\storage\\" + nodeInstanceName + ".voterlog";
@@ -1396,10 +1396,10 @@ namespace PineHillRSL.Tests
             foreach (var nodeAddr in cluster.Members)
             {
                 var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
-                tableNodeMap[NodeAddress.Serialize(nodeAddr)] = node;
+                tableNodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(nodeAddr)] = node;
             }
 
-            var master = tableNodeMap[NodeAddress.Serialize(cluster.Members[0])];
+            var master = tableNodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(cluster.Members[0])];
             var serviceServer = new PineHillRSL.ServerLib.PineHillRSLServer(master);
             var serviceAddr = new NodeAddress(new NodeInfo("127.0.0.1"), 1000);
             await serviceServer.StartServer(serviceAddr);
@@ -1523,14 +1523,14 @@ namespace PineHillRSL.Tests
             foreach (var nodeAddr in cluster.Members)
             {
                 var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
-                tableNodeMap[NodeAddress.Serialize(nodeAddr)] = node;
+                tableNodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(nodeAddr)] = node;
             }
             Trace.WriteLine("All cluster nodes intialized");
 
             start = DateTime.Now;
 
             List<Task> taskList = new List<Task>();
-            var master = tableNodeMap[NodeAddress.Serialize(cluster.Members[0])];
+            var master = tableNodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(cluster.Members[0])];
 
             var finishedRequestCount = 0;
             for (int i = 0; i < 100000; i++)

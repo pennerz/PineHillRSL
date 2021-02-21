@@ -21,7 +21,7 @@ namespace PineHillRSL.Client
     {
         static async Task Main(string[] args)
         {
-            var cfgFile = new FileStream("\\config\\config.json", FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite);
+            var cfgFile = new FileStream(".\\config.json", FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite);
             var dataBuf = new byte[cfgFile.Length];
             var readLen = await cfgFile.ReadAsync(dataBuf, 0, (int)(cfgFile.Length));
             var cfgStr = Encoding.UTF8.GetString(dataBuf, 0, readLen);
@@ -33,6 +33,11 @@ namespace PineHillRSL.Client
             await client.InsertTable("1", "test1");
             await client.InsertTable("2", "test2");
             await client.InsertTable("3", "test3");
+
+            var result = await client.ReadTable("1");
+            result = await client.ReadTable("2");
+            result = await client.ReadTable("3");
+
         }
     }
 }

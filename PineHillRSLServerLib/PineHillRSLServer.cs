@@ -38,6 +38,14 @@ namespace PineHillRSL.ServerLib
                     await _rtable.InstertTable(serverRequest);
                     PineHillRSL.Common.Logger.Log($"Insert table row[key:{serverRequest.Key}, value:{serverRequest.Value}");
                     return null;
+                case PineHillRSLRpcRequest.RequestType.ReadTable:
+                    if (_rtable == null)
+                    {
+                        return null;
+                    }
+                    var value = await _rtable.ReadTable(((ReadTableRequest)rpcRequest).Key);
+                    ((ReadTableRequest)rpcRequest).Value = value;
+                    return PineRequetMessageFactory.CreateRpcMessage((ReadTableRequest)rpcRequest);
                 case PineHillRSLRpcRequest.RequestType.Unknown:
                 default:
                     break;

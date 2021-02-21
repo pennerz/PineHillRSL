@@ -62,13 +62,13 @@ namespace PineHillRSL.Server
                 foreach (var nodeAddr in cluster.Members)
                 {
                     var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
-                    tableNodeMap[NodeAddress.Serialize(nodeAddr)] = node;
+                    tableNodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(nodeAddr)] = node;
                 }
 
                 var start = DateTime.Now;
 
                 List<Task> taskList = new List<Task>();
-                var master = tableNodeMap[NodeAddress.Serialize(cluster.Members[0])];
+                var master = tableNodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(cluster.Members[0])];
                 for (int i = 0; i < 10000000; i++)
                 {
                     var task = master.InstertTable(new ReplicatedTableRequest() { Key = i.ToString(), Value = "test" + i.ToString() });
@@ -95,13 +95,13 @@ namespace PineHillRSL.Server
                 foreach (var nodeAddr in cluster.Members)
                 {
                     var node = new PaxosNode(cluster, nodeAddr);
-                    nodeMap[NodeAddress.Serialize(nodeAddr)] = node;
+                    nodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(nodeAddr)] = node;
                 }
 
                 bool isParallel = true;
                 var start = DateTime.Now;
 
-                var proposer = nodeMap[NodeAddress.Serialize(cluster.Members[0])];
+                var proposer = nodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(cluster.Members[0])];
 
                 int workerCount = 0;
                 int iocpCount = 0;
@@ -251,14 +251,14 @@ namespace PineHillRSL.Server
             foreach (var nodeAddr in cluster.Members)
             {
                 var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
-                tableNodeMap[NodeAddress.Serialize(nodeAddr)] = node;
+                tableNodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(nodeAddr)] = node;
             }
             Trace.WriteLine("All cluster nodes intialized");
 
             start = DateTime.Now;
 
             List<Task> taskList = new List<Task>();
-            var master = tableNodeMap[NodeAddress.Serialize(cluster.Members[0])];
+            var master = tableNodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(cluster.Members[0])];
 
             var totoalCount = 2400000;
             var finishedRequestCount = 0;
@@ -330,10 +330,10 @@ namespace PineHillRSL.Server
 
         static async Task Main(string[] args)
         {
-            await StateMachinePefTest();
+            //await StateMachinePefTest();
             //await Test(args);
-            /*
-            var cfgFile = new FileStream(".\\config.json", FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite);
+            
+            var cfgFile = new FileStream("c:\\config\\config.json", FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite);
             var dataBuf = new byte[cfgFile.Length];
             var readLen = await cfgFile.ReadAsync(dataBuf, 0, (int)(cfgFile.Length));
             var cfgStr = Encoding.UTF8.GetString(dataBuf, 0, readLen);
@@ -361,7 +361,7 @@ namespace PineHillRSL.Server
             while (true)
             {
                 await Task.Delay(1000);
-            }*/
+            }
         }
     }
 }

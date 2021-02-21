@@ -37,6 +37,14 @@ namespace PineHillRSL.Paxos.Node
 
         public enum DataSource { Local, Cluster};
 
+        public static string GetInstanceName(NodeAddress nodeAddr)
+        {
+            var instanceName = NodeAddress.Serialize(nodeAddr);
+            instanceName = instanceName.Replace(":", "_");
+            return instanceName;
+        }
+
+
         public PaxosNode(
             PaxosCluster cluster,
             NodeAddress serverAddr)
@@ -185,7 +193,7 @@ namespace PineHillRSL.Paxos.Node
             _rpcServer.Start().Wait();
             Common.Logger.Log($"RSL Node RPC Server Startd");
 
-            var instanceName = NodeAddress.Serialize(_serverAddr);
+            var instanceName = GetInstanceName(_serverAddr);
 
             var metaLogFilePath = ".\\storage\\" + instanceName + ".meta";
             var task = Load(metaLogFilePath);

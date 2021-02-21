@@ -846,12 +846,12 @@ namespace PineHillRSL.Paxos.Protocol
                 var checkpointFilePath = _proposerNote.ProposeRoleMetaRecord?.CheckpointFilePath;
                 if (checkpointFilePath == null)
                 {
-                    checkpointFilePath = ".\\storage\\" + NodeAddress.Serialize(_serverAddr) + "_checkpoint.0000000000000001";
+                    checkpointFilePath = ".\\storage\\" + Node.PaxosNode.GetInstanceName(_serverAddr) + "_checkpoint.0000000000000001";
                 }
                 else
                 {
                     int checkpointFileIndex = 0;
-                    var baseName = ".\\storage\\" + NodeAddress.Serialize(_serverAddr) + "_checkpoint";
+                    var baseName = ".\\storage\\" + Node.PaxosNode.GetInstanceName(_serverAddr) + "_checkpoint";
                     var separatorIndex = checkpointFilePath.IndexOf(baseName);
                     if (separatorIndex != -1)
                     {
@@ -1649,12 +1649,12 @@ namespace PineHillRSL.Paxos.Protocol
                 var checkpointFilePath = _proposerNote.ProposeRoleMetaRecord?.CheckpointFilePath;
                 if (checkpointFilePath == null)
                 {
-                    checkpointFilePath = ".\\storage\\" + NodeAddress.Serialize(_serverAddr) + "_checkpoint.0000000000000001";
+                    checkpointFilePath = ".\\storage\\" + Node.PaxosNode.GetInstanceName(_serverAddr) + "_checkpoint.0000000000000001";
                 }
                 else
                 {
                     int checkpointFileIndex = 0;
-                    var baseName = ".\\storage\\" + NodeAddress.Serialize(_serverAddr) + "_checkpoint";
+                    var baseName = ".\\storage\\" + Node.PaxosNode.GetInstanceName(_serverAddr) + "_checkpoint";
                     var separatorIndex = checkpointFilePath.IndexOf(baseName);
                     if (separatorIndex != -1)
                     {

@@ -231,7 +231,7 @@ namespace PineHillRSL.StateMachine
 
                 if (string.IsNullOrEmpty(_metaLog))
                 {
-                    var instanceName = NodeAddress.Serialize(_serverAddr);
+                    var instanceName = Paxos.Node.PaxosNode.GetInstanceName(_serverAddr);
                     _metaLog = ".\\storage\\" + instanceName + ".meta";
                 }
                 await Task.Run(async () =>
