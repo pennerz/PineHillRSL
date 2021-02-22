@@ -1,8 +1,6 @@
 ﻿using PineHillRSL.Consensus.Request;
+using PineHillRSL.Consensus.Persistence;
 using PineHillRSL.Common;
-using PineHillRSL.Paxos.Message;
-using PineHillRSL.Paxos.Persistence;
-using PineHillRSL.Paxos.Request;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -191,7 +189,7 @@ namespace PineHillRSL.Paxos.Notebook
             var votedBallotData = _votedBallotInfo.Serialize();
             var decreeNoData = BitConverter.GetBytes(_decreeNo);
             int recrodSize = _magic.Length + votedBallotData.Length + decreeNoData.Length;
-            var buf = new Persistence.LogBuffer();
+            var buf = new LogBuffer();
             buf.AllocateBuffer(recrodSize + sizeof(int));
             buf.EnQueueData(BitConverter.GetBytes(recrodSize));
             buf.EnQueueData(_magic);
@@ -501,7 +499,7 @@ namespace PineHillRSL.Paxos.Notebook
             var offsetInFragmentData = BitConverter.GetBytes((UInt64)_checkpointPosition.OffsetInFragment);
             var decreeNoData = BitConverter.GetBytes(_decreeNo);
             int recrodSize = _magic.Length + filePathData.Length + decreeNoData.Length + fragmentIndexData.Length + offsetInFragmentData.Length;
-            var buf = new Persistence.LogBuffer();
+            var buf = new LogBuffer();
             buf.AllocateBuffer(recrodSize + sizeof(int));
             buf.EnQueueData(BitConverter.GetBytes(recrodSize));
             buf.EnQueueData(_magic);
@@ -594,7 +592,7 @@ namespace PineHillRSL.Paxos.Notebook
             var decreeContentData = _decreeContent; // Encoding.UTF8.GetBytes(_decreeContent);
             var decreeNoData = BitConverter.GetBytes(_decreeNo);
             int recrodSize = _magic.Length + decreeContentData.Length + decreeNoData.Length;
-            var buf = new Persistence.LogBuffer();
+            var buf = new LogBuffer();
             buf.AllocateBuffer(recrodSize + sizeof(int));
             buf.EnQueueData(BitConverter.GetBytes(recrodSize));
             buf.EnQueueData(_magic);

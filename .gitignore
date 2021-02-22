@@ -45,3 +45,5 @@
 /ConcensusCommonLib/obj
 /ReliableStateMachineLib/bin
 /ReliableStateMachineLib/obj
+/RaftLib/bin
+/RaftLib/obj

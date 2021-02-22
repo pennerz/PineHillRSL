@@ -6,9 +6,9 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PineHillRSL.Paxos.Persistence
+namespace PineHillRSL.Consensus.Persistence
 {
-    public class LogSizeThreshold
+    public class LogSizeThreshold   
     {
         private const ulong DefLogFileSizeThreshold = 1024 * 1024;
         private const ulong DefCommitLogFileCheckpointThreshold = 1* 1024;
@@ -117,7 +117,7 @@ namespace PineHillRSL.Paxos.Persistence
         public TaskCompletionSource<AppendPosition> Result = new TaskCompletionSource<AppendPosition>();
     }
 
-    class LogBuffer
+    public class LogBuffer
     {
         private byte[] _buffer = null;
         private int _bufLen = 0;

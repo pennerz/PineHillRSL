@@ -1,27 +1,23 @@
 ﻿using PineHillRSL.Consensus.Node;
-using PineHillRSL.Consensus.Request;
 using PineHillRSL.Consensus.Persistence;
+using PineHillRSL.Consensus.Request;
 using PineHillRSL.Network;
-using PineHillRSL.Paxos.Message;
-using PineHillRSL.Paxos.Notebook;
-using PineHillRSL.Paxos.Protocol;
-using PineHillRSL.Paxos.Rpc;
+using PineHillRSL.Raft.Message;
+using PineHillRSL.Raft.Rpc;
 using PineHillRSL.Rpc;
 using System;
 using System.Threading.Tasks;
 
-namespace PineHillRSL.Paxos.Node
+namespace PineHillRSL.Raft.Node
 {
-    public class PaxosNode : IConsensusNode
+    public class RaftNode : IConsensusNode
     {
         private bool _inLoading = false;
-        private VoterRole _voterRole;
-        private ProposerRole _proposerRole;
 
         private readonly ConsensusCluster _cluster;
         private readonly NodeAddress _serverAddr;
 
-        private PaxosNodeMessageDeliver _messager;
+        private RaftNodeMessageDeliver _messager;
 
         private RpcClient _rpcClient;
         private RpcServer _rpcServer;
@@ -30,15 +26,11 @@ namespace PineHillRSL.Paxos.Node
         private ILogger _proposeLogger;
         private ILogger _voterLogger;
 
-        private VoterNote _voterNote;
-        private ProposerNote _proposerNote;
-        private ProposeManager _proposeManager;
 
         private IConsensusNotification _notificationSubscriber;
 
-        //public enum DataSource { Local, Cluster};
 
-        public PaxosNode(
+        public RaftNode(
             ConsensusCluster cluster,
             NodeAddress serverAddr)
         {
@@ -73,8 +65,6 @@ namespace PineHillRSL.Paxos.Node
         public void SubscribeNotification(IConsensusNotification listener)
         {
             _notificationSubscriber = listener;
-            _proposerRole.SubscribeNotification(_notificationSubscriber);
-            _voterRole.SubscribeNotification(_notificationSubscriber);
         }
 
         public async Task Load(string metaLog, DataSource datasource = DataSource.Local)
@@ -101,26 +91,11 @@ namespace PineHillRSL.Paxos.Node
                 await _voterLogger.DisposeAsync();
             _voterLogger = new FileLogger(voterLog);
 
-            _voterNote = new VoterNote(_voterLogger);
-            await _voterNote.Load();
-
-            _proposerNote = new ProposerNote(_proposeLogger, _metaLogger);
-            await _proposerNote.Load();
-
-            _proposeManager = new ProposeManager(await _proposerNote.GetMaximumCommittedDecreeNo());
-
-            _voterRole = new VoterRole(_serverAddr, _cluster, _rpcClient, _voterNote, _proposerNote);
-            _proposerRole = new ProposerRole(
-                _serverAddr, _cluster, _rpcClient, _proposerNote, _proposeManager);
-
-            _proposerRole.SubscribeNotification(_notificationSubscriber);
-            _voterRole.SubscribeNotification(_notificationSubscriber);
-
-            _messager = new PaxosNodeMessageDeliver(_proposerRole, _voterRole);
-            var rpcRequestHandler = new PaxosMessageHandler(_messager, null);
+            _messager = new RaftNodeMessageDeliver();
+            var rpcRequestHandler = new RaftMessageHandler(_messager, null);
             _rpcServer.RegisterRequestHandler(rpcRequestHandler);
 
-            await _proposerRole.Load(datasource);
+            //await _proposerRole.Load(datasource);
 
 
             // request checkpoint from remote nodes
@@ -135,6 +110,7 @@ namespace PineHillRSL.Paxos.Node
             // 2. prepare commit decree
             // 3. commit decree
             //
+            /*
             using (var activity = Common.ActivityControl.NewActivity())
             {
                 ProposeResult result = null;
@@ -149,31 +125,36 @@ namespace PineHillRSL.Paxos.Node
                     throw e;
                 }
                 return result;
-            }
+            }*/
+            return null;
         }
 
         public async Task<DecreeReadResult> ReadDecree(ulong decreeNo)
         {
+            /*
             using (var activity = Common.ActivityControl.NewActivity())
             {
                 var result = await _proposerRole.ReadDecree(decreeNo);
                 return result;
-            }
+            }*/
+            return null;
         }
 
         public bool NotifyLearner
         {
             get
             {
-                return _proposerRole.NotifyLearners;
+                //return _proposerRole.NotifyLearners;
+                return true;
             }
             set
             {
-                _proposerRole.NotifyLearners = value;
+                //_proposerRole.NotifyLearners = value;
+                
             }
         }
 
-        public ulong MaxCommittedNo => _proposerNote.GetMaximumCommittedDecreeNo().Result;
+        public ulong MaxCommittedNo => 0; // _proposerNote.GetMaximumCommittedDecreeNo().Result;
 
         private void Init()
         {
@@ -203,21 +184,6 @@ namespace PineHillRSL.Paxos.Node
                 await _rpcServer.DisposeAsync();
             _rpcServer = null;
 
-            if (_voterRole != null)
-                await _voterRole.DisposeAsync();
-            _voterRole = null;
-
-            if (_proposerRole != null)
-                await _proposerRole.DisposeAsync();
-            _proposerRole = null;
-
-            if (_voterNote != null)
-                await _voterNote.DisposeAsync();
-            _voterNote = null;
-
-            if (_proposerNote != null)
-                await _proposerNote.DisposeAsync();
-            _proposerNote = null;
 
             if (_metaLogger != null)
                 await _metaLogger.DisposeAsync();
@@ -230,9 +196,6 @@ namespace PineHillRSL.Paxos.Node
             if (_voterLogger != null)
                 await _voterLogger.DisposeAsync();
             _voterLogger = null;
-
-            _proposeManager?.Dispose();
-            _proposeManager = null;
 
             _messager?.Dispose();
             _messager = null;
@@ -248,8 +211,6 @@ namespace PineHillRSL.Paxos.Node
             // build new
 
             //
-            await _proposerRole.Load();
-
             _inLoading = false;
         }
     }

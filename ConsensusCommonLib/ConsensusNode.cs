@@ -39,4 +39,14 @@ namespace PineHillRSL.Consensus.Node
         ulong MaxCommittedNo { get; }
 
     }
+
+    public class ConsensusNodeHelper
+    {
+        public static string GetInstanceName(NodeAddress nodeAddr)
+        {
+            var instanceName = NodeAddress.Serialize(nodeAddr);
+            instanceName = instanceName.Replace(":", "_");
+            return instanceName;
+        }
+    }
 }

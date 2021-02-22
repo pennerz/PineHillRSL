@@ -27,6 +27,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ReliableStateMachineLib", "
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ConsensusCommon", "..\ConsensusCommonLib\ConsensusCommon.csproj", "{3909F6F5-4006-4E96-9EFF-62E95E5E1624}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RaftLib", "..\RaftLib\RaftLib.csproj", "{27EAEFF6-07CA-4E53-AEF8-30A2DBBDA6C3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -157,6 +159,18 @@ Global
 		{3909F6F5-4006-4E96-9EFF-62E95E5E1624}.Release|x64.Build.0 = Release|Any CPU
 		{3909F6F5-4006-4E96-9EFF-62E95E5E1624}.Release|x86.ActiveCfg = Release|Any CPU
 		{3909F6F5-4006-4E96-9EFF-62E95E5E1624}.Release|x86.Build.0 = Release|Any CPU
+		{27EAEFF6-07CA-4E53-AEF8-30A2DBBDA6C3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{27EAEFF6-07CA-4E53-AEF8-30A2DBBDA6C3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{27EAEFF6-07CA-4E53-AEF8-30A2DBBDA6C3}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{27EAEFF6-07CA-4E53-AEF8-30A2DBBDA6C3}.Debug|x64.Build.0 = Debug|Any CPU
+		{27EAEFF6-07CA-4E53-AEF8-30A2DBBDA6C3}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{27EAEFF6-07CA-4E53-AEF8-30A2DBBDA6C3}.Debug|x86.Build.0 = Debug|Any CPU
+		{27EAEFF6-07CA-4E53-AEF8-30A2DBBDA6C3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{27EAEFF6-07CA-4E53-AEF8-30A2DBBDA6C3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{27EAEFF6-07CA-4E53-AEF8-30A2DBBDA6C3}.Release|x64.ActiveCfg = Release|Any CPU
+		{27EAEFF6-07CA-4E53-AEF8-30A2DBBDA6C3}.Release|x64.Build.0 = Release|Any CPU
+		{27EAEFF6-07CA-4E53-AEF8-30A2DBBDA6C3}.Release|x86.ActiveCfg = Release|Any CPU
+		{27EAEFF6-07CA-4E53-AEF8-30A2DBBDA6C3}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

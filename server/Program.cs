@@ -1,11 +1,11 @@
 ﻿using PineHillRSL.Consensus.Node;
+using PineHillRSL.Consensus.Persistence;
 using PineHillRSL.Consensus.Request;
 using PineHillRSL.Common;
 using PineHillRSL.Network;
 using PineHillRSL.Paxos.Node;
 using PineHillRSL.Paxos.Protocol;
 using PineHillRSL.ReplicatedTable;
-using PineHillRSL.Paxos.Persistence;
 using PineHillRSL.Tests;
 using System;
 using System.Collections.Generic;
@@ -63,13 +63,13 @@ namespace PineHillRSL.Server
                 foreach (var nodeAddr in cluster.Members)
                 {
                     var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
-                    tableNodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(nodeAddr)] = node;
+                    tableNodeMap[ConsensusNodeHelper.GetInstanceName(nodeAddr)] = node;
                 }
 
                 var start = DateTime.Now;
 
                 List<Task> taskList = new List<Task>();
-                var master = tableNodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(cluster.Members[0])];
+                var master = tableNodeMap[ConsensusNodeHelper.GetInstanceName(cluster.Members[0])];
                 for (int i = 0; i < 10000000; i++)
                 {
                     var task = master.InstertTable(new ReplicatedTableRequest() { Key = i.ToString(), Value = "test" + i.ToString() });
@@ -96,13 +96,13 @@ namespace PineHillRSL.Server
                 foreach (var nodeAddr in cluster.Members)
                 {
                     var node = new PaxosNode(cluster, nodeAddr);
-                    nodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(nodeAddr)] = node;
+                    nodeMap[ConsensusNodeHelper.GetInstanceName(nodeAddr)] = node;
                 }
 
                 bool isParallel = true;
                 var start = DateTime.Now;
 
-                var proposer = nodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(cluster.Members[0])];
+                var proposer = nodeMap[ConsensusNodeHelper.GetInstanceName(cluster.Members[0])];
 
                 int workerCount = 0;
                 int iocpCount = 0;
@@ -252,14 +252,14 @@ namespace PineHillRSL.Server
             foreach (var nodeAddr in cluster.Members)
             {
                 var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
-                tableNodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(nodeAddr)] = node;
+                tableNodeMap[ConsensusNodeHelper.GetInstanceName(nodeAddr)] = node;
             }
             Trace.WriteLine("All cluster nodes intialized");
 
             start = DateTime.Now;
 
             List<Task> taskList = new List<Task>();
-            var master = tableNodeMap[PineHillRSL.Paxos.Node.PaxosNode.GetInstanceName(cluster.Members[0])];
+            var master = tableNodeMap[ConsensusNodeHelper.GetInstanceName(cluster.Members[0])];
 
             var totoalCount = 2400000;
             var finishedRequestCount = 0;
