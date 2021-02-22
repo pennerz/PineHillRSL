@@ -1,12 +1,6 @@
-﻿using PineHillRSL.Common;
+﻿using PineHillRSL.Consensus.Node;
+using PineHillRSL.Common;
 using PineHillRSL.Network;
-using PineHillRSL.Paxos.Message;
-using PineHillRSL.Paxos.Node;
-using PineHillRSL.Paxos.Notebook;
-using PineHillRSL.Paxos.Persistence;
-using PineHillRSL.Paxos.Protocol;
-using PineHillRSL.Paxos.Request;
-using PineHillRSL.Rpc;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -115,7 +109,7 @@ namespace PineHillRSL.ReplicatedTable
         }
     }
 
-    public class ReplicatedTable : StateMachine.PaxosStateMachine
+    public class ReplicatedTable : StateMachine.ReliableStateMachine
     {
         class Row : IComparable<Row>
         {
@@ -152,7 +146,7 @@ namespace PineHillRSL.ReplicatedTable
         UInt64 _checkpointSeqNo = 0;
 
         public ReplicatedTable(
-            PaxosCluster cluster,
+            ConsensusCluster cluster,
             NodeAddress serverAddr) : base(cluster, serverAddr)
         {
             

@@ -1,4 +1,6 @@
-﻿using PineHillRSL.Common;
+﻿using PineHillRSL.Consensus.Node;
+using PineHillRSL.Consensus.Request;
+using PineHillRSL.Common;
 using PineHillRSL.Network;
 using PineHillRSL.Paxos.Message;
 using PineHillRSL.Paxos.Notebook;
@@ -15,23 +17,8 @@ using System.IO;
 
 namespace PineHillRSL.Paxos.Protocol
 {
-
-    public interface IPaxosNotification
-    {
-        Task UpdateSuccessfullDecree(UInt64 decreeNo, PaxosDecree decree);
-        Task<UInt64> Checkpoint(Stream checkpointStream);
-        Task LoadCheckpoint(UInt64 decreeNo, Stream checkpointStream);
-    }
-
     public interface IPaxosStateMachine
     {
-    }
-
-    public class PaxosCluster
-    {
-        private List<NodeAddress> _members = new List<NodeAddress>();
-
-        public List<NodeAddress> Members => _members;
     }
 
     public abstract class PaxosRole : IAsyncDisposable
@@ -354,7 +341,7 @@ namespace PineHillRSL.Paxos.Protocol
         private readonly NodeAddress _serverAddr;
         private readonly VoterNote _note;
         private readonly ProposerNote _ledger;
-        private IPaxosNotification _notificationSubscriber;
+        private IConsensusNotification _notificationSubscriber;
         private Task _truncateLogTask = null;
         private bool _exit = false;
         private CancellationTokenSource _cancel = new CancellationTokenSource();
@@ -363,7 +350,7 @@ namespace PineHillRSL.Paxos.Protocol
 
         public VoterRole(
             NodeAddress serverAddress,
-            PaxosCluster cluster,
+            ConsensusCluster cluster,
             RpcClient rpcClient,
             VoterNote voterNote,
             ProposerNote ledger)
@@ -414,7 +401,7 @@ namespace PineHillRSL.Paxos.Protocol
             await _truncateLogTask;
         }
 
-        public void SubscribeNotification(IPaxosNotification listener)
+        public void SubscribeNotification(IConsensusNotification listener)
         {
             _notificationSubscriber = listener;
         }
@@ -500,10 +487,10 @@ namespace PineHillRSL.Paxos.Protocol
             }
 
             // commit in logs
-            //await _ledger.CommitDecree(msg.DecreeNo, new PaxosDecree(msg.Decree));
+            //await _ledger.CommitDecree(msg.DecreeNo, new ConsensusDecree(msg.Decree));
 
             //if (_notificationSubscriber != null)
-            //    await _notificationSubscriber.UpdateSuccessfullDecree(msg.DecreeNo, new PaxosDecree(msg.Decree));
+            //    await _notificationSubscriber.UpdateSuccessfullDecree(msg.DecreeNo, new ConsensusDecree(msg.Decree));
 
             // for test, control memory comsumtion
             _note.RemoveBallotInfo(msg.DecreeNo);
@@ -662,7 +649,7 @@ namespace PineHillRSL.Paxos.Protocol
                 };
 
                 // save last vote
-                oldNextBallotNo = await _note.UpdateLastVote(msg.DecreeNo, msg.BallotNo, new PaxosDecree(msg.Decree));
+                oldNextBallotNo = await _note.UpdateLastVote(msg.DecreeNo, msg.BallotNo, new ConsensusDecree(msg.Decree));
 
                 return voteMsg;
             }
@@ -693,22 +680,22 @@ namespace PineHillRSL.Paxos.Protocol
     public class ProposerRole : PaxosRole, IAsyncDisposable
     {
         private readonly NodeAddress _serverAddr;
-        private readonly PaxosCluster _cluster;
+        private readonly ConsensusCluster _cluster;
 
         private readonly ProposerNote _proposerNote;
         private readonly ProposeManager _proposeManager;
 
-        IPaxosNotification _notificationSubscriber;
+        IConsensusNotification _notificationSubscriber;
 
         private List<PaxosMessage> _ongoingRequests = new List<PaxosMessage>();
         private ulong _catchupLogSize = 0;
         private Task _checkpointTask = null;
 
-        public enum DataSource { Local, Cluster};
+        //public enum DataSource { Local, Cluster};
 
         public ProposerRole(
             NodeAddress serverAddr,
-            PaxosCluster cluster,
+            ConsensusCluster cluster,
             RpcClient rpcClient,
             ProposerNote proposerNote,
             ProposeManager proposerManager)
@@ -768,7 +755,7 @@ namespace PineHillRSL.Paxos.Protocol
 
                     if (_proposerNote.CommittedDecrees.Count == 0)
                     {
-                        PaxosDecree fakeDecree = new PaxosDecree();
+                        ConsensusDecree fakeDecree = new ConsensusDecree();
                         try
                         {
                             await Propose(fakeDecree, 0);
@@ -890,7 +877,7 @@ namespace PineHillRSL.Paxos.Protocol
             return false;
         }
 
-        public void SubscribeNotification(IPaxosNotification listener)
+        public void SubscribeNotification(IConsensusNotification listener)
         {
             _notificationSubscriber = listener;
         }
@@ -998,7 +985,7 @@ namespace PineHillRSL.Paxos.Protocol
         //              stale message indicate ballot already occupied by new proposer
         
 
-        public async Task<ProposeResult> Propose(PaxosDecree decree, ulong decreeNo)
+        public async Task<ProposeResult> Propose(ConsensusDecree decree, ulong decreeNo)
         {
             var fakeMsg = new PaxosMessage();
             lock (_ongoingRequests)
@@ -1241,10 +1228,10 @@ namespace PineHillRSL.Paxos.Protocol
         private async Task DeliverSuccessMessage(SuccessMessage msg)
         {
             // commit in logs
-            var position = await _proposerNote.CommitDecree(msg.DecreeNo, new PaxosDecree(msg.Decree));
+            var position = await _proposerNote.CommitDecree(msg.DecreeNo, new ConsensusDecree(msg.Decree));
 
             if (_notificationSubscriber != null)
-                await _notificationSubscriber.UpdateSuccessfullDecree(msg.DecreeNo, new PaxosDecree(msg.Decree));
+                await _notificationSubscriber.UpdateSuccessfullDecree(msg.DecreeNo, new ConsensusDecree(msg.Decree));
 
             if (msg.Decree != null)
                 _catchupLogSize += (ulong)msg.Decree.Length;
@@ -1301,7 +1288,7 @@ namespace PineHillRSL.Paxos.Protocol
         /// <param name="nextDecreeNo"></param>
         /// <returns></returns>
         public async Task<ProposePhaseResult> CollectLastVote(
-            PaxosDecree decree,
+            ConsensusDecree decree,
             ulong nextDecreeNo)
         {
             DateTime begin = DateTime.Now;
@@ -1381,7 +1368,7 @@ namespace PineHillRSL.Paxos.Protocol
         /// <returns></returns>
         public async Task<ProposePhaseResult> BeginNewBallot(ulong decreeNo, ulong ballotNo)
         {
-            PaxosDecree newBallotDecree = null;
+            ConsensusDecree newBallotDecree = null;
             var propose = _proposeManager.GetOngoingPropose(decreeNo);
             if (propose == null)
             {
@@ -1585,7 +1572,7 @@ namespace PineHillRSL.Paxos.Protocol
             await Task.WhenAll(tasks);
         }
 
-        private async Task BroadcastBeginNewBallot(UInt64 decreeNo, UInt64 ballotNo, PaxosDecree newBallotDecree)
+        private async Task BroadcastBeginNewBallot(UInt64 decreeNo, UInt64 ballotNo, ConsensusDecree newBallotDecree)
         {
             var tasks = new List<Task>();
             foreach (var node in _cluster.Members)
@@ -1609,7 +1596,7 @@ namespace PineHillRSL.Paxos.Protocol
             await Task.WhenAll(tasks);
         }
 
-        private async Task NotifyLearnersResult(ulong decreeNo, ulong ballotNo, PaxosDecree decree)
+        private async Task NotifyLearnersResult(ulong decreeNo, ulong ballotNo, ConsensusDecree decree)
         {
             if (!NotifyLearners)
             {

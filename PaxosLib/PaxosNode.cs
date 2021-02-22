@@ -1,4 +1,6 @@
-﻿using PineHillRSL.Network;
+﻿using PineHillRSL.Consensus.Node;
+using PineHillRSL.Consensus.Request;
+using PineHillRSL.Network;
 using PineHillRSL.Paxos.Message;
 using PineHillRSL.Paxos.Notebook;
 using PineHillRSL.Paxos.Persistence;
@@ -11,13 +13,13 @@ using System.Threading.Tasks;
 
 namespace PineHillRSL.Paxos.Node
 {
-    public class PaxosNode : IAsyncDisposable
+    public class PaxosNode : IConsensusNode
     {
         private bool _inLoading = false;
         private VoterRole _voterRole;
         private ProposerRole _proposerRole;
 
-        private readonly PaxosCluster _cluster;
+        private readonly ConsensusCluster _cluster;
         private readonly NodeAddress _serverAddr;
 
         private PaxosNodeMessageDeliver _messager;
@@ -33,9 +35,9 @@ namespace PineHillRSL.Paxos.Node
         private ProposerNote _proposerNote;
         private ProposeManager _proposeManager;
 
-        private IPaxosNotification _notificationSubscriber;
+        private IConsensusNotification _notificationSubscriber;
 
-        public enum DataSource { Local, Cluster};
+        //public enum DataSource { Local, Cluster};
 
         public static string GetInstanceName(NodeAddress nodeAddr)
         {
@@ -46,7 +48,7 @@ namespace PineHillRSL.Paxos.Node
 
 
         public PaxosNode(
-            PaxosCluster cluster,
+            ConsensusCluster cluster,
             NodeAddress serverAddr)
         {
             /*
@@ -77,14 +79,14 @@ namespace PineHillRSL.Paxos.Node
             await Cleanup();
         }
 
-        public void SubscribeNotification(IPaxosNotification listener)
+        public void SubscribeNotification(IConsensusNotification listener)
         {
             _notificationSubscriber = listener;
             _proposerRole.SubscribeNotification(_notificationSubscriber);
             _voterRole.SubscribeNotification(_notificationSubscriber);
         }
 
-        public async Task Load(string metaLog, ProposerRole.DataSource datasource = ProposerRole.DataSource.Local)
+        public async Task Load(string metaLog, DataSource datasource = DataSource.Local)
         {
             if (_metaLogger != null)
                 await _metaLogger.DisposeAsync();
@@ -134,7 +136,7 @@ namespace PineHillRSL.Paxos.Node
 
         }
 
-        public async Task<ProposeResult> ProposeDecree(PaxosDecree decree, ulong decreeNo)
+        public async Task<ProposeResult> ProposeDecree(ConsensusDecree decree, ulong decreeNo)
         {
             //
             // three phase commit

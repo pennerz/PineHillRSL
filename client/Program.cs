@@ -2,7 +2,6 @@
 using PineHillRSL.Network;
 using PineHillRSL.Paxos.Node;
 using PineHillRSL.Paxos.Protocol;
-using PineHillRSL.Paxos.Request;
 using PineHillRSL.ReplicatedTable;
 using PineHillRSL.Tests;
 using System;

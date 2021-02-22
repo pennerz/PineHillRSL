@@ -1,8 +1,7 @@
-﻿using PineHillRSL.Common;
-using PineHillRSL.Paxos.Protocol;
+﻿using PineHillRSL.Consensus.Request;
+using PineHillRSL.Consensus.Node;
+using PineHillRSL.Common;
 using PineHillRSL.Network;
-using PineHillRSL.Paxos.Node;
-using PineHillRSL.Paxos.Request;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -52,10 +51,10 @@ namespace PineHillRSL.StateMachine
         }
     }
 
-    public abstract class PaxosStateMachine : IAsyncDisposable, IPaxosNotification
+    public abstract class ReliableStateMachine : IAsyncDisposable, IConsensusNotification
     {
-        private PaxosNode _node;
-        private PaxosCluster _cluster;
+        private IConsensusNode _node;
+        private ConsensusCluster _cluster;
         private NodeAddress _serverAddr;
         private string _metaLog;
         private SlidingWindow _reqSlideWindow = new SlidingWindow(0, null);
@@ -73,13 +72,13 @@ namespace PineHillRSL.StateMachine
         }
 
 
-        public PaxosStateMachine(
-            PaxosCluster cluster,
+        public ReliableStateMachine(
+            ConsensusCluster cluster,
             NodeAddress serverAddr)
         {
             _cluster = cluster;
             _serverAddr = serverAddr;
-            _node = new PaxosNode(cluster, serverAddr);
+            _node = ConsencusNodeFactory.CreateConsensusNode(cluster, serverAddr);
             _node.SubscribeNotification(this);
 
             _reqSlideWindow = new SlidingWindow(_node.MaxCommittedNo, null);
@@ -127,7 +126,7 @@ namespace PineHillRSL.StateMachine
             await ReqeustInternal(request);
         }
 
-        public virtual Task UpdateSuccessfullDecree(UInt64 decreeNo, PaxosDecree decree)
+        public virtual Task UpdateSuccessfullDecree(UInt64 decreeNo, ConsensusDecree decree)
         {
             var internalRequest = new InternalRequest()
             {
@@ -201,7 +200,7 @@ namespace PineHillRSL.StateMachine
             {
                 try
                 {
-                    var result = await _node.ProposeDecree(new PaxosDecree() { Content = StateMachineRequestSerializer.Serialize(request) }, 0);
+                    var result = await _node.ProposeDecree(new ConsensusDecree() { Content = StateMachineRequestSerializer.Serialize(request) }, 0);
                     var proposeTime = DateTime.Now - begin;
                     StatisticCounter.ReportCounter((int)PerCounter.NetworkPerfCounterType.ProposeTime, (Int64)proposeTime.TotalMilliseconds);
                     if (proposeTime.TotalMilliseconds > 500)
@@ -226,7 +225,7 @@ namespace PineHillRSL.StateMachine
                 //
                 await _node.DisposeAsync();
 
-                _node = new PaxosNode(_cluster, _serverAddr);
+                _node = ConsencusNodeFactory.CreateConsensusNode(_cluster, _serverAddr);
                 _node.SubscribeNotification(this);
 
                 if (string.IsNullOrEmpty(_metaLog))
@@ -236,7 +235,7 @@ namespace PineHillRSL.StateMachine
                 }
                 await Task.Run(async () =>
                 {
-                    await _node.Load(_metaLog, ProposerRole.DataSource.Cluster);
+                    await _node.Load(_metaLog, DataSource.Cluster);
                 });
 
             } while (true);

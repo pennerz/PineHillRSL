@@ -1,8 +1,9 @@
-﻿using PineHillRSL.Common;
+﻿using PineHillRSL.Consensus.Node;
+using PineHillRSL.Consensus.Request;
+using PineHillRSL.Common;
 using PineHillRSL.Network;
 using PineHillRSL.Paxos.Node;
 using PineHillRSL.Paxos.Protocol;
-using PineHillRSL.Paxos.Request;
 using PineHillRSL.ReplicatedTable;
 using PineHillRSL.Paxos.Persistence;
 using PineHillRSL.Tests;
@@ -44,7 +45,7 @@ namespace PineHillRSL.Server
                 currentThreadCount = ThreadPool.ThreadCount;
             }
 
-            var cluster = new PaxosCluster();
+            var cluster = new ConsensusCluster();
             for (int i = 0; i < 5; i++)
             {
                 var node = new NodeInfo("127.0.0.1");
@@ -128,7 +129,7 @@ namespace PineHillRSL.Server
                     //var data = new byte[prefixData.Length + sizeof(int) + randomData.Length];
                     //Buffer.BlockCopy(prefixData, 0, data, 0, prefixData.Length);
                     //Buffer.BlockCopy(BitConverter.GetBytes(i), 0, data, prefixData.Length, sizeof(int));
-                    var decree = new PaxosDecree()
+                    var decree = new ConsensusDecree()
                     {
                         Data = randomData//data
                         //Content = "test" + i.ToString() + randomstr
@@ -235,7 +236,7 @@ namespace PineHillRSL.Server
             LogSizeThreshold.CommitLogFileCheckpointThreshold = 10 * 1024 * 1024;
 
             Trace.WriteLine("Cleaned log files");
-            var cluster = new PaxosCluster();
+            var cluster = new ConsensusCluster();
             for (int i = 0; i < 5; i++)
             {
                 var node = new NodeInfo("127.0.0.1");
@@ -339,7 +340,7 @@ namespace PineHillRSL.Server
             var cfgStr = Encoding.UTF8.GetString(dataBuf, 0, readLen);
             var serverCfg = JsonSerializer.Deserialize<ServerConfig>(cfgStr);
 
-            var cluster = new PaxosCluster();
+            var cluster = new ConsensusCluster();
             foreach (var memberStr in serverCfg.RSLClusterServers)
             {
                 var nodeAddr = NodeAddress.DeSerialize(memberStr);

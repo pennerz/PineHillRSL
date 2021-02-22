@@ -1,4 +1,6 @@
-﻿using PineHillRSL.Common;
+﻿using PineHillRSL.Consensus.Node;
+using PineHillRSL.Consensus.Request;
+using PineHillRSL.Common;
 using PineHillRSL.Paxos.Message;
 using PineHillRSL.Paxos.Request;
 using System;
@@ -50,7 +52,7 @@ namespace PineHillRSL.Paxos.Protocol
         private readonly List<StaleBallotMessage> _staleMessage = new List<StaleBallotMessage>();
         private ulong _clusterSize = 0;
         private ulong _lastTriedBallotNo = 0;
-        private PaxosDecree _decree = null;
+        private ConsensusDecree _decree = null;
         private ProposeState _state = ProposeState.QueryLastVote;
         private IProposeStateChange _stateChangeNotifier = null;
         private ulong _checkpointDecreeNo = 0;
@@ -63,7 +65,7 @@ namespace PineHillRSL.Paxos.Protocol
             _clusterSize = clusterSize;
         }
 
-        public Propose(ulong clusterSize, ulong ballotNo, PaxosDecree decree, ProposeState state)
+        public Propose(ulong clusterSize, ulong ballotNo, ConsensusDecree decree, ProposeState state)
         {
             _clusterSize = clusterSize;
             _lastTriedBallotNo = ballotNo;
@@ -108,7 +110,7 @@ namespace PineHillRSL.Paxos.Protocol
 
         public TaskCompletionSource<ProposePhaseResult> Result { get; set; }
 
-        public PaxosDecree Decree => _decree;
+        public ConsensusDecree Decree => _decree;
 
         public List<LastVoteMessage> LastVoteMessages => _lastVoteMessages;
 
@@ -147,7 +149,7 @@ namespace PineHillRSL.Paxos.Protocol
         /// </summary>
         /// <param name="decree"></param>
         /// <returns></returns>
-        public ulong PrepareNewBallot(PaxosDecree decree)
+        public ulong PrepareNewBallot(ConsensusDecree decree)
         {
             // lastvote message, vote message can touch the propose's state
             // lock it
@@ -183,7 +185,7 @@ namespace PineHillRSL.Paxos.Protocol
         /// </summary>
         /// <param name="ballotNo"></param>
         /// <returns></returns>
-        public PaxosDecree BeginNewBallot(ulong ballotNo)
+        public ConsensusDecree BeginNewBallot(ulong ballotNo)
         {
             if (_state != ProposeState.BeginNewBallot)
             {
@@ -203,7 +205,7 @@ namespace PineHillRSL.Paxos.Protocol
                     var maxVoteMsg = GetMaximumVote();
                     if (maxVoteMsg != null)
                     {
-                        _decree = new PaxosDecree(maxVoteMsg.VoteDecree);
+                        _decree = new ConsensusDecree(maxVoteMsg.VoteDecree);
                     }
                     _state = ProposeState.WaitForNewBallotVote;
 
@@ -299,7 +301,7 @@ namespace PineHillRSL.Paxos.Protocol
                     if (lastVoteMsg.Commited)
                     {
                         _state = ProposeState.ReadyToCommit;
-                        _decree = new PaxosDecree(lastVoteMsg.VoteDecree);
+                        _decree = new ConsensusDecree(lastVoteMsg.VoteDecree);
 
                         // decree already committed
                         if (lastVoteMsg.CheckpointedDecreNo >= lastVoteMsg.DecreeNo)
@@ -316,7 +318,7 @@ namespace PineHillRSL.Paxos.Protocol
                     var maxVoteMsg = GetMaximumVote();
                     if (maxVoteMsg != null)
                     {
-                        _decree = new PaxosDecree(maxVoteMsg.VoteDecree);
+                        _decree = new ConsensusDecree(maxVoteMsg.VoteDecree);
                     }
 
                     if ((ulong)_lastVoteMessages.Count >= _clusterSize / 2 + 1)
@@ -337,7 +339,7 @@ namespace PineHillRSL.Paxos.Protocol
                     if (lastVoteMsg.Commited)
                     {
                         _state = ProposeState.ReadyToCommit;
-                        _decree = new PaxosDecree(lastVoteMsg.VoteDecree);
+                        _decree = new ConsensusDecree(lastVoteMsg.VoteDecree);
 
                         // decree already committed
                         if (lastVoteMsg.CheckpointedDecreNo >= lastVoteMsg.DecreeNo)

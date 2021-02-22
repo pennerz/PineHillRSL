@@ -40,3 +40,8 @@
 /client/obj
 /service/containers/ReliableTableService/Node1/netcoreapp3.0
 /PineHillRSL/.vs/PineHillRSL/config/applicationhost.config
+/ConsensusCommonLib/bin
+/ConsensusCommonLib/obj
+/ConcensusCommonLib/obj
+/ReliableStateMachineLib/bin
+/ReliableStateMachineLib/obj
