@@ -1,10 +1,12 @@
-﻿using PineRSL.Common;
-using PineRSL.Network;
-using PineRSL.Paxos.Node;
-using PineRSL.Paxos.Protocol;
-using PineRSL.Paxos.Request;
-using PineRSL.ReplicatedTable;
-using PineRSL.Tests;
+﻿using PineHillRSL.Consensus.Node;
+using PineHillRSL.Consensus.Persistence;
+using PineHillRSL.Consensus.Request;
+using PineHillRSL.Common;
+using PineHillRSL.Network;
+using PineHillRSL.Paxos.Node;
+using PineHillRSL.Paxos.Protocol;
+using PineHillRSL.ReplicatedTable;
+using PineHillRSL.Tests;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -15,7 +17,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PineRSL.Server
+namespace PineHillRSL.Server
 {
     class Program
     {
@@ -43,7 +45,7 @@ namespace PineRSL.Server
                 currentThreadCount = ThreadPool.ThreadCount;
             }
 
-            var cluster = new PaxosCluster();
+            var cluster = new ConsensusCluster();
             for (int i = 0; i < 5; i++)
             {
                 var node = new NodeInfo("127.0.0.1");
@@ -61,13 +63,13 @@ namespace PineRSL.Server
                 foreach (var nodeAddr in cluster.Members)
                 {
                     var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
-                    tableNodeMap[NodeAddress.Serialize(nodeAddr)] = node;
+                    tableNodeMap[ConsensusNodeHelper.GetInstanceName(nodeAddr)] = node;
                 }
 
                 var start = DateTime.Now;
 
                 List<Task> taskList = new List<Task>();
-                var master = tableNodeMap[NodeAddress.Serialize(cluster.Members[0])];
+                var master = tableNodeMap[ConsensusNodeHelper.GetInstanceName(cluster.Members[0])];
                 for (int i = 0; i < 10000000; i++)
                 {
                     var task = master.InstertTable(new ReplicatedTableRequest() { Key = i.ToString(), Value = "test" + i.ToString() });
@@ -84,7 +86,7 @@ namespace PineRSL.Server
                 await Task.WhenAll(taskList);
                 foreach (var node in tableNodeMap)
                 {
-                    node.Value.Dispose();
+                    await node.Value.DisposeAsync();
                 }
 
             }
@@ -94,13 +96,13 @@ namespace PineRSL.Server
                 foreach (var nodeAddr in cluster.Members)
                 {
                     var node = new PaxosNode(cluster, nodeAddr);
-                    nodeMap[NodeAddress.Serialize(nodeAddr)] = node;
+                    nodeMap[ConsensusNodeHelper.GetInstanceName(nodeAddr)] = node;
                 }
 
                 bool isParallel = true;
                 var start = DateTime.Now;
 
-                var proposer = nodeMap[NodeAddress.Serialize(cluster.Members[0])];
+                var proposer = nodeMap[ConsensusNodeHelper.GetInstanceName(cluster.Members[0])];
 
                 int workerCount = 0;
                 int iocpCount = 0;
@@ -127,7 +129,7 @@ namespace PineRSL.Server
                     //var data = new byte[prefixData.Length + sizeof(int) + randomData.Length];
                     //Buffer.BlockCopy(prefixData, 0, data, 0, prefixData.Length);
                     //Buffer.BlockCopy(BitConverter.GetBytes(i), 0, data, prefixData.Length, sizeof(int));
-                    var decree = new PaxosDecree()
+                    var decree = new ConsensusDecree()
                     {
                         Data = randomData//data
                         //Content = "test" + i.ToString() + randomstr
@@ -137,15 +139,15 @@ namespace PineRSL.Server
                     {
                         var begin = DateTime.Now;
                         var result = await proposer.ProposeDecree(decree, 0/*nextDecreNo*/);
-                        //var proposeTime = DateTime.Now - begin;
-                        //proposeDecreeTime.Accumulate(proposeTime.TotalMilliseconds);
-                        //collectLastVoteTime.Accumulate(result.CollectLastVoteTimeInMs.TotalMilliseconds);
-                        //voteTime.Accumulate(result.VoteTimeInMs.TotalMilliseconds);
-                        //commitTime.Accumulate(result.CommitTimeInMs.TotalMilliseconds);
-                        //getProposeTime.Accumulate(result.GetProposeCostTime.TotalMilliseconds);
-                        //getProposeLockTime.Accumulate(result.GetProposeLockCostTime.TotalMilliseconds);
-                        //prepareNewBallotTime.Accumulate(result.PrepareNewBallotCostTime.TotalMilliseconds);
-                        //broadcaseQueryLastVoteTime.Accumulate(result.BroadcastQueryLastVoteCostTime.TotalMilliseconds);
+                        var proposeTime = DateTime.Now - begin;
+                        proposeDecreeTime.Accumulate(proposeTime.TotalMilliseconds);
+                        collectLastVoteTime.Accumulate(result.CollectLastVoteTimeInMs.TotalMilliseconds);
+                        voteTime.Accumulate(result.VoteTimeInMs.TotalMilliseconds);
+                        commitTime.Accumulate(result.CommitTimeInMs.TotalMilliseconds);
+                        getProposeTime.Accumulate(result.GetProposeCostTime.TotalMilliseconds);
+                        getProposeLockTime.Accumulate(result.GetProposeLockCostTime.TotalMilliseconds);
+                        prepareNewBallotTime.Accumulate(result.PrepareNewBallotCostTime.TotalMilliseconds);
+                        broadcaseQueryLastVoteTime.Accumulate(result.BroadcastQueryLastVoteCostTime.TotalMilliseconds);
 
 
                     });
@@ -200,20 +202,145 @@ namespace PineRSL.Server
 
                 foreach (var node in nodeMap)
                 {
-                    node.Value.Dispose();
+                    await node.Value.DisposeAsync();
                 }
             }
         }
 
+
+        private static void CleanupLogFiles(string nodeName)
+        {
+            List<string> paths = new List<string>(Directory.EnumerateFiles(".\\storage"));
+            foreach (var path in paths)
+            {
+                if (string.IsNullOrEmpty(nodeName) || path.IndexOf(nodeName) != -1)
+                {
+                    File.Delete(path);
+                }
+            }
+
+        }
+
+        public static async Task StateMachinePefTest()
+        {
+            //ThreadPool.SetMinThreads(100, 100);
+            System.Net.ServicePointManager.DefaultConnectionLimit = 200;
+            Trace.WriteLine("Begin StateMachinePerfTest");
+            Console.WriteLine("Begin StateMachinePerfTest");
+            CleanupLogFiles(null);
+            Dictionary<string, string> _table = new Dictionary<string, string>();
+            var start = DateTime.Now;
+            var end = DateTime.Now;
+            var costTime = (end - start).TotalMilliseconds;
+
+            LogSizeThreshold.CommitLogFileCheckpointThreshold = 10 * 1024 * 1024;
+
+            Trace.WriteLine("Cleaned log files");
+            var cluster = new ConsensusCluster();
+            for (int i = 0; i < 5; i++)
+            {
+                var node = new NodeInfo("127.0.0.1");
+                var nodeAddr = new NodeAddress(node, 168 + i);
+                cluster.Members.Add(nodeAddr);
+            }
+
+            //var networkInfr = new TestNetworkInfr();
+            //NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
+            NetworkFactory.SetNetworkCreator(new TcpNetworkCreator());
+
+            var tableNodeMap = new Dictionary<string, ReplicatedTable.ReplicatedTable>();
+            foreach (var nodeAddr in cluster.Members)
+            {
+                var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
+                tableNodeMap[ConsensusNodeHelper.GetInstanceName(nodeAddr)] = node;
+            }
+            Trace.WriteLine("All cluster nodes intialized");
+
+            start = DateTime.Now;
+
+            List<Task> taskList = new List<Task>();
+            var master = tableNodeMap[ConsensusNodeHelper.GetInstanceName(cluster.Members[0])];
+
+            var totoalCount = 2400000;
+            var finishedRequestCount = 0;
+            for (int i = 0; i < totoalCount; i++)
+            {
+                var task = master.InstertTable(new ReplicatedTableRequest() { Key = i.ToString(), Value = "test" + i.ToString() });
+                taskList.Add(task);
+                if (taskList.Count > 100)
+                {
+                    //await Task.WhenAll(taskList);
+                    while (taskList.Count > 0)
+                    {
+                        var finishedTask = await Task.WhenAny(taskList);
+                        taskList.Remove(finishedTask);
+                        finishedRequestCount++;
+                    }
+                    Trace.WriteLine($"Finished {finishedRequestCount} rows");
+                    taskList.Clear();
+                }
+            }
+            while (taskList.Count > 0)
+            {
+                var finishedTask = await Task.WhenAny(taskList);
+                taskList.Remove(finishedTask);
+                finishedRequestCount++;
+            }
+            Trace.WriteLine($"Finished {finishedRequestCount} rows");
+            //await Task.WhenAll(taskList);
+
+            end = DateTime.Now;
+
+            costTime = (end - start).TotalMilliseconds;
+            Console.WriteLine($"TPS: {totoalCount / costTime * 1000 }");
+
+            var avgTransmitTime = StatisticCounter.GetCounterAvg((int)PerCounter.NetworkPerfCounterType.NetworkMessageTransmitTime);
+            var maxTransmitTime = StatisticCounter.GetMaximumValue((int)PerCounter.NetworkPerfCounterType.NetworkMessageTransmitTime);
+            Console.WriteLine($"Transmit Time: avg: {avgTransmitTime}ms, maximum:{maxTransmitTime}ms");
+
+            var avgRcvMsgDelayedTime = StatisticCounter.GetCounterAvg((int)PerCounter.NetworkPerfCounterType.NetworkMessageRecvDelayedTime);
+            var maxRcvMsgDelayedTime = StatisticCounter.GetMaximumValue((int)PerCounter.NetworkPerfCounterType.NetworkMessageRecvDelayedTime);
+            Console.WriteLine($"Received Message Delayed Time: avg: {avgRcvMsgDelayedTime}ms, maximum:{maxRcvMsgDelayedTime}ms");
+
+            var avgProposeTime = StatisticCounter.GetCounterAvg((int)PerCounter.NetworkPerfCounterType.ProposeTime);
+            var maxProposeTime = StatisticCounter.GetMaximumValue((int)PerCounter.NetworkPerfCounterType.ProposeTime);
+            Console.WriteLine($"Propose Time: avg: {avgProposeTime}ms, maximum:{maxProposeTime}ms");
+
+            var avgProposeTableLockWaitTime = StatisticCounter.GetCounterAvg((int)PerCounter.NetworkPerfCounterType.TableLockWaitTime);
+            var maxProposeTableLockWaitTime = StatisticCounter.GetMaximumValue((int)PerCounter.NetworkPerfCounterType.TableLockWaitTime);
+            Console.WriteLine($"Propose Table lock wait Time: avg: {avgProposeTableLockWaitTime}ms, maximum:{maxProposeTableLockWaitTime}ms");
+
+            var checkpointData = StatisticCounter.GetCounterSum((int)PerCounter.NetworkPerfCounterType.CheckpointDataSize);
+            var checkpointCount = StatisticCounter.GetCounterSum((int)PerCounter.NetworkPerfCounterType.CheckpointCount);
+            Console.WriteLine($"Checkpoint count: {checkpointCount}, datasize:{checkpointData}");
+
+            var avgCheckpointTableLockTime = StatisticCounter.GetCounterAvg((int)PerCounter.NetworkPerfCounterType.CheckpointTableLockTime);
+            var maxCheckpointTableLockTime = StatisticCounter.GetMaximumValue((int)PerCounter.NetworkPerfCounterType.CheckpointTableLockTime);
+            var sumCheckpointTableLockTime = StatisticCounter.GetCounterSum((int)PerCounter.NetworkPerfCounterType.CheckpointTableLockTime);
+            var checkpointTableLockCount = StatisticCounter.GetCounterCount((int)PerCounter.NetworkPerfCounterType.CheckpointTableLockTime);
+            Console.WriteLine($"Checkpoint Table lock Time: avg: {avgCheckpointTableLockTime}ms, maximum:{maxCheckpointTableLockTime}ms, sum:{sumCheckpointTableLockTime}ms, count:{checkpointTableLockCount}");
+
+            foreach (var node in tableNodeMap)
+            {
+                await node.Value.DisposeAsync();
+            }
+            Console.WriteLine($"Finish");
+
+            LogSizeThreshold.ResetDefault();
+        }
+
         static async Task Main(string[] args)
         {
-            var cfgFile = new FileStream(".\\config.json", FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite);
+            //await StateMachinePefTest();
+            //await Test(args);
+            
+            var cfgFile = new FileStream("c:\\config\\config.json", FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite);
             var dataBuf = new byte[cfgFile.Length];
             var readLen = await cfgFile.ReadAsync(dataBuf, 0, (int)(cfgFile.Length));
             var cfgStr = Encoding.UTF8.GetString(dataBuf, 0, readLen);
             var serverCfg = JsonSerializer.Deserialize<ServerConfig>(cfgStr);
 
-            var cluster = new PaxosCluster();
+            var cluster = new ConsensusCluster();
             foreach (var memberStr in serverCfg.RSLClusterServers)
             {
                 var nodeAddr = NodeAddress.DeSerialize(memberStr);
@@ -227,7 +354,7 @@ namespace PineRSL.Server
             Logger.Log($"RSL Node:[{serverAddr.Node.Name}:{serverAddr.Port}");
             var serverNode = new ReplicatedTable.ReplicatedTable(cluster, serverAddr);
 
-            var serviceServer = new PineRSL.ServerLib.PineRSLServer(serverNode);
+            var serviceServer = new PineHillRSL.ServerLib.PineHillRSLServer(serverNode);
             var serviceAddr = NodeAddress.DeSerialize(serverCfg.ServiceServerAddr);
             Logger.Log($"Service Node:[{serviceAddr.Node.Name}:{serviceAddr.Port}");
             await serviceServer.StartServer(serviceAddr);

@@ -6,7 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Collections.Generic;
 
-namespace PineRSL.Common
+namespace PineHillRSL.Common
 {
     public class SerializeBufferIterator : IEquatable<SerializeBufferIterator>
     {
@@ -250,7 +250,7 @@ namespace PineRSL.Common
             var totalCostTime = DateTime.Now - begin;
             if (totalCostTime.TotalMilliseconds > 500)
             {
-                //Console.WriteLine("serialize too slow");
+                Console.WriteLine($"serialize too slow, {totalCostTime.TotalMilliseconds}ms");
             }
             return str;
         }

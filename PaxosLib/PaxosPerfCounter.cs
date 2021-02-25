@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace PineRSL.PerCounter
+namespace PineHillRSL.PerCounter
 {
     public enum  PerfCounterType
     {

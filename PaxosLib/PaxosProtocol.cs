@@ -1,10 +1,12 @@
-﻿using PineRSL.Common;
-using PineRSL.Network;
-using PineRSL.Paxos.Message;
-using PineRSL.Paxos.Notebook;
-using PineRSL.Paxos.Request;
-using PineRSL.Paxos.Rpc;
-using PineRSL.Rpc;
+﻿using PineHillRSL.Consensus.Node;
+using PineHillRSL.Consensus.Persistence;
+using PineHillRSL.Consensus.Request;
+using PineHillRSL.Common;
+using PineHillRSL.Network;
+using PineHillRSL.Paxos.Message;
+using PineHillRSL.Paxos.Notebook;
+using PineHillRSL.Paxos.Rpc;
+using PineHillRSL.Rpc;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -13,40 +15,76 @@ using System.Threading.Tasks;
 using System.Linq;
 using System.IO;
 
-namespace PineRSL.Paxos.Protocol
+namespace PineHillRSL.Paxos.Protocol
 {
-
-    public interface IPaxosNotification
-    {
-        Task UpdateSuccessfullDecree(UInt64 decreeNo, PaxosDecree decree);
-        Task<UInt64> Checkpoint(Stream checkpointStream);
-        Task LoadCheckpoint(UInt64 decreeNo, Stream checkpointStream);
-    }
-
     public interface IPaxosStateMachine
     {
     }
 
-    public class PaxosCluster
+    public abstract class PaxosRole : IAsyncDisposable
     {
-        private List<NodeAddress> _members = new List<NodeAddress>();
-
-        public List<NodeAddress> Members => _members;
-    }
-
-    public abstract class PaxosRole : IDisposable
-    {
-        private class PaxosMessageQeuue
+        private class PaxosMessageQeuue : IAsyncDisposable
         {
             private SemaphoreSlim _lock = new SemaphoreSlim(3);
             private readonly RpcClient _rpcClient;
             private readonly NodeAddress _serverAddr;
             private List<PaxosMessage> _messageQueue = new List<PaxosMessage>();
+            private Task _sendMsgTask = null;
+            private bool _exit = false;
 
             public PaxosMessageQeuue(NodeAddress serverAddr, RpcClient rpcClient)
             {
                 _serverAddr = serverAddr;
                 _rpcClient = rpcClient;
+
+                /*
+                _sendMsgTask = Task.Run(async () =>
+                {
+                    while(true)
+                    {
+                        try
+                        {
+                            await _lock.WaitAsync();
+                            if (_exit)
+                            {
+                                break;
+                            }
+                            do
+                            {
+                                var paxosMsg = PopMessage();
+                                if (paxosMsg == null)
+                                {
+                                    continue;
+                                }
+
+                                var task = Task.Run(() =>
+                                {
+                                    paxosMsg.SourceNode = NodeAddress.Serialize(_serverAddr);
+                                    var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(paxosMsg);
+                                    var rpcMsg = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
+                                    rpcMsg.NeedResp = false;
+                                    var remoteAddr = NodeAddress.DeSerialize(paxosMsg.TargetNode);
+
+                                    var task = _rpcClient.SendRequest(remoteAddr, rpcMsg);
+
+                                });
+
+                            } while (true);
+                        }
+                        catch(Exception)
+                        {
+                        }
+
+                    }
+                });
+                */
+            }
+
+            public  async ValueTask DisposeAsync()
+            {
+                _exit = true;
+                //_lock.Release(1);
+                //await _sendMsgTask;
             }
 
             public void AddPaxosMessage(PaxosMessage paxosMessage)
@@ -56,7 +94,6 @@ namespace PineRSL.Paxos.Protocol
                 {
                     _messageQueue.Add(paxosMessage);
                 }
-
                 if (_lock.CurrentCount > 0)
                 {
                     var task = Task.Run(async () =>
@@ -96,6 +133,10 @@ namespace PineRSL.Paxos.Protocol
                 List<PaxosMessage> consumedMessages = null;
                 lock(_lock)
                 {
+                    if (_messageQueue.Count == 0)
+                    {
+                        return null;
+                    }
                     consumedMessages = _messageQueue;
                     _messageQueue = msgQueue;
                 }
@@ -141,9 +182,12 @@ namespace PineRSL.Paxos.Protocol
             _rpcClient = rpcClient;
         }
 
-        public void Dispose()
+        public async ValueTask DisposeAsync()
         {
-
+            foreach(var msgQueue in _paxosMessageList)
+            {
+                await msgQueue.Value.DisposeAsync();
+            }
         }
 
         public bool Stop { get; set; }
@@ -292,20 +336,21 @@ namespace PineRSL.Paxos.Protocol
     /// CommitDecree            Save the decree
     /// </summary>
     ///
-    public class VoterRole : PaxosRole, IDisposable
+    public class VoterRole : PaxosRole, IAsyncDisposable
     {
         private readonly NodeAddress _serverAddr;
         private readonly VoterNote _note;
         private readonly ProposerNote _ledger;
-        private IPaxosNotification _notificationSubscriber;
+        private IConsensusNotification _notificationSubscriber;
         private Task _truncateLogTask = null;
         private bool _exit = false;
+        private CancellationTokenSource _cancel = new CancellationTokenSource();
 
         private List<PaxosMessage> _ongoingMessages = new List<PaxosMessage>();
 
         public VoterRole(
             NodeAddress serverAddress,
-            PaxosCluster cluster,
+            ConsensusCluster cluster,
             RpcClient rpcClient,
             VoterNote voterNote,
             ProposerNote ledger)
@@ -325,31 +370,38 @@ namespace PineRSL.Paxos.Protocol
                 int truncateRound = 0;
                 while(!_exit)
                 {
-                    await Task.Delay(1000);
+                    try
+                    {
+                        await Task.Delay(1000, _cancel.Token);
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        return;
+                    }
                     if (truncateRound < 600)
                     {
                         truncateRound++;
                         continue;
                     }
                     truncateRound = 0;
-                    var maxDecreeNo = _ledger.GetMaximumCommittedDecreeNo();
+                    var maxDecreeNo = await _ledger.GetMaximumCommittedDecreeNo();
                     var position = _note.GetMaxPositionForDecrees(maxDecreeNo);
                     _note.Truncate(maxDecreeNo, position);
                 }
             });
         }
 
-        public new void Dispose()
+        public new async ValueTask DisposeAsync()
         {
             _exit = true;
             Stop = true;
-            base.Dispose();
+            _cancel.Cancel();
+            await base.DisposeAsync();
 
-            _truncateLogTask.Wait();
-
+            await _truncateLogTask;
         }
 
-        public void SubscribeNotification(IPaxosNotification listener)
+        public void SubscribeNotification(IConsensusNotification listener)
         {
             _notificationSubscriber = listener;
         }
@@ -435,10 +487,10 @@ namespace PineRSL.Paxos.Protocol
             }
 
             // commit in logs
-            //await _ledger.CommitDecree(msg.DecreeNo, new PaxosDecree(msg.Decree));
+            //await _ledger.CommitDecree(msg.DecreeNo, new ConsensusDecree(msg.Decree));
 
             //if (_notificationSubscriber != null)
-            //    await _notificationSubscriber.UpdateSuccessfullDecree(msg.DecreeNo, new PaxosDecree(msg.Decree));
+            //    await _notificationSubscriber.UpdateSuccessfullDecree(msg.DecreeNo, new ConsensusDecree(msg.Decree));
 
             // for test, control memory comsumtion
             _note.RemoveBallotInfo(msg.DecreeNo);
@@ -597,7 +649,7 @@ namespace PineRSL.Paxos.Protocol
                 };
 
                 // save last vote
-                oldNextBallotNo = await _note.UpdateLastVote(msg.DecreeNo, msg.BallotNo, new PaxosDecree(msg.Decree));
+                oldNextBallotNo = await _note.UpdateLastVote(msg.DecreeNo, msg.BallotNo, new ConsensusDecree(msg.Decree));
 
                 return voteMsg;
             }
@@ -625,24 +677,25 @@ namespace PineRSL.Paxos.Protocol
     ///     
     /// </summary>
 
-    public class ProposerRole : PaxosRole, IDisposable
+    public class ProposerRole : PaxosRole, IAsyncDisposable
     {
         private readonly NodeAddress _serverAddr;
-        private readonly PaxosCluster _cluster;
+        private readonly ConsensusCluster _cluster;
 
         private readonly ProposerNote _proposerNote;
         private readonly ProposeManager _proposeManager;
 
-        IPaxosNotification _notificationSubscriber;
+        IConsensusNotification _notificationSubscriber;
 
         private List<PaxosMessage> _ongoingRequests = new List<PaxosMessage>();
-        private int _catchupLogSize = 0;
+        private ulong _catchupLogSize = 0;
+        private Task _checkpointTask = null;
 
-        public enum DataSource { Local, Cluster};
+        //public enum DataSource { Local, Cluster};
 
         public ProposerRole(
             NodeAddress serverAddr,
-            PaxosCluster cluster,
+            ConsensusCluster cluster,
             RpcClient rpcClient,
             ProposerNote proposerNote,
             ProposeManager proposerManager)
@@ -661,11 +714,15 @@ namespace PineRSL.Paxos.Protocol
             NotifyLearners = true;
         }
 
-        public new void Dispose()
+        public new async ValueTask DisposeAsync()
         {
             Stop = true;
-            base.Dispose();
-            while(true)
+            await base.DisposeAsync();
+            if (_checkpointTask != null)
+            {
+                await _checkpointTask;
+            }
+            while (true)
             {
                 lock(_ongoingRequests)
                 {
@@ -674,7 +731,7 @@ namespace PineRSL.Paxos.Protocol
                         break;
                     }
                 }
-                Thread.Sleep(1000);
+                await Task.Delay(100);
             }
         }
 
@@ -684,7 +741,7 @@ namespace PineRSL.Paxos.Protocol
             do
             {
                 await _proposerNote.Load();
-                _proposeManager.ResetBaseDecreeNo(_proposerNote.GetMaximumCommittedDecreeNo());
+                _proposeManager.ResetBaseDecreeNo(await _proposerNote.GetMaximumCommittedDecreeNo());
                 if (_notificationSubscriber != null)
                 {
                     var metaRecord = _proposerNote.ProposeRoleMetaRecord;
@@ -698,7 +755,7 @@ namespace PineRSL.Paxos.Protocol
 
                     if (_proposerNote.CommittedDecrees.Count == 0)
                     {
-                        PaxosDecree fakeDecree = new PaxosDecree();
+                        ConsensusDecree fakeDecree = new ConsensusDecree();
                         try
                         {
                             await Propose(fakeDecree, 0);
@@ -734,7 +791,7 @@ namespace PineRSL.Paxos.Protocol
                 catchupLogSize = 0;
                 // check if need to continue
             } while (true);
-            _catchupLogSize = catchupLogSize;
+            _catchupLogSize = (ulong)catchupLogSize;
         }
 
         private async Task<bool> LoadCheckpointFromRemoteNodes()
@@ -767,7 +824,7 @@ namespace PineRSL.Paxos.Protocol
                 }
             }
 
-            if (latestCheckpoint != null && latestCheckpoint.CheckpointDecreeNo > this._proposerNote.GetMaximumCommittedDecreeNo() &&
+            if (latestCheckpoint != null && latestCheckpoint.CheckpointDecreeNo > await _proposerNote.GetMaximumCommittedDecreeNo() &&
                 !string.IsNullOrEmpty(latestCheckpoint.CheckpointFile))
             {
                 // get checkpoint from rmote node
@@ -776,12 +833,12 @@ namespace PineRSL.Paxos.Protocol
                 var checkpointFilePath = _proposerNote.ProposeRoleMetaRecord?.CheckpointFilePath;
                 if (checkpointFilePath == null)
                 {
-                    checkpointFilePath = ".\\storage\\" + NodeAddress.Serialize(_serverAddr) + "_checkpoint.0000000000000001";
+                    checkpointFilePath = ".\\storage\\" + ConsensusNodeHelper.GetInstanceName(_serverAddr) + "_checkpoint.0000000000000001";
                 }
                 else
                 {
                     int checkpointFileIndex = 0;
-                    var baseName = ".\\storage\\" + NodeAddress.Serialize(_serverAddr) + "_checkpoint";
+                    var baseName = ".\\storage\\" + ConsensusNodeHelper.GetInstanceName(_serverAddr) + "_checkpoint";
                     var separatorIndex = checkpointFilePath.IndexOf(baseName);
                     if (separatorIndex != -1)
                     {
@@ -820,7 +877,7 @@ namespace PineRSL.Paxos.Protocol
             return false;
         }
 
-        public void SubscribeNotification(IPaxosNotification listener)
+        public void SubscribeNotification(IConsensusNotification listener)
         {
             _notificationSubscriber = listener;
         }
@@ -828,7 +885,7 @@ namespace PineRSL.Paxos.Protocol
         public Task TriggerCheckpoint()
         {
             // TODO: add parallel checkpoints support
-            if (_catchupLogSize <= Persistence.LogSizeThreshold.CommitLogFileCheckpointThreshold)
+            if (_catchupLogSize <= LogSizeThreshold.CommitLogFileCheckpointThreshold)
             {
                 return Task.CompletedTask;
             }
@@ -880,7 +937,7 @@ namespace PineRSL.Paxos.Protocol
             try
             {
                 DecreeReadResult result = null;
-                var maximumCommittedDecreeNo = _proposerNote.GetMaximumCommittedDecreeNo();
+                var maximumCommittedDecreeNo = await _proposerNote.GetMaximumCommittedDecreeNo();
                 if (decreeNo > maximumCommittedDecreeNo)
                 {
                     result = new DecreeReadResult()
@@ -928,7 +985,7 @@ namespace PineRSL.Paxos.Protocol
         //              stale message indicate ballot already occupied by new proposer
         
 
-        public async Task<ProposeResult> Propose(PaxosDecree decree, ulong decreeNo)
+        public async Task<ProposeResult> Propose(ConsensusDecree decree, ulong decreeNo)
         {
             var fakeMsg = new PaxosMessage();
             lock (_ongoingRequests)
@@ -937,7 +994,7 @@ namespace PineRSL.Paxos.Protocol
                 {
                     return null;
                 }
-                _ongoingRequests.Add(fakeMsg);
+                _ongoingRequests.Add(fakeMsg);  // for count ongoing requests in paxos protocol
             }
 
             try
@@ -968,18 +1025,18 @@ namespace PineRSL.Paxos.Protocol
                     _proposeManager.AddPropose(nextDecreeNo, (ulong)_cluster.Members.Count);
                     Logger.Log("Propose a new propose, decreNo{0}", nextDecreeNo);
 
-
+                    System.Diagnostics.Stopwatch timer = null;
                     ProposePhaseResult result = null;
                     var propose = _proposeManager.GetOngoingPropose(nextDecreeNo);
                     do
                     {
                         switch (propose.State)
                         {
-                            case ProposeState.Init:
-                                propose.PrepareCollectLastVoteMessage(); // move to query last vote state
-                                break;
                             case ProposeState.QueryLastVote:
+                                timer = System.Diagnostics.Stopwatch.StartNew();
                                 result = await CollectLastVote(decree, nextDecreeNo);
+                                timer.Stop();
+                                collectLastVoteCostTimeInMs = timer.Elapsed;
                                 //if (result.IsCommitted && result.CheckpointedDecreeNo >= nextDecreeNo)
                                 //{
                                 //    throw new Exception("Decree checkpointed");
@@ -988,19 +1045,24 @@ namespace PineRSL.Paxos.Protocol
                             case ProposeState.WaitForLastVote:
                                 break;
                             case ProposeState.BeginNewBallot:
+                                timer = System.Diagnostics.Stopwatch.StartNew();
                                 result = await BeginNewBallot(nextDecreeNo, propose.GetNextBallot());
+                                timer.Stop();
+                                voteCostTimeInMs = timer.Elapsed;
                                 break;
                             case ProposeState.WaitForNewBallotVote:
                                 break;
                             case ProposeState.ReadyToCommit:
+                                timer = System.Diagnostics.Stopwatch.StartNew();
                                 await CommitPropose(nextDecreeNo, propose.GetNextBallot());
+                                timer.Stop();
+                                commitCostTimeInMs = timer.Elapsed;
                                 break;
                             case ProposeState.Commited:
                                 // ready 
                                 break;
                             case ProposeState.DecreeCheckpointed:
                                 throw new Exception("Decree checkpointed");
-                                break;
                             default:
                                 break;
                         }
@@ -1016,7 +1078,7 @@ namespace PineRSL.Paxos.Protocol
                         //return 
                     }
 
-                    if (decree != propose.GetCommittedDecree())
+                    if (decree != propose.Decree)
                     {
                         if (decreeNo == 0)
                         {
@@ -1026,7 +1088,7 @@ namespace PineRSL.Paxos.Protocol
 
                     return new ProposeResult()
                     {
-                        Decree = propose.GetCommittedDecree(),
+                        Decree = propose.Decree,
                         DecreeNo = nextDecreeNo,
                         CollectLastVoteTimeInMs = collectLastVoteCostTimeInMs,
                         CommitTimeInMs = commitCostTimeInMs,
@@ -1166,16 +1228,24 @@ namespace PineRSL.Paxos.Protocol
         private async Task DeliverSuccessMessage(SuccessMessage msg)
         {
             // commit in logs
-            var position = await _proposerNote.CommitDecree(msg.DecreeNo, new PaxosDecree(msg.Decree));
+            var position = await _proposerNote.CommitDecree(msg.DecreeNo, new ConsensusDecree(msg.Decree));
 
             if (_notificationSubscriber != null)
-                await _notificationSubscriber.UpdateSuccessfullDecree(msg.DecreeNo, new PaxosDecree(msg.Decree));
+                await _notificationSubscriber.UpdateSuccessfullDecree(msg.DecreeNo, new ConsensusDecree(msg.Decree));
 
-            _catchupLogSize += msg.Decree.Length;
+            if (msg.Decree != null)
+                _catchupLogSize += (ulong)msg.Decree.Length;
 
             // check if need to checkpoint
             // TODO, remvoe it from critical path
-            await TriggerCheckpoint();
+            lock(this)
+            {
+                if (_checkpointTask != null && !_checkpointTask.IsCompleted)
+                {
+                    return;
+                }
+                _checkpointTask = TriggerCheckpoint();
+            }
         }
 
         private Task<CheckpointSummaryResp> RequestCheckpointSummary()
@@ -1218,7 +1288,7 @@ namespace PineRSL.Paxos.Protocol
         /// <param name="nextDecreeNo"></param>
         /// <returns></returns>
         public async Task<ProposePhaseResult> CollectLastVote(
-            PaxosDecree decree,
+            ConsensusDecree decree,
             ulong nextDecreeNo)
         {
             DateTime begin = DateTime.Now;
@@ -1298,7 +1368,7 @@ namespace PineRSL.Paxos.Protocol
         /// <returns></returns>
         public async Task<ProposePhaseResult> BeginNewBallot(ulong decreeNo, ulong ballotNo)
         {
-            PaxosDecree newBallotDecree = null;
+            ConsensusDecree newBallotDecree = null;
             var propose = _proposeManager.GetOngoingPropose(decreeNo);
             if (propose == null)
             {
@@ -1335,7 +1405,7 @@ namespace PineRSL.Paxos.Protocol
         private async Task<Propose> CommitPropose(ulong decreeNo, ulong ballotNo)
         {
             var propose = _proposeManager.GetOngoingPropose(decreeNo);
-            Persistence.AppendPosition position;
+            AppendPosition position;
             using (var autoLock = await propose.AcquireLock())
             {
                 if (!propose.Commit(ballotNo))
@@ -1344,27 +1414,38 @@ namespace PineRSL.Paxos.Protocol
                     return null;
                 }
 
-                position = await _proposerNote.CommitDecree(decreeNo, propose.GetCommittedDecree());
+                position = await _proposerNote.CommitDecree(decreeNo, propose.Decree);
+            }
+            if (propose.Decree == null || propose.Decree.Data == null)
+            {
+                Console.WriteLine("error");
             }
 
-            await NotifyLearnersResult(decreeNo, ballotNo, propose.GetCommittedDecree());
+            await NotifyLearnersResult(decreeNo, ballotNo, propose.Decree);
             _proposeManager.RemovePropose(decreeNo);
 
             if (_notificationSubscriber != null)
-                await _notificationSubscriber?.UpdateSuccessfullDecree(decreeNo, propose.GetCommittedDecree());
+                await _notificationSubscriber?.UpdateSuccessfullDecree(decreeNo, propose.Decree);
 
-            if (propose.GetCommittedDecree().Data != null)
+            if (propose.Decree.Data != null)
             {
-                _catchupLogSize += propose.GetCommittedDecree().Data.Length;
+                _catchupLogSize += (ulong)propose.Decree.Data.Length;
             }
             // check if need to checkpoint
             // TODO, remvoe it from critical path
-            await TriggerCheckpoint();
+            lock(this)
+            {
+                if (_checkpointTask == null || _checkpointTask.IsCompleted)
+                {
+                    _checkpointTask = TriggerCheckpoint(); // no need to wait
+                }
+            }
 
             // Max played 
             return propose;
         }
 
+        /*
         private async Task<Propose> CommitProposeInLock(ulong decreeNo, ulong ballotNo)
         {
             var propose = _proposeManager.GetOngoingPropose(decreeNo);
@@ -1375,25 +1456,30 @@ namespace PineRSL.Paxos.Protocol
                 return null;
             }
 
-            position = await _proposerNote.CommitDecree(decreeNo, propose.GetCommittedDecree());
+            position = await _proposerNote.CommitDecree(decreeNo, propose.Decree);
 
-            await NotifyLearnersResult(decreeNo, ballotNo, propose.GetCommittedDecree());
+            await NotifyLearnersResult(decreeNo, ballotNo, propose.Decree);
             _proposeManager.RemovePropose(decreeNo);
 
             if (_notificationSubscriber != null)
-                await _notificationSubscriber?.UpdateSuccessfullDecree(decreeNo, propose.GetCommittedDecree());
+                await _notificationSubscriber?.UpdateSuccessfullDecree(decreeNo, propose.Decree);
 
-            if (propose.GetCommittedDecree().Data != null)
+            if (propose.Decree.Data != null)
             {
-                _catchupLogSize += propose.GetCommittedDecree().Data.Length;
+                _catchupLogSize += (ulong)propose.Decree.Data.Length;
             }
             // check if need to checkpoint
-            // TODO, remvoe it from critical path
-            await TriggerCheckpoint();
+            lock(this)
+            {
+                if (_checkpointTask == null || _checkpointTask.IsCompleted)
+                {
+                    _checkpointTask = TriggerCheckpoint();
+                }
+            }
 
             // Max played 
             return propose;
-        }
+        }*/
 
         private async Task<Propose.MessageHandleResult> ProcessStaleBallotMessageInternal(StaleBallotMessage msg)
         {
@@ -1486,7 +1572,7 @@ namespace PineRSL.Paxos.Protocol
             await Task.WhenAll(tasks);
         }
 
-        private async Task BroadcastBeginNewBallot(UInt64 decreeNo, UInt64 ballotNo, PaxosDecree newBallotDecree)
+        private async Task BroadcastBeginNewBallot(UInt64 decreeNo, UInt64 ballotNo, ConsensusDecree newBallotDecree)
         {
             var tasks = new List<Task>();
             foreach (var node in _cluster.Members)
@@ -1510,7 +1596,7 @@ namespace PineRSL.Paxos.Protocol
             await Task.WhenAll(tasks);
         }
 
-        private async Task NotifyLearnersResult(ulong decreeNo, ulong ballotNo, PaxosDecree decree)
+        private async Task NotifyLearnersResult(ulong decreeNo, ulong ballotNo, ConsensusDecree decree)
         {
             if (!NotifyLearners)
             {
@@ -1550,12 +1636,12 @@ namespace PineRSL.Paxos.Protocol
                 var checkpointFilePath = _proposerNote.ProposeRoleMetaRecord?.CheckpointFilePath;
                 if (checkpointFilePath == null)
                 {
-                    checkpointFilePath = ".\\storage\\" + NodeAddress.Serialize(_serverAddr) + "_checkpoint.0000000000000001";
+                    checkpointFilePath = ".\\storage\\" + ConsensusNodeHelper.GetInstanceName(_serverAddr) + "_checkpoint.0000000000000001";
                 }
                 else
                 {
                     int checkpointFileIndex = 0;
-                    var baseName = ".\\storage\\" + NodeAddress.Serialize(_serverAddr) + "_checkpoint";
+                    var baseName = ".\\storage\\" + ConsensusNodeHelper.GetInstanceName(_serverAddr) + "_checkpoint";
                     var separatorIndex = checkpointFilePath.IndexOf(baseName);
                     if (separatorIndex != -1)
                     {

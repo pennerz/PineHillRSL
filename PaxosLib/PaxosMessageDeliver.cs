@@ -1,9 +1,9 @@
-﻿using PineRSL.Paxos.Message;
-using PineRSL.Paxos.Protocol;
+﻿using PineHillRSL.Paxos.Message;
+using PineHillRSL.Paxos.Protocol;
 using System;
 using System.Threading.Tasks;
 
-namespace PineRSL.Paxos.Message
+namespace PineHillRSL.Paxos.Message
 {
     /// <summary>
     /// Deliver the paxos message to roles who will handle it

@@ -6,13 +6,25 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PineRSL.Paxos.Persistence
+namespace PineHillRSL.Consensus.Persistence
 {
-    public class LogSizeThreshold
+    public class LogSizeThreshold   
     {
-        public const int LogFileSizeThreshold = 1024 * 1024;
-        public const int CommitLogFileCheckpointThreshold = 10 * 1024;
-        public const int MetaLogTruncateThreshold = 1024;
+        private const ulong DefLogFileSizeThreshold = 1024 * 1024;
+        private const ulong DefCommitLogFileCheckpointThreshold = 1* 1024;
+        private const ulong DefMetaLogTruncateThreshold = 1024;
+
+        public static ulong LogFileSizeThreshold { get; set; } = DefLogFileSizeThreshold;
+        public static ulong CommitLogFileCheckpointThreshold { get; set; } = DefCommitLogFileCheckpointThreshold;
+        public static ulong MetaLogTruncateThreshold { get; set; } = DefMetaLogTruncateThreshold;
+
+        public static void ResetDefault()
+        {
+            LogFileSizeThreshold = DefLogFileSizeThreshold;
+            CommitLogFileCheckpointThreshold = DefCommitLogFileCheckpointThreshold;
+            MetaLogTruncateThreshold = DefMetaLogTruncateThreshold;
+        }
+
     }
 
     public class LogEntry
@@ -87,7 +99,7 @@ namespace PineRSL.Paxos.Persistence
         Task<ILogEntryIterator> Next();
     }
 
-    public interface ILogger : IDisposable
+    public interface ILogger : IAsyncDisposable
     {
         Task<ILogEntryIterator> Begin();
         Task<ILogEntryIterator> End();
@@ -105,7 +117,7 @@ namespace PineRSL.Paxos.Persistence
         public TaskCompletionSource<AppendPosition> Result = new TaskCompletionSource<AppendPosition>();
     }
 
-    class LogBuffer
+    public class LogBuffer
     {
         private byte[] _buffer = null;
         private int _bufLen = 0;
@@ -192,7 +204,7 @@ namespace PineRSL.Paxos.Persistence
                     var fileIt = new FileLogEntryIterator(dataStream, _filePathPrefix, fileIndex, null, IteratorType.Default);
                     return await fileIt.Next();
                 }
-                catch (Exception e)
+                catch (Exception /*e*/)
                 {
                     return new FileLogEntryIterator(null, null, 0, null, IteratorType.End);
                 }
@@ -321,7 +333,10 @@ namespace PineRSL.Paxos.Persistence
                             {
                                 _truncateRequestList.RemoveAt(0);
                             }
-                            truncateRequest.Result.SetResult(true);
+                            var task1 = Task.Run(() =>
+                            {
+                                truncateRequest.Result.SetResult(true);
+                            });
 
                         }
                     }
@@ -382,7 +397,7 @@ namespace PineRSL.Paxos.Persistence
                         var notifyTime = DateTime.Now - begin;
                         if (notifyTime.TotalMilliseconds > 500)
                         {
-                            //Console.WriteLine("too slow");
+                            Console.WriteLine($"notify request finish, too slow,{notifyTime.TotalMilliseconds}ms, reqcount={finishedReqList.Count} ");
                         }
                     });
                     var notifyRequesTime = DateTime.Now - begin - getBufTime - writeStreamTime;
@@ -390,18 +405,18 @@ namespace PineRSL.Paxos.Persistence
                     var totoalTime = DateTime.Now - begin;
                     if (totoalTime.TotalMilliseconds > 500)
                     {
-                        //Console.WriteLine("too slow");
+                        Console.WriteLine($"Log flush too slow, totaltime:{totoalTime.TotalMilliseconds}ms");
                     }
                 } while (!IsStop);
                 return;
             });
         }
 
-        public void Dispose()
+        public async ValueTask DisposeAsync()
         {
             IsStop = true;
             _pendingRequestLock.Release();
-            _appendTask.Wait();
+            await _appendTask;
             _dataStream?.Close();
             _dataStream?.Dispose();
         }
@@ -417,7 +432,7 @@ namespace PineRSL.Paxos.Persistence
                 fileIt = new FileLogEntryIterator(dataStream, _dataFilePath, fileIndex, null, IteratorType.Default);
                 return fileIt.Next();
             }
-            catch (Exception e)
+            catch (Exception /*e*/)
             {
 
             }
@@ -500,7 +515,7 @@ namespace PineRSL.Paxos.Persistence
             var appendTime = DateTime.Now - begin;
             if (appendTime.TotalMilliseconds > 500)
             {
-                //Console.WriteLine("too slow");
+                Console.WriteLine($"loglger:;append, too slow, {appendTime.TotalMilliseconds}ms");
             }
 
             return appendPosition;

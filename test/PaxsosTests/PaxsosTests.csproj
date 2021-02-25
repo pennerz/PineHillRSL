@@ -15,8 +15,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\PaxosLib\PaxosLib.csproj" />
-    <ProjectReference Include="..\..\PineRSLClientLib\PineRSLClientLib.csproj" />
-    <ProjectReference Include="..\..\PineRSLServerLib\PineRSLServerLib.csproj" />
+    <ProjectReference Include="..\..\PineHillRSLClientLib\PineHillRSLClientLib.csproj" />
+    <ProjectReference Include="..\..\PineHillRSLServerLib\PineHillRSLServerLib.csproj" />
   </ItemGroup>
 
 </Project>

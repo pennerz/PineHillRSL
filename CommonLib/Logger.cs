@@ -7,7 +7,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Diagnostics;
 
-namespace PineRSL.Common
+namespace PineHillRSL.Common
 {
     public interface ILog
     {
@@ -79,7 +79,7 @@ namespace PineRSL.Common
 
     public class Logger
     {
-        static ILog _loggerImpl = new ConsoleLog();
+        static ILog _loggerImpl = null;// new ConsoleLog();
         static public void Init(ILog logger)
         {
             if (_loggerImpl == null)

@@ -1,5 +1,5 @@
-﻿using PineRSL.Common;
-using PineRSL.Network;
+﻿using PineHillRSL.Common;
+using PineHillRSL.Network;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -11,7 +11,7 @@ using System.Text.Json;
 using System.Runtime.Serialization.Json;
 using System.Text.Json.Serialization;
 
-namespace PineRSL.Rpc
+namespace PineHillRSL.Rpc
 {
     /// <summary>
     /// Rpc message communicated between client and server
@@ -145,7 +145,7 @@ namespace PineRSL.Rpc
     /// <summary>
     /// Rpc client interface
     /// </summary>
-    public interface IRpcClient : IDisposable
+    public interface IRpcClient : IAsyncDisposable
     {
         Task<RpcMessage> SendRequest(NodeAddress targetNode, RpcMessage request);
     }
@@ -153,7 +153,7 @@ namespace PineRSL.Rpc
     /// <summary>
     /// Rpc server interface
     /// </summary>
-    public interface IRpcServer : IDisposable
+    public interface IRpcServer : IAsyncDisposable
     {
         void RegisterRequestHandler(IRpcRequestHandler requestHandler);
     }

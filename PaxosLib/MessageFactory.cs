@@ -1,10 +1,10 @@
-﻿using PineRSL.Paxos.Message;
-using PineRSL.Common;
-using PineRSL.Rpc;
+﻿using PineHillRSL.Paxos.Message;
+using PineHillRSL.Common;
+using PineHillRSL.Rpc;
 using System;
 using System.Collections.Generic;
 
-namespace PineRSL.Paxos.Rpc
+namespace PineHillRSL.Paxos.Rpc
 {
 
     public class PaxosRpcMessageFactory
@@ -121,7 +121,7 @@ namespace PineRSL.Paxos.Rpc
             var allocateObjCostTime = DateTime.Now - begin;
             if (allocateObjCostTime.TotalMilliseconds > 500)
             {
-                //Console.WriteLine("too slow");
+                Console.WriteLine($"new paxos rpc message too slow, {allocateObjCostTime.TotalMilliseconds}ms");
             }
             switch (paxosMessage.MessageType)
             {

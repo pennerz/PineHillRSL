@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netcoreapp3.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CommonLib\CommonLib.csproj" />
+    <ProjectReference Include="..\NetworkLib\NetworkLib.csproj" />
+    <ProjectReference Include="..\PaxosLib\PaxosLib.csproj" />
+    <ProjectReference Include="..\PineHillRSLClientLib\PineHillRSLClientLib.csproj" />
+    <ProjectReference Include="..\ReliableStateMachineLib\ReliableStateMachineLib.csproj" />
+  </ItemGroup>
+
+</Project>

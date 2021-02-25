@@ -1,10 +1,11 @@
-﻿using PineRSL.Common;
-using PineRSL.Paxos.Request;
+﻿using PineHillRSL.Consensus.Request;
+using PineHillRSL.Common;
+using PineHillRSL.Paxos.Request;
 using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace PineRSL.Paxos.Message
+namespace PineHillRSL.Paxos.Message
 {
     public enum PaxosMessageType
     {
@@ -166,12 +167,12 @@ namespace PineRSL.Paxos.Message
         public LastVoteMessage()
         {
             MessageType = PaxosMessageType.LASTVOTE;
-            CommittedDecrees = new List<KeyValuePair<ulong, PaxosDecree>>();
+            CommittedDecrees = new List<KeyValuePair<ulong, ConsensusDecree>>();
             CheckpointedDecreNo = 0;
         }
 
         // all committed messages, whose decreee no > DecreeNo in this message
-        public List<KeyValuePair<ulong, PaxosDecree>> CommittedDecrees { get; set; }
+        public List<KeyValuePair<ulong, ConsensusDecree>> CommittedDecrees { get; set; }
 
         public bool Commited { get; set; }
         public UInt64 CheckpointedDecreNo { get; set; }

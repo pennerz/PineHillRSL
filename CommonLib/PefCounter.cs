@@ -4,29 +4,31 @@ using System.Threading;
 using System.Collections.Concurrent;
 
 
-namespace PineRSL.Common
+namespace PineHillRSL.Common
 {
     public class PerfCounterManager
     {
         class Counter
         {
-            private int _value = 0;
+            private Int64 _value = 0;
             private int _count = 0;
-            private int _maxvalue = 0;
+            private Int64 _maxvalue = 0;
 
             public Counter()
             {
             }
 
-            public int Value => _value;
+            public Int64 Value => _value;
+
+            public Int64 MaximumValue => _maxvalue;
 
             public int Count => _count;
 
-            public int Accumulate(int val)
+            public Int64 Accumulate(Int64 val)
             {
                 Interlocked.Increment(ref _count);
                 var result = Interlocked.Add(ref _value, val);
-                if (result > _maxvalue)
+                if (val > _maxvalue)
                 {
                     _maxvalue = result;
                 }
@@ -46,7 +48,7 @@ namespace PineRSL.Common
         public PerfCounterManager()
         { }
 
-        public int Accumulate(int counterType, int counterValue)
+        public Int64 Accumulate(int counterType, Int64 counterValue)
         {
             var counter = GetCounter(counterType);
             if (counter == null)
@@ -56,7 +58,7 @@ namespace PineRSL.Common
             return counter.Accumulate(counterValue);
         }
 
-        public int GetCounterValue(int counterType)
+        public Int64 GetCounterValue(int counterType)
         {
             var counter = GetCounter(counterType);
             if (counter == null)
@@ -65,7 +67,7 @@ namespace PineRSL.Common
             }
             return counter.Value;
         }
-        public int GetCounterAvgValue(int counterType)
+        public Int64 GetCounterAvgValue(int counterType)
         {
             var counter = GetCounter(counterType);
             if (counter == null)
@@ -77,6 +79,29 @@ namespace PineRSL.Common
                 return 0;
             }
             return counter.Value / counter.Count;
+        }
+        public Int64 GetCounterMaximuValue(int counterType)
+        {
+            var counter = GetCounter(counterType);
+            if (counter == null)
+            {
+                return 0;
+            }
+            if (counter.Count == 0)
+            {
+                return 0;
+            }
+            return counter.MaximumValue;
+        }
+
+        public Int64 GetCounterCount(int counterType)
+        {
+            var counter = GetCounter(counterType);
+            if (counter == null)
+            {
+                return 0;
+            }
+            return counter.Count;
         }
 
         private Counter GetCounter(int counterType)
@@ -118,18 +143,27 @@ namespace PineRSL.Common
 
     public class StatisticCounter
     {
-        public static void ReportCounter(int counterType, int value)
+        public static void ReportCounter(int counterType, Int64 value)
         {
             PerfCounterManager.GetInst().Accumulate(counterType, value);
         }
 
-        public static int GetCounterSum(int counterType)
+        public static Int64 GetCounterCount(int counterType)
+        {
+            return PerfCounterManager.GetInst().GetCounterCount(counterType);
+        }
+
+        public static Int64 GetCounterSum(int counterType)
         {
             return PerfCounterManager.GetInst().GetCounterValue(counterType);
         }
-        public static int GetCounterAvg(int counterType)
+        public static Int64 GetCounterAvg(int counterType)
         {
             return PerfCounterManager.GetInst().GetCounterAvgValue(counterType);
+        }
+        public static Int64 GetMaximumValue(int conterType)
+        {
+            return PerfCounterManager.GetInst().GetCounterMaximuValue(conterType);
         }
     }
 

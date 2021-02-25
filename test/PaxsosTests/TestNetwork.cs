@@ -1,6 +1,6 @@
-﻿using PineRSL.Common;
-using PineRSL.Network;
-using PineRSL.Rpc;
+﻿using PineHillRSL.Common;
+using PineHillRSL.Network;
+using PineHillRSL.Rpc;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -9,7 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;
 
-namespace PineRSL.Tests
+namespace PineHillRSL.Tests
 {
     /// <summary>
     /// Test implementation of IConnection.

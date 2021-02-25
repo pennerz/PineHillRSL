@@ -1,15 +1,14 @@
-﻿using PineRSL.Common;
-using PineRSL.Paxos.Protocol;
-using PineRSL.Network;
-using PineRSL.Paxos.Node;
-using PineRSL.Paxos.Request;
+﻿using PineHillRSL.Consensus.Request;
+using PineHillRSL.Consensus.Node;
+using PineHillRSL.Common;
+using PineHillRSL.Network;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PineRSL.StateMachine
+namespace PineHillRSL.StateMachine
 {
     public class StateMachineRequest
     {
@@ -52,10 +51,10 @@ namespace PineRSL.StateMachine
         }
     }
 
-    public abstract class PaxosStateMachine : IDisposable, IPaxosNotification
+    public abstract class ReliableStateMachine : IAsyncDisposable, IConsensusNotification
     {
-        private PaxosNode _node;
-        private PaxosCluster _cluster;
+        private IConsensusNode _node;
+        private ConsensusCluster _cluster;
         private NodeAddress _serverAddr;
         private string _metaLog;
         private SlidingWindow _reqSlideWindow = new SlidingWindow(0, null);
@@ -73,14 +72,16 @@ namespace PineRSL.StateMachine
         }
 
 
-        public PaxosStateMachine(
-            PaxosCluster cluster,
+        public ReliableStateMachine(
+            ConsensusCluster cluster,
             NodeAddress serverAddr)
         {
             _cluster = cluster;
             _serverAddr = serverAddr;
-            _node = new PaxosNode(cluster, serverAddr);
+            _node = ConsencusNodeFactory.CreateConsensusNode(cluster, serverAddr);
             _node.SubscribeNotification(this);
+
+            _reqSlideWindow = new SlidingWindow(_node.MaxCommittedNo, null);
 
             MissedRequestTimeoutInSecond = 5 * 60;
 
@@ -88,18 +89,23 @@ namespace PineRSL.StateMachine
 
         }
 
-        public void Dispose()
+        public async ValueTask DisposeAsync()
         {
             _exit.Cancel();
-            _matainTask?.Wait();
-            _node?.Dispose();
+            if (_matainTask != null)
+                await _matainTask;
+
+            if (_node != null)
+                await _node.DisposeAsync();
+
             _exit.Dispose();
         }
 
-        public Task Load(string metaLog)
+        public async Task Load(string metaLog)
         {
             _metaLog = metaLog;
-            return _node?.Load(metaLog);
+            await _node?.Load(metaLog);
+            _reqSlideWindow = new SlidingWindow(_node.MaxCommittedNo, null);
         }
 
         public async Task Request(StateMachineRequest request)
@@ -120,7 +126,7 @@ namespace PineRSL.StateMachine
             await ReqeustInternal(request);
         }
 
-        public virtual Task UpdateSuccessfullDecree(UInt64 decreeNo, PaxosDecree decree)
+        public virtual Task UpdateSuccessfullDecree(UInt64 decreeNo, ConsensusDecree decree)
         {
             var internalRequest = new InternalRequest()
             {
@@ -194,33 +200,42 @@ namespace PineRSL.StateMachine
             {
                 try
                 {
-                    var result = await _node.ProposeDecree(new PaxosDecree() { Content = StateMachineRequestSerializer.Serialize(request) }, 0);
+                    var result = await _node.ProposeDecree(new ConsensusDecree() { Content = StateMachineRequestSerializer.Serialize(request) }, 0);
                     var proposeTime = DateTime.Now - begin;
+                    StatisticCounter.ReportCounter((int)PerCounter.NetworkPerfCounterType.ProposeTime, (Int64)proposeTime.TotalMilliseconds);
                     if (proposeTime.TotalMilliseconds > 500)
                     {
-                        Console.WriteLine("too slow");
+                        Console.WriteLine($"Propose request too slow, time:{proposeTime.TotalMilliseconds}ms");
+                        Console.WriteLine($"    CollectLastVoteTimeInMs:{result.CollectLastVoteTimeInMs.TotalMilliseconds}ms");
+                        Console.WriteLine($"    VoteTimeInMs:{result.VoteTimeInMs.TotalMilliseconds}ms");
+                        Console.WriteLine($"    CommitTimeInMs:{result.CommitTimeInMs.TotalMilliseconds}ms");
+                        Console.WriteLine($"    GetProposeCostTime:{result.GetProposeCostTime.TotalMilliseconds}ms");
+                        Console.WriteLine($"    GetProposeLockCostTime:{result.GetProposeLockCostTime.TotalMilliseconds}ms");
+                        Console.WriteLine($"    PrepareNewBallotCostTime:{result.PrepareNewBallotCostTime.TotalMilliseconds}ms");
+                        Console.WriteLine($"    BroadcastQueryLastVoteCostTime:{result.BroadcastQueryLastVoteCostTime.TotalMilliseconds}ms");
+                        Console.WriteLine($"    CollectLastVoteTimeInMs:{result.CollectLastVoteTimeInMs.TotalMilliseconds}ms");
                     }
                     request.SequenceId = result.DecreeNo;
                     break;
                 }
-                catch (Exception e)
+                catch (Exception /*e*/)
                 {
                 }
 
                 //
-                _node.Dispose();
+                await _node.DisposeAsync();
 
-                _node = new PaxosNode(_cluster, _serverAddr);
+                _node = ConsencusNodeFactory.CreateConsensusNode(_cluster, _serverAddr);
                 _node.SubscribeNotification(this);
 
                 if (string.IsNullOrEmpty(_metaLog))
                 {
-                    var instanceName = NodeAddress.Serialize(_serverAddr);
+                    var instanceName = ConsensusNodeHelper.GetInstanceName(_serverAddr);
                     _metaLog = ".\\storage\\" + instanceName + ".meta";
                 }
                 await Task.Run(async () =>
                 {
-                    await _node.Load(_metaLog, ProposerRole.DataSource.Cluster);
+                    await _node.Load(_metaLog, DataSource.Cluster);
                 });
 
             } while (true);

@@ -1,23 +1,24 @@
-﻿using PineRSL.Network;
-using PineRSL.Paxos.Message;
-using PineRSL.Paxos.Notebook;
-using PineRSL.Paxos.Persistence;
-using PineRSL.Paxos.Protocol;
-using PineRSL.Paxos.Request;
-using PineRSL.Paxos.Rpc;
-using PineRSL.Rpc;
+﻿using PineHillRSL.Consensus.Node;
+using PineHillRSL.Consensus.Request;
+using PineHillRSL.Consensus.Persistence;
+using PineHillRSL.Network;
+using PineHillRSL.Paxos.Message;
+using PineHillRSL.Paxos.Notebook;
+using PineHillRSL.Paxos.Protocol;
+using PineHillRSL.Paxos.Rpc;
+using PineHillRSL.Rpc;
 using System;
 using System.Threading.Tasks;
 
-namespace PineRSL.Paxos.Node
+namespace PineHillRSL.Paxos.Node
 {
-    public class PaxosNode : IDisposable
+    public class PaxosNode : IConsensusNode
     {
         private bool _inLoading = false;
         private VoterRole _voterRole;
         private ProposerRole _proposerRole;
 
-        private readonly PaxosCluster _cluster;
+        private readonly ConsensusCluster _cluster;
         private readonly NodeAddress _serverAddr;
 
         private PaxosNodeMessageDeliver _messager;
@@ -33,12 +34,12 @@ namespace PineRSL.Paxos.Node
         private ProposerNote _proposerNote;
         private ProposeManager _proposeManager;
 
-        private IPaxosNotification _notificationSubscriber;
+        private IConsensusNotification _notificationSubscriber;
 
-        public enum DataSource { Local, Cluster};
+        //public enum DataSource { Local, Cluster};
 
         public PaxosNode(
-            PaxosCluster cluster,
+            ConsensusCluster cluster,
             NodeAddress serverAddr)
         {
             /*
@@ -64,24 +65,22 @@ namespace PineRSL.Paxos.Node
 
         }
 
-        public void Dispose()
+        public async ValueTask DisposeAsync()
         {
-            Cleanup();
+            await Cleanup();
         }
 
-        public void SubscribeNotification(IPaxosNotification listener)
+        public void SubscribeNotification(IConsensusNotification listener)
         {
             _notificationSubscriber = listener;
             _proposerRole.SubscribeNotification(_notificationSubscriber);
             _voterRole.SubscribeNotification(_notificationSubscriber);
         }
 
-        public async Task Load(string metaLog, ProposerRole.DataSource datasource = ProposerRole.DataSource.Local)
+        public async Task Load(string metaLog, DataSource datasource = DataSource.Local)
         {
-            await Task.Run(() =>
-            {
-                _metaLogger?.Dispose();
-            });
+            if (_metaLogger != null)
+                await _metaLogger.DisposeAsync();
             _metaLogger = new FileLogger(metaLog);
 
             //
@@ -94,15 +93,12 @@ namespace PineRSL.Paxos.Node
             var proposerLog = fileBase + ".proposerlog";
             var voterLog = fileBase + ".voterlog";
 
-            await Task.Run(() =>
-            {
-                _proposeLogger?.Dispose();
-            });
+            if (_proposeLogger != null)
+                await _proposeLogger.DisposeAsync();
             _proposeLogger = new FileLogger(proposerLog);
-            await Task.Run(() =>
-            {
-                _voterLogger?.Dispose();
-            });
+
+            if (_voterLogger != null)
+                await _voterLogger.DisposeAsync();
             _voterLogger = new FileLogger(voterLog);
 
             _voterNote = new VoterNote(_voterLogger);
@@ -111,7 +107,7 @@ namespace PineRSL.Paxos.Node
             _proposerNote = new ProposerNote(_proposeLogger, _metaLogger);
             await _proposerNote.Load();
 
-            _proposeManager = new ProposeManager(_proposerNote.GetMaximumCommittedDecreeNo());
+            _proposeManager = new ProposeManager(await _proposerNote.GetMaximumCommittedDecreeNo());
 
             _voterRole = new VoterRole(_serverAddr, _cluster, _rpcClient, _voterNote, _proposerNote);
             _proposerRole = new ProposerRole(
@@ -131,7 +127,7 @@ namespace PineRSL.Paxos.Node
 
         }
 
-        public async Task<ProposeResult> ProposeDecree(PaxosDecree decree, ulong decreeNo)
+        public async Task<ProposeResult> ProposeDecree(ConsensusDecree decree, ulong decreeNo)
         {
             //
             // three phase commit
@@ -177,6 +173,8 @@ namespace PineRSL.Paxos.Node
             }
         }
 
+        public ulong MaxCommittedNo => _proposerNote.GetMaximumCommittedDecreeNo().Result;
+
         private void Init()
         {
             //var localAddr = new NodeAddress(_nodeInfo, 0);
@@ -188,7 +186,7 @@ namespace PineRSL.Paxos.Node
             _rpcServer.Start().Wait();
             Common.Logger.Log($"RSL Node RPC Server Startd");
 
-            var instanceName = NodeAddress.Serialize(_serverAddr);
+            var instanceName = ConsensusNodeHelper.GetInstanceName(_serverAddr);
 
             var metaLogFilePath = ".\\storage\\" + instanceName + ".meta";
             var task = Load(metaLogFilePath);
@@ -196,30 +194,42 @@ namespace PineRSL.Paxos.Node
             Common.Logger.Log($"RSL Node Loaded");
         }
 
-        private void Cleanup()
+        private async Task Cleanup()
         {
-            _rpcClient?.Dispose();
+            if (_rpcClient != null)
+                await _rpcClient.DisposeAsync();
             _rpcClient = null;
-            _rpcServer?.Dispose();
+            if (_rpcServer != null)
+                await _rpcServer.DisposeAsync();
             _rpcServer = null;
 
-            _voterRole?.Dispose();
+            if (_voterRole != null)
+                await _voterRole.DisposeAsync();
             _voterRole = null;
 
-            _proposerRole?.Dispose();
+            if (_proposerRole != null)
+                await _proposerRole.DisposeAsync();
             _proposerRole = null;
 
-            _metaLogger?.Dispose();
-            _metaLogger = null;
-            _proposeLogger?.Dispose();
-            _proposeLogger = null;
-            _voterLogger?.Dispose();
-            _voterLogger = null;
-
-            _voterNote?.Dispose();
+            if (_voterNote != null)
+                await _voterNote.DisposeAsync();
             _voterNote = null;
-            _proposerNote?.Dispose();
+
+            if (_proposerNote != null)
+                await _proposerNote.DisposeAsync();
             _proposerNote = null;
+
+            if (_metaLogger != null)
+                await _metaLogger.DisposeAsync();
+            _metaLogger = null;
+
+            if (_proposeLogger != null)
+                await _proposeLogger.DisposeAsync();
+            _proposeLogger = null;
+
+            if (_voterLogger != null)
+                await _voterLogger.DisposeAsync();
+            _voterLogger = null;
 
             _proposeManager?.Dispose();
             _proposeManager = null;
