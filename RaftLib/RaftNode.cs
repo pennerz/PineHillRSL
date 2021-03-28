@@ -3,6 +3,7 @@ using PineHillRSL.Consensus.Persistence;
 using PineHillRSL.Consensus.Request;
 using PineHillRSL.Network;
 using PineHillRSL.Raft.Message;
+using PineHillRSL.Raft.Protocol;
 using PineHillRSL.Raft.Rpc;
 using PineHillRSL.Rpc;
 using System;
@@ -25,6 +26,8 @@ namespace PineHillRSL.Raft.Node
         private ILogger _metaLogger;
         private ILogger _proposeLogger;
         private ILogger _voterLogger;
+
+        private RaftRole _role;
 
 
         private IConsensusNotification _notificationSubscriber;
@@ -91,7 +94,7 @@ namespace PineHillRSL.Raft.Node
                 await _voterLogger.DisposeAsync();
             _voterLogger = new FileLogger(voterLog);
 
-            _messager = new RaftNodeMessageDeliver();
+            _messager = new RaftNodeMessageDeliver(_role);
             var rpcRequestHandler = new RaftMessageHandler(_messager, null);
             _rpcServer.RegisterRequestHandler(rpcRequestHandler);
 
@@ -105,11 +108,11 @@ namespace PineHillRSL.Raft.Node
         public async Task<ProposeResult> ProposeDecree(ConsensusDecree decree, ulong decreeNo)
         {
             //
-            // three phase commit
-            // 1. collect decree for this instance
-            // 2. prepare commit decree
-            // 3. commit decree
+            // 1. get leader node. If not leader node, return leader node to cleint
+            // 2. if leader, broadcase decree to all followers
+            // 3. commit decree when received success response from majority followers
             //
+
             /*
             using (var activity = Common.ActivityControl.NewActivity())
             {
@@ -126,7 +129,7 @@ namespace PineHillRSL.Raft.Node
                 }
                 return result;
             }*/
-            return null;
+            return await _role.Propose(decree, decreeNo);
         }
 
         public async Task<DecreeReadResult> ReadDecree(ulong decreeNo)
@@ -167,6 +170,7 @@ namespace PineHillRSL.Raft.Node
             _rpcServer.Start().Wait();
             Common.Logger.Log($"RSL Node RPC Server Startd");
 
+            _role = new RaftRole(_serverAddr, _rpcClient, _cluster);
             var instanceName = ConsensusNodeHelper.GetInstanceName(_serverAddr);
 
             var metaLogFilePath = ".\\storage\\" + instanceName + ".meta";

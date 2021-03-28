@@ -8,10 +8,10 @@ namespace PineHillRSL.Raft.Message
 {
     public enum RaftMessageType
     {
-        NEXTBALLOT,
-        LASTVOTE,
-        BEGINBALLOT,
-        VOTE,
+        VoteReq,
+        VoteResp,
+        AppendEntityReq,
+        AppendEntityResp,
         SUCCESS,
         STALEBALLOT,
         AGGREGATED,
@@ -30,22 +30,27 @@ namespace PineHillRSL.Raft.Message
         public RaftMessageType MessageType { get; set; }
         public string SourceNode { get; set; }
         public string TargetNode { get; set; }
-        public UInt64 DecreeNo { get; set; }
-        public UInt64 BallotNo { get; set; }
+        //public UInt64 DecreeNo { get; set; }
+        //public UInt64 BallotNo { get; set; }
+
+        // for raft
+        public UInt64 Term { get; set; } = 0;
+        public UInt64 LogIndex { get; set; } = 0;
+
 
         public virtual byte[] Serialize()
         {
-            var messageTypeData = BitConverter.GetBytes((int)MessageType);
+            var messageTypeData = BitConverter.GetBytes((Int32)MessageType);
             var sourceNodeData = Encoding.UTF8.GetBytes(SourceNode);
             var targetNodeData = Encoding.UTF8.GetBytes(TargetNode);
-            var decreeNoData = BitConverter.GetBytes(DecreeNo);
-            var ballotNoData = BitConverter.GetBytes(BallotNo);
+            var termData = BitConverter.GetBytes(Term);
+            var logIndexData = BitConverter.GetBytes(LogIndex);
             var dataList = new List<byte[]>();
             dataList.Add(messageTypeData);
             dataList.Add(sourceNodeData);
             dataList.Add(targetNodeData);
-            dataList.Add(decreeNoData);
-            dataList.Add(ballotNoData);
+            dataList.Add(termData);
+            dataList.Add(logIndexData);
             var serializeBuffer = new SerializeBuffer();
             serializeBuffer.AppendBlocks(dataList);
             return serializeBuffer.DataBuf;
@@ -90,14 +95,14 @@ namespace PineHillRSL.Raft.Message
             {
                 return;
             }
-            DecreeNo = BitConverter.ToUInt64(it.DataBuff, it.RecordOff);
+            Term = BitConverter.ToUInt64(it.DataBuff, it.RecordOff);
 
             it = it.Next();
             if (it.Equals(itEnd))
             {
                 return;
             }
-            BallotNo = BitConverter.ToUInt64(it.DataBuff, it.RecordOff);
+            LogIndex = BitConverter.ToUInt64(it.DataBuff, it.RecordOff);
 
             /*
             while (str != null)
@@ -150,16 +155,221 @@ namespace PineHillRSL.Raft.Message
 
     }
 
-/*
     [Serializable()]
-    public class NextBallotMessage : PaxosMessage, ISer
+    public class VoteReqMessage : RaftMessage
     {
-        public NextBallotMessage()
+        public VoteReqMessage()
         {
-            MessageType = PaxosMessageType.NEXTBALLOT;
+            MessageType = RaftMessageType.VoteReq;
+        }
+
+        public UInt64 LastLogEntryTerm { get; set; } = 0;
+        public UInt64 LastLogEntryIndex { get; set; } = 0;
+    }
+
+    [Serializable()]
+    public class VoteRespMessage : RaftMessage
+    {
+        public VoteRespMessage()
+        {
+            MessageType = RaftMessageType.VoteResp;
+        }
+
+        public bool Succeed { get; set; }
+
+        public override byte[] Serialize()
+        {
+            var dataList = new List<byte[]>();
+            dataList.Add(base.Serialize());
+            var isSucceededBuf = BitConverter.GetBytes(Succeed);
+            dataList.Add(isSucceededBuf);
+
+            var serializeBuffer = new SerializeBuffer();
+            serializeBuffer.AppendBlocks(dataList);
+            return serializeBuffer.DataBuf;
+        }
+
+        public override void DeSerialize(byte[] data)
+        {
+            var serializeBuffer = new SerializeBuffer();
+            serializeBuffer.ConcatenateBuff(data);
+
+            var itEnd = serializeBuffer.End();
+            var it = serializeBuffer.Begin();
+            if (it.Equals(itEnd))
+            {
+                return;
+            }
+            var baseSerializeData = new byte[it.RecordSize];
+            Buffer.BlockCopy(it.DataBuff, it.RecordOff, baseSerializeData, 0, it.RecordSize);
+            base.DeSerialize(baseSerializeData);
+
+            it = it.Next();
+            if (it.Equals(itEnd))
+            {
+                return;
+            }
+            Succeed = BitConverter.ToBoolean(it.DataBuff, it.RecordOff);
         }
     }
-*/
+
+    [Serializable()]
+    public class AppendEntityReqMessage : RaftMessage
+    {
+        public AppendEntityReqMessage()
+        {
+            MessageType = RaftMessageType.AppendEntityReq;
+        }
+
+        public UInt64 CommittedLogIndex { get; set; } = 0;
+
+        public override byte[] Serialize()
+        {
+            var dataList = new List<byte[]>();
+            dataList.Add(base.Serialize());
+            var committedLogIndexBuf = BitConverter.GetBytes(CommittedLogIndex);
+            dataList.Add(committedLogIndexBuf);
+
+            var serializeBuffer = new SerializeBuffer();
+            serializeBuffer.AppendBlocks(dataList);
+            return serializeBuffer.DataBuf;
+        }
+
+        public override void DeSerialize(byte[] data)
+        {
+            var serializeBuffer = new SerializeBuffer();
+            serializeBuffer.ConcatenateBuff(data);
+
+            var itEnd = serializeBuffer.End();
+            var it = serializeBuffer.Begin();
+            if (it.Equals(itEnd))
+            {
+                return;
+            }
+            var baseSerializeData = new byte[it.RecordSize];
+            Buffer.BlockCopy(it.DataBuff, it.RecordOff, baseSerializeData, 0, it.RecordSize);
+            base.DeSerialize(baseSerializeData);
+
+            it = it.Next();
+            if (it.Equals(itEnd))
+            {
+                return;
+            }
+            CommittedLogIndex = BitConverter.ToUInt64(it.DataBuff, it.RecordOff);
+        }
+    }
+
+    [Serializable()]
+    public class AppendEntityRespMessage : RaftMessage
+    {
+        public AppendEntityRespMessage()
+        {
+            MessageType = RaftMessageType.AppendEntityResp;
+        }
+
+        public bool Succeed { get; set; } = false;
+
+        public override byte[] Serialize()
+        {
+            var dataList = new List<byte[]>();
+            dataList.Add(base.Serialize());
+            var isSucceededBuf = BitConverter.GetBytes(Succeed);
+            dataList.Add(isSucceededBuf);
+
+            var serializeBuffer = new SerializeBuffer();
+            serializeBuffer.AppendBlocks(dataList);
+            return serializeBuffer.DataBuf;
+        }
+
+        public override void DeSerialize(byte[] data)
+        {
+            var serializeBuffer = new SerializeBuffer();
+            serializeBuffer.ConcatenateBuff(data);
+
+            var itEnd = serializeBuffer.End();
+            var it = serializeBuffer.Begin();
+            if (it.Equals(itEnd))
+            {
+                return;
+            }
+            var baseSerializeData = new byte[it.RecordSize];
+            Buffer.BlockCopy(it.DataBuff, it.RecordOff, baseSerializeData, 0, it.RecordSize);
+            base.DeSerialize(baseSerializeData);
+
+            it = it.Next();
+            if (it.Equals(itEnd))
+            {
+                return;
+            }
+            Succeed = BitConverter.ToBoolean(it.DataBuff, it.RecordOff);
+        }
+
+    }
+
+    public class AggregatedRaftMessage : RaftMessage, ISer
+    {
+        private List<RaftMessage> _raftMessageList = new List<RaftMessage>();
+        public AggregatedRaftMessage()
+        {
+            MessageType = RaftMessageType.AGGREGATED;
+        }
+
+        public void AddRaftMessage(RaftMessage raftMessage)
+        {
+            _raftMessageList.Add(raftMessage);
+        }
+
+        public List<RaftMessage> RaftMessages => _raftMessageList;
+
+        public override byte[] Serialize()
+        {
+            var serializeBuf = new SerializeBuffer();
+            var baseSerializedData = base.Serialize();
+            var dataList = new List<byte[]>();
+            dataList.Add(baseSerializedData);
+            foreach (var raftMsg in _raftMessageList)
+            {
+                dataList.Add(BitConverter.GetBytes((int)raftMsg.MessageType));
+                dataList.Add(raftMsg.Serialize());
+            }
+            serializeBuf.AppendBlocks(dataList);
+            return serializeBuf.DataBuf;
+            //return base.Serialize() + "NextBallotNo:" + NextBallotNo.ToString() + "_";
+        }
+
+        public override void DeSerialize(byte[] data)
+        {
+            var serializeBuf = new SerializeBuffer();
+            serializeBuf.ConcatenateBuff(data);
+            var endIt = serializeBuf.End();
+            var it = serializeBuf.Begin();
+            if (it.Equals(endIt))
+            {
+                return;
+            }
+            var baseSerializeData = new byte[it.RecordSize];
+            Buffer.BlockCopy(it.DataBuff, it.RecordOff, baseSerializeData, 0, it.RecordSize);
+            base.DeSerialize(baseSerializeData);
+
+            for (it = it.Next(); !it.Equals(endIt); it = it.Next())
+            {
+                var msgType = (RaftMessageType)BitConverter.ToInt32(it.DataBuff, it.RecordOff);
+
+                it = it.Next();
+                if (it.Equals(endIt))
+                {
+                    return;
+                }
+                var serializeData = new byte[it.RecordSize];
+                Buffer.BlockCopy(it.DataBuff, it.RecordOff, serializeData, 0, it.RecordSize);
+                var raftMsg = MessageFactory.CreateRaftMessage(msgType, serializeData);
+                _raftMessageList.Add(raftMsg);
+            }
+        }
+
+    }
+
+
 
     public class MessageFactory
     {

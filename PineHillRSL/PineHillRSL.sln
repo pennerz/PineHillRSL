@@ -6,6 +6,9 @@ MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PaxosLib", "..\PaxosLib\PaxosLib.csproj", "{FAA41E6F-79EF-4B54-8349-A3A84ECE1500}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PaxsosTests", "..\test\PaxsosTests\PaxsosTests.csproj", "{5DC220E8-C74E-430B-92A5-12873256B2FF}"
+	ProjectSection(ProjectDependencies) = postProject
+		{27EAEFF6-07CA-4E53-AEF8-30A2DBBDA6C3} = {27EAEFF6-07CA-4E53-AEF8-30A2DBBDA6C3}
+	EndProjectSection
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NetworkLib", "..\NetworkLib\NetworkLib.csproj", "{5C21B167-D89F-43B2-AEE3-9C994B18ED2E}"
 EndProject

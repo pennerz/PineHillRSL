@@ -78,8 +78,11 @@ namespace PineHillRSL.Consensus.Request
     /// </summary>
     public class ProposeResult
     {
-        public ulong DecreeNo { get; set; }
+        // common part
         public ConsensusDecree Decree { get; set; }
+
+        // paxos part
+        public ulong DecreeNo { get; set; }
         public ulong CheckpointedDecreeNo { get; set; }
 
         public TimeSpan CollectLastVoteTimeInMs { get; set; }
@@ -90,6 +93,12 @@ namespace PineHillRSL.Consensus.Request
         public TimeSpan GetProposeLockCostTime { get; set; }
         public TimeSpan PrepareNewBallotCostTime { get; set; }
         public TimeSpan BroadcastQueryLastVoteCostTime { get; set; }
+
+
+        // raft part
+        public ulong LogIndex { get; set; }
+        public string Leader { get; set; }
+        public bool Retry { get; set; }
 
     }
 }

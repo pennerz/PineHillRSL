@@ -500,7 +500,7 @@ namespace PineHillRSL.Tests
         /// <returns></returns>
         public Task<IConnection> CreateNetworkClient(NodeAddress serverAddr)
         {
-            //lock(_networkInfr)
+            lock(_networkInfr)
             {
                 var localPort = Interlocked.Increment(ref _localPort);
                 var localAddr = new NodeAddress(_localNode, localPort);

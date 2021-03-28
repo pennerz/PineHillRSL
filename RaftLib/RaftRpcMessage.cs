@@ -9,10 +9,10 @@ namespace PineHillRSL.Raft.Rpc
     public enum RaftRpcMessageType
     {
         EmptyResponse,
-        QueryLastVote,
-        LastVote,
-        BeginNewBallot,
-        Vote,
+        AppendEntityReq,
+        AppendEntityResp,
+        VoteLeaderReq,
+        VoteLeaderResp,
         Successfull,
         StaleBallot,
         Aggregated,
@@ -55,72 +55,106 @@ namespace PineHillRSL.Raft.Rpc
 
         public async Task<RpcMessage> HandleRequest(RpcMessage request)
         {
-            var paxosRpcMessage = RaftRpcMessageFactory.CreateRaftRpcMessage(request);
-            switch (paxosRpcMessage.MessageType)
+            var raftRpcMessage = RaftRpcMessageFactory.CreateRaftRpcMessage(request);
+            switch (raftRpcMessage.MessageType)
             {
-                /*
-                case PaxosRpcMessageType.QueryLastVote:
-                case PaxosRpcMessageType.BeginNewBallot:
-                case PaxosRpcMessageType.Vote:
-                case PaxosRpcMessageType.Successfull:
-                case PaxosRpcMessageType.LastVote:
+                case RaftRpcMessageType.AppendEntityReq:
+                case RaftRpcMessageType.VoteLeaderReq:
                     if (_messageDeliver != null)
                     {
-                        var paxosMessage = PaxosMessageFactory.CreatePaxosMessage(paxosRpcMessage);
-                        if (paxosMessage != null)
+                        var raftMessage = RaftMessageFactory.CreateRaftMessage(raftRpcMessage);
+                        if (raftMessage != null)
                         {
-                            await _messageDeliver?.DeliverMessage(paxosMessage);
+                            var raftRespMessage = await _messageDeliver?.Request(raftMessage);
+                            var raftRpcRespMessage = RaftMessageFactory.CreateRaftRpcMessage(raftRespMessage);
+                            var respMessage = RaftRpcMessageFactory.CreateRpcRequest(raftRpcRespMessage);
+                            return respMessage;
                         }
                         else
                         {
-                            paxosMessage = null;
+                            raftMessage = null;
                         }
                     }
                     break;
-                case PaxosRpcMessageType.Aggregated:
+                case RaftRpcMessageType.AppendEntityResp:
+                case RaftRpcMessageType.VoteLeaderResp:
                     if (_messageDeliver != null)
                     {
-                        var aggregatedMsg = PaxosMessageFactory.CreatePaxosMessage(paxosRpcMessage) as AggregatedPaxosMessage;
-                        if (aggregatedMsg != null)
+                        var raftMessage = RaftMessageFactory.CreateRaftMessage(raftRpcMessage);
+                        if (raftMessage != null)
                         {
-                            var taskList = new List<Task>();
-                            var taskWithRespList = new List<Task<PaxosMessage>>();
-                            foreach (var paxosMessage in aggregatedMsg.PaxosMessages)
+                            await _messageDeliver?.DeliverMessage(raftMessage);
+                        }
+                        else
+                        {
+                            raftMessage = null;
+                        }
+                    }
+                    break;
+
+                    /*
+                    case PaxosRpcMessageType.QueryLastVote:
+                    case PaxosRpcMessageType.BeginNewBallot:
+                    case PaxosRpcMessageType.Vote:
+                    case PaxosRpcMessageType.Successfull:
+                    case PaxosRpcMessageType.LastVote:
+                        if (_messageDeliver != null)
+                        {
+                            var paxosMessage = PaxosMessageFactory.CreatePaxosMessage(paxosRpcMessage);
+                            if (paxosMessage != null)
                             {
-                                var task = _messageDeliver?.DeliverMessage(paxosMessage);
-                                if (task != null)
-                                {
-                                    taskList.Add(task);
-                                }
+                                await _messageDeliver?.DeliverMessage(paxosMessage);
                             }
-                            await Task.WhenAll(taskList);
+                            else
+                            {
+                                paxosMessage = null;
+                            }
                         }
-                        else
+                        break;
+                    case PaxosRpcMessageType.Aggregated:
+                        if (_messageDeliver != null)
                         {
-                            aggregatedMsg = null;
+                            var aggregatedMsg = PaxosMessageFactory.CreatePaxosMessage(paxosRpcMessage) as AggregatedPaxosMessage;
+                            if (aggregatedMsg != null)
+                            {
+                                var taskList = new List<Task>();
+                                var taskWithRespList = new List<Task<PaxosMessage>>();
+                                foreach (var paxosMessage in aggregatedMsg.PaxosMessages)
+                                {
+                                    var task = _messageDeliver?.DeliverMessage(paxosMessage);
+                                    if (task != null)
+                                    {
+                                        taskList.Add(task);
+                                    }
+                                }
+                                await Task.WhenAll(taskList);
+                            }
+                            else
+                            {
+                                aggregatedMsg = null;
+                            }
                         }
-                    }
-                    break;
-                case PaxosRpcMessageType.CheckpointSummaryRequest:
-                case PaxosRpcMessageType.CheckpointDataRequest:
-                    {
-                        var paxosMessage = PaxosMessageFactory.CreatePaxosMessage(paxosRpcMessage);
-                        if (paxosMessage != null)
+                        break;
+                    case PaxosRpcMessageType.CheckpointSummaryRequest:
+                    case PaxosRpcMessageType.CheckpointDataRequest:
                         {
-                            var resp = await _messageDeliver?.Request(paxosMessage);
-                            var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(resp);
-                            var rpcResp = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
-                            return rpcResp;
+                            var paxosMessage = PaxosMessageFactory.CreatePaxosMessage(paxosRpcMessage);
+                            if (paxosMessage != null)
+                            {
+                                var resp = await _messageDeliver?.Request(paxosMessage);
+                                var paxosRpcMsg = PaxosMessageFactory.CreatePaxosRpcMessage(resp);
+                                var rpcResp = PaxosRpcMessageFactory.CreateRpcRequest(paxosRpcMsg);
+                                return rpcResp;
+                            }
+                            return null;
                         }
-                        return null;
-                    }
-                default:
-                    if (_rpcRequestHandler != null)
-                    {
-                        var resp = await _rpcRequestHandler.HandleRequest(request);
-                        return resp;
-                    }
-                    break;*/
+                    default:
+                        if (_rpcRequestHandler != null)
+                        {
+                            var resp = await _rpcRequestHandler.HandleRequest(request);
+                            return resp;
+                        }
+                        break;*/
             }
 
             return new RpcMessage()

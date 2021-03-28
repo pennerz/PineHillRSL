@@ -66,51 +66,68 @@ namespace PineHillRSL.Raft.Rpc
         {
             switch (rpcMessage.MessageType)
             {
-                /*
-                case PaxosRpcMessageType.QueryLastVote:
+                case RaftRpcMessageType.AppendEntityReq:
                     {
-                        return Serializer<NextBallotMessage>.Deserialize(rpcMessage.MessageContent);
+                        return Serializer<AppendEntityReqMessage>.Deserialize(rpcMessage.MessageContent);
                     }
-                case PaxosRpcMessageType.LastVote:
+                case RaftRpcMessageType.AppendEntityResp:
                     {
-                        return Serializer<LastVoteMessage>.Deserialize(rpcMessage.MessageContent);
+                        return Serializer<AppendEntityRespMessage>.Deserialize(rpcMessage.MessageContent);
                     }
-                case PaxosRpcMessageType.BeginNewBallot:
+                case RaftRpcMessageType.VoteLeaderReq:
                     {
-                        return Serializer<BeginBallotMessage>.Deserialize(rpcMessage.MessageContent);
+                        return Serializer<VoteReqMessage>.Deserialize(rpcMessage.MessageContent);
                     }
-                case PaxosRpcMessageType.Vote:
+                case RaftRpcMessageType.VoteLeaderResp:
                     {
-                        return Serializer<VoteMessage>.Deserialize(rpcMessage.MessageContent);
+                        return Serializer<VoteRespMessage>.Deserialize(rpcMessage.MessageContent);
                     }
-                case PaxosRpcMessageType.Successfull:
-                    {
-                        return Serializer<SuccessMessage>.Deserialize(rpcMessage.MessageContent);
-                    }
-                case PaxosRpcMessageType.StaleBallot:
-                    {
-                        return Serializer<StaleBallotMessage>.Deserialize(rpcMessage.MessageContent);
-                    }
-                case PaxosRpcMessageType.Aggregated:
-                    {
-                        return Serializer<AggregatedPaxosMessage>.Deserialize(rpcMessage.MessageContent);
-                    }
-                case PaxosRpcMessageType.CheckpointSummaryRequest:
-                    {
-                        return Serializer<CheckpointSummaryRequest>.Deserialize(rpcMessage.MessageContent);
-                    }
-                case PaxosRpcMessageType.CheckpointSummaryResp:
-                    {
-                        return Serializer<CheckpointSummaryResp>.Deserialize(rpcMessage.MessageContent);
-                    }
-                case PaxosRpcMessageType.CheckpointDataRequest:
-                    {
-                        return Serializer<ReadCheckpointDataRequest>.Deserialize(rpcMessage.MessageContent);
-                    }
-                case PaxosRpcMessageType.CheckpointDataResp:
-                    {
-                        return Serializer<ReadCheckpointDataResp>.Deserialize(rpcMessage.MessageContent);
-                    }*/
+
+                    /*
+                    case PaxosRpcMessageType.QueryLastVote:
+                        {
+                            return Serializer<NextBallotMessage>.Deserialize(rpcMessage.MessageContent);
+                        }
+                    case PaxosRpcMessageType.LastVote:
+                        {
+                            return Serializer<LastVoteMessage>.Deserialize(rpcMessage.MessageContent);
+                        }
+                    case PaxosRpcMessageType.BeginNewBallot:
+                        {
+                            return Serializer<BeginBallotMessage>.Deserialize(rpcMessage.MessageContent);
+                        }
+                    case PaxosRpcMessageType.Vote:
+                        {
+                            return Serializer<VoteMessage>.Deserialize(rpcMessage.MessageContent);
+                        }
+                    case PaxosRpcMessageType.Successfull:
+                        {
+                            return Serializer<SuccessMessage>.Deserialize(rpcMessage.MessageContent);
+                        }
+                    case PaxosRpcMessageType.StaleBallot:
+                        {
+                            return Serializer<StaleBallotMessage>.Deserialize(rpcMessage.MessageContent);
+                        }
+                    case PaxosRpcMessageType.Aggregated:
+                        {
+                            return Serializer<AggregatedPaxosMessage>.Deserialize(rpcMessage.MessageContent);
+                        }
+                    case PaxosRpcMessageType.CheckpointSummaryRequest:
+                        {
+                            return Serializer<CheckpointSummaryRequest>.Deserialize(rpcMessage.MessageContent);
+                        }
+                    case PaxosRpcMessageType.CheckpointSummaryResp:
+                        {
+                            return Serializer<CheckpointSummaryResp>.Deserialize(rpcMessage.MessageContent);
+                        }
+                    case PaxosRpcMessageType.CheckpointDataRequest:
+                        {
+                            return Serializer<ReadCheckpointDataRequest>.Deserialize(rpcMessage.MessageContent);
+                        }
+                    case PaxosRpcMessageType.CheckpointDataResp:
+                        {
+                            return Serializer<ReadCheckpointDataResp>.Deserialize(rpcMessage.MessageContent);
+                        }*/
             }
             return null;
         }
@@ -124,33 +141,35 @@ namespace PineHillRSL.Raft.Rpc
             if (allocateObjCostTime.TotalMilliseconds > 500)
             {
                 Console.WriteLine($"new paxos rpc message too slow, {allocateObjCostTime.TotalMilliseconds}ms");
-            }
-            switch (paxosMessage.MessageType)
+            }*/
+
+            switch (raftMessage.MessageType)
             {
-                case PaxosMessageType.NEXTBALLOT:
+                case RaftMessageType.AppendEntityReq:
                     {
-                        rpcMessage.MessageType = PaxosRpcMessageType.QueryLastVote;
-                        rpcMessage.MessageContent = Serializer<NextBallotMessage>.Serialize(paxosMessage as NextBallotMessage);
+                        rpcMessage.MessageType = RaftRpcMessageType.AppendEntityReq;
+                        rpcMessage.MessageContent = Serializer<AppendEntityReqMessage>.Serialize(raftMessage as AppendEntityReqMessage);
                         return rpcMessage;
                     }
-                case PaxosMessageType.LASTVOTE:
+                case RaftMessageType.AppendEntityResp:
                     {
-                        rpcMessage.MessageType = PaxosRpcMessageType.LastVote;
-                        rpcMessage.MessageContent = Serializer<LastVoteMessage>.Serialize(paxosMessage as LastVoteMessage);
+                        rpcMessage.MessageType = RaftRpcMessageType.AppendEntityResp;
+                        rpcMessage.MessageContent = Serializer<AppendEntityRespMessage>.Serialize(raftMessage as AppendEntityRespMessage);
                         return rpcMessage;
                     }
-                case PaxosMessageType.BEGINBALLOT:
+                case RaftMessageType.VoteReq:
                     {
-                        rpcMessage.MessageType = PaxosRpcMessageType.BeginNewBallot;
-                        rpcMessage.MessageContent = Serializer<BeginBallotMessage>.Serialize(paxosMessage as BeginBallotMessage);
+                        rpcMessage.MessageType = RaftRpcMessageType.VoteLeaderReq;
+                        rpcMessage.MessageContent = Serializer<VoteReqMessage>.Serialize(raftMessage as VoteReqMessage);
                         return rpcMessage;
                     }
-                case PaxosMessageType.VOTE:
+                case RaftMessageType.VoteResp:
                     {
-                        rpcMessage.MessageType = PaxosRpcMessageType.Vote;
-                        rpcMessage.MessageContent = Serializer<VoteMessage>.Serialize(paxosMessage as VoteMessage);
+                        rpcMessage.MessageType = RaftRpcMessageType.VoteLeaderResp;
+                        rpcMessage.MessageContent = Serializer<VoteRespMessage>.Serialize(raftMessage as VoteRespMessage);
                         return rpcMessage;
                     }
+                    /*
                 case PaxosMessageType.SUCCESS:
                     {
                         rpcMessage.MessageType = PaxosRpcMessageType.Successfull;
@@ -194,8 +213,8 @@ namespace PineHillRSL.Raft.Rpc
                         rpcMessage.MessageContent = Serializer<ReadCheckpointDataResp>.Serialize(paxosMessage as ReadCheckpointDataResp);
                         return rpcMessage;
 
-                    }
-            }*/
+                    }*/
+            }
 
             return null;
         }

@@ -1919,9 +1919,3 @@ namespace PineHillRSL.Tests
     }
 }
 
-namespace PaxsosTests
-{
-    class PaxosTests
-    {
-    }
-}

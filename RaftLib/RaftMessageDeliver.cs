@@ -1,4 +1,5 @@
 ﻿using PineHillRSL.Raft.Message;
+using PineHillRSL.Raft.Protocol;
 using System;
 using System.Threading.Tasks;
 
@@ -9,8 +10,10 @@ namespace PineHillRSL.Raft.Message
     /// </summary>
     public class RaftNodeMessageDeliver : IMessageDeliver
     {
-        public RaftNodeMessageDeliver()
+        RaftRole _raftRole;
+        public RaftNodeMessageDeliver(RaftRole raftRole)
         {
+            _raftRole = raftRole;
         }
 
         public virtual void Dispose()
@@ -26,27 +29,46 @@ namespace PineHillRSL.Raft.Message
         /// </summary>
         /// <param name="message"></param>
         public async Task DeliverMessage(RaftMessage message)
-        {/*
+        {
             switch (message.MessageType)
             {
-                case PaxosMessageType.NEXTBALLOT:
-                case PaxosMessageType.BEGINBALLOT:
+                case RaftMessageType.AppendEntityReq:
+                case RaftMessageType.VoteReq:
                 //case PaxosMessageType.SUCCESS:
-                    await _voterRole.HandlePaxosMessage(message);
+                    await _raftRole.HandleRequest(message);
                     break;
-                case PaxosMessageType.LASTVOTE:
-                case PaxosMessageType.VOTE:
-                case PaxosMessageType.SUCCESS:
-                case PaxosMessageType.STALEBALLOT:
-                    await _proposerRole.HandlePaxosMessage(message);
+                case RaftMessageType.AppendEntityResp:
+                case RaftMessageType.VoteResp:
+                    //await _proposerRole.HandlePaxosMessage(message);
                     break;
                 default:
                     break;
-            }*/
+            }
         }
 
         public async Task<RaftMessage> Request(RaftMessage request)
         {
+            RaftMessage resp = null;
+            switch (request.MessageType)
+            {
+                case RaftMessageType.AppendEntityReq:
+                case RaftMessageType.VoteReq:
+                    //case PaxosMessageType.SUCCESS:
+                    resp = await _raftRole.HandleRequest(request);
+                    break;
+                case RaftMessageType.AppendEntityResp:
+                case RaftMessageType.VoteResp:
+                    //await _proposerRole.HandlePaxosMessage(message);
+                    break;
+                default:
+                    break;
+            }
+            if (resp != null)
+            {
+                resp.SourceNode = request.TargetNode;
+                resp.TargetNode = request.SourceNode;
+            }
+
             /*
             PaxosMessage resp = null;
             switch (request.MessageType)
@@ -64,7 +86,7 @@ namespace PineHillRSL.Raft.Message
                 resp.TargetNode = request.SourceNode;
             }
             return resp;*/
-            return null;
+            return resp;
         }
 
     }
