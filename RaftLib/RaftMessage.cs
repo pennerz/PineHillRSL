@@ -27,6 +27,17 @@ namespace PineHillRSL.Raft.Message
     [Serializable()]
     public class RaftMessage : ISer
     {
+        public RaftMessage()
+        { }
+
+        public RaftMessage(RaftMessage rhs)
+        {
+            SourceNode = rhs.SourceNode;
+            TargetNode = rhs.TargetNode;
+            Term = rhs.Term;
+            LogIndex = rhs.LogIndex;
+        }
+
         public RaftMessageType MessageType { get; set; }
         public string SourceNode { get; set; }
         public string TargetNode { get; set; }
@@ -163,8 +174,22 @@ namespace PineHillRSL.Raft.Message
             MessageType = RaftMessageType.VoteReq;
         }
 
+        public VoteReqMessage(VoteReqMessage rhs)
+            : base(rhs)
+        {
+            MessageType = RaftMessageType.VoteReq;
+            LastLogEntryTerm = rhs.LastLogEntryTerm;
+            LastLogEntryIndex = rhs.LastLogEntryIndex;
+        }
+
         public UInt64 LastLogEntryTerm { get; set; } = 0;
         public UInt64 LastLogEntryIndex { get; set; } = 0;
+
+        public VoteReqMessage DeepCopy()
+        {
+            var copy = new VoteReqMessage(this);
+            return copy;
+        }
     }
 
     [Serializable()]
@@ -221,6 +246,13 @@ namespace PineHillRSL.Raft.Message
             MessageType = RaftMessageType.AppendEntityReq;
         }
 
+        public AppendEntityReqMessage(AppendEntityReqMessage rhs)
+            : base(rhs)
+        {
+            MessageType = RaftMessageType.AppendEntityReq;
+            CommittedLogIndex = rhs.CommittedLogIndex;
+        }
+
         public UInt64 CommittedLogIndex { get; set; } = 0;
 
         public override byte[] Serialize()
@@ -256,6 +288,11 @@ namespace PineHillRSL.Raft.Message
                 return;
             }
             CommittedLogIndex = BitConverter.ToUInt64(it.DataBuff, it.RecordOff);
+        }
+
+        public AppendEntityReqMessage DeepCopy()
+        {
+            return new AppendEntityReqMessage(this);
         }
     }
 

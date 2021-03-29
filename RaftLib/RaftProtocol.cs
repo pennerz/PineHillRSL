@@ -182,6 +182,7 @@ namespace PineHillRSL.Raft.Protocol
         private DateTime _lastLeaderMsgTime = DateTime.MinValue;
         private UInt64 _term = 0;
         private UInt64 _logIndex = 0;
+        private UInt64 _committedLogIndex = 0;
         private NodeAddress _candidate;
         private UInt64 _candateTerm = 0;
 
@@ -195,7 +196,7 @@ namespace PineHillRSL.Raft.Protocol
                 return null;
             }
 
-            if ((DateTime.Now -_lastLeaderMsgTime).TotalSeconds > 60)
+            if ((DateTime.Now - _lastLeaderMsgTime).TotalSeconds > 60)
             {
                 return null;
             }
@@ -218,6 +219,27 @@ namespace PineHillRSL.Raft.Protocol
 
         public UInt64 Term => _term;
         public UInt64 LogIndex => _logIndex;
+        public UInt64 CommitedLogIndex => _committedLogIndex;
+        public UInt64 CandidateTerm => _candateTerm;
+        public NodeAddress CandidateNode => _candidate;
+
+        public void TestSetCurrentTerm(UInt64 curTerm)
+        {
+            _term = curTerm;
+        }
+        public void TestSetLogIndex(UInt64 logIndex)
+        {
+            _logIndex = logIndex;
+        }
+        public void TestSetCandidateTerm(UInt64 candidateTerm, NodeAddress candidate)
+        {
+            _candateTerm = candidateTerm;
+            _candidate = candidate;
+        }
+        public void TestSetCommittedLogIndex(UInt64 committedLogIndex)
+        {
+            _committedLogIndex = committedLogIndex;
+        }
 
         private async Task<AppendEntityRespMessage> AppendEntity(AppendEntityReqMessage req)
         {
@@ -229,9 +251,20 @@ namespace PineHillRSL.Raft.Protocol
                 return resp;
             }
 
+            if (req.CommittedLogIndex < _committedLogIndex)
+            {
+                resp.Succeed = false;
+                return resp;
+            }
+
             if (req.Term > _term)
             {
                 _term = req.Term;
+                _leader = NodeAddress.DeSerialize(req.SourceNode);
+            }
+            if (req.CommittedLogIndex > _committedLogIndex)
+            {
+                _committedLogIndex = req.CommittedLogIndex;
             }
             _lastLeaderMsgTime = DateTime.Now;
 
@@ -256,7 +289,7 @@ namespace PineHillRSL.Raft.Protocol
             }
 
             if (req.LastLogEntryTerm < _term ||
-                req.LastLogEntryIndex < _logIndex)
+                req.LastLogEntryIndex < _committedLogIndex)
             {
                 resp.Succeed = false;
                 return resp;
@@ -379,7 +412,7 @@ namespace PineHillRSL.Raft.Protocol
             {
                 var queue = GetMessageQueue(NodeAddress.Serialize(follower));
                 var reqItem = new RaftMessageQeuue.RequestItem();
-                reqItem.Request = append;
+                reqItem.Request = append.DeepCopy();
                 reqItem.Response = new TaskCompletionSource<RaftMessage>();
                 taskList.Add(reqItem.Response.Task);
                 queue.AddRaftMessage(reqItem);
@@ -464,7 +497,7 @@ namespace PineHillRSL.Raft.Protocol
             {
                 var queue = GetMessageQueue(NodeAddress.Serialize(follower));
                 var reqItem = new RaftMessageQeuue.RequestItem();
-                reqItem.Request = leadVoteReq;
+                reqItem.Request = leadVoteReq.DeepCopy();
                 reqItem.Response = new TaskCompletionSource<RaftMessage>();
                 taskList.Add(reqItem.Response.Task);
                 queue.AddRaftMessage(reqItem);
