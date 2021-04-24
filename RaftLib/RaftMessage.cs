@@ -251,9 +251,12 @@ namespace PineHillRSL.Raft.Message
         {
             MessageType = RaftMessageType.AppendEntityReq;
             CommittedLogIndex = rhs.CommittedLogIndex;
+            Data = rhs.Data;
         }
 
         public UInt64 CommittedLogIndex { get; set; } = 0;
+
+        public byte[] Data { get; set; }
 
         public override byte[] Serialize()
         {
@@ -261,6 +264,7 @@ namespace PineHillRSL.Raft.Message
             dataList.Add(base.Serialize());
             var committedLogIndexBuf = BitConverter.GetBytes(CommittedLogIndex);
             dataList.Add(committedLogIndexBuf);
+            dataList.Add(Data);
 
             var serializeBuffer = new SerializeBuffer();
             serializeBuffer.AppendBlocks(dataList);
@@ -288,6 +292,17 @@ namespace PineHillRSL.Raft.Message
                 return;
             }
             CommittedLogIndex = BitConverter.ToUInt64(it.DataBuff, it.RecordOff);
+
+            it = it.Next();
+            if (it.Equals(itEnd))
+            {
+                Data = null;
+                return;
+            }
+
+            Data = new byte[it.RecordSize];
+            Buffer.BlockCopy(it.DataBuff, it.RecordOff, Data, 0, it.RecordSize);
+
         }
 
         public AppendEntityReqMessage DeepCopy()

@@ -6,7 +6,7 @@ using PineHillRSL.Common;
 using PineHillRSL.Network;
 using PineHillRSL.Raft.Message;
 using PineHillRSL.Raft.Node;
-using PineHillRSL.Paxos.Notebook;
+using PineHillRSL.Raft.Notebook;
 using PineHillRSL.Raft.Protocol;
 using PineHillRSL.Paxos.Rpc;
 using PineHillRSL.Rpc;
@@ -92,6 +92,10 @@ namespace PineHillRSL.Tests
             var leaderNode = cluster.Members[0];
             var followerNode = cluster.Members[1];
 
+            var logPrefix = Guid.NewGuid().ToString();
+            var entityLogger = new FileLogger(".\\storage\\" + logPrefix + "entity_node1.log");
+            var entityNote = new EntityNote(entityLogger, metaLogger:null);
+
             //
             // 1. vote req's current term < follower's current term, deny
             // 2. vote req's current term < follower's candidate term, deny
@@ -100,7 +104,7 @@ namespace PineHillRSL.Tests
             //
 
             // 1. vote request's term < current term, deny
-            var follower = new RaftFollower();
+            var follower = new RaftFollower(entityNote);
             follower.TestSetCurrentTerm(4);
             follower.TestSetLogIndex(12);   // crrent term, 4, log index 12
             follower.TestSetCandidateTerm(4, leaderNode); // candidate term 4
@@ -178,13 +182,18 @@ namespace PineHillRSL.Tests
 
             var leaderNode = cluster.Members[0];
             var followerNode = cluster.Members[1];
+
+            var logPrefix = Guid.NewGuid().ToString();
+            var entityLogger = new FileLogger(".\\storage\\" + logPrefix + "entity_node1.log");
+            var entityNote = new EntityNote(entityLogger, metaLogger: null);
+
             //
             // 1. append req's current term < follower's current term, deny
             // 2. otherwise, accpet
             //
 
             // append request
-            var follower = new RaftFollower();
+            var follower = new RaftFollower(entityNote);
             follower.TestSetCurrentTerm(2);
             follower.TestSetCandidateTerm(3, leaderNode); // candidate term 3
             follower.TestSetLogIndex(12);   // crrent term, 2, log index 12

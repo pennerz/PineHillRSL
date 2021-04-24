@@ -382,9 +382,9 @@ namespace PineHillRSL.ReplicatedTable
                         {
                             if (_isCheckpointing && row.CheckpointingValue == null)
                             {
-                            resultRow.CheckpointingValue = resultRow.Value;
+                                resultRow.CheckpointingValue = resultRow.Value;
                             }
-                        resultRow.Value = tableRequest.Value;
+                            resultRow.Value = tableRequest.Value;
                         }
                     }
                     else
@@ -441,7 +441,7 @@ namespace PineHillRSL.ReplicatedTable
                         break;
                     }
 
-                    foreach(var row in copyView)
+                    foreach (var row in copyView)
                     {
                         if (low != null && row.Key.Equals(low.Key))
                         {
@@ -460,13 +460,13 @@ namespace PineHillRSL.ReplicatedTable
 
                 // write the rows
                 int recordLen = 0;
-                foreach(var row in copyRows)
+                foreach (var row in copyRows)
                 {
                     string rowVal = null;
                     //await _tableUpdateLock.WaitAsync();
                     //autoLock = new AutoLock(_tableUpdateLock);
                     //using (autoLock)
-                    lock(row)
+                    lock (row)
                     {
                         if (row.CheckpointingValue != null)
                         {
@@ -563,6 +563,187 @@ namespace PineHillRSL.ReplicatedTable
                     datalen);
             }
             checkpointedSeqNo = _checkpointSeqNo;
+            await _tableUpdateLock.WaitAsync();
+            autoLock = new AutoLock(_tableUpdateLock);
+            using (autoLock)
+            {
+                _isCheckpointing = false;
+                _checkpointSeqNo = 0;
+            }
+
+            return checkpointedSeqNo;
+
+        }
+        protected  async Task<UInt64> OnCheckpoint1(Stream checkpointStream)
+        {
+            var databuf = new byte[1024 * 4096]; // 4M buffer
+            StatisticCounter.ReportCounter((int)PerCounter.NetworkPerfCounterType.CheckpointCount, 1);
+            var datalen = 0;
+            UInt64 checkpointedSeqNo = 0;
+            Row low = null;
+            List<Row> copyRows = new List<Row>();
+            await _tableUpdateLock.WaitAsync();
+            var autoLock = new AutoLock(_tableUpdateLock);
+            using (autoLock)
+            {
+                // TODO: handle previous checkpoint not finish issue
+                _isCheckpointing = true;
+                _checkpointSeqNo = _lastestSeqNo;
+                checkpointedSeqNo = _checkpointSeqNo;
+                var begin = DateTime.Now;
+                autoLock = new AutoLock(_tableUpdateLock);
+                using (autoLock)
+                {
+                    do
+                    {
+                        SortedSet<Row> copyView = null;
+                        if (low == null)
+                        {
+                            copyView = _table;
+                        }
+                        else
+                        {
+                            copyView = _table.GetViewBetween(low, _table.Max);
+                        }
+
+                        if (copyView.Count == 0)
+                        {
+                            break;
+                        }
+                        if (copyView.Count == 1 && copyView.Contains(low))
+                        {
+                            break;
+                        }
+
+                        foreach (var row in copyView)
+                        {
+                            if (low != null && row.Key.Equals(low.Key))
+                            {
+                                continue;
+                            }
+                            low = row;
+                            copyRows.Add(row);
+                            if (copyRows.Count > 100 * 1024)
+                            {
+                                break;
+                            }
+                        }
+
+                    } while (false);
+                }
+                StatisticCounter.ReportCounter((int)PerCounter.NetworkPerfCounterType.CheckpointTableLockTime,
+                    (int)(DateTime.Now - begin).TotalMilliseconds);
+            }
+
+            // write the rows
+            int recordLen = 0;
+            foreach (var row in copyRows)
+            {
+                string rowVal = null;
+                //await _tableUpdateLock.WaitAsync();
+                //autoLock = new AutoLock(_tableUpdateLock);
+                //using (autoLock)
+                lock (row)
+                {
+                    if (row.CheckpointingValue != null)
+                    {
+                        rowVal = row.CheckpointingValue;
+                    }
+                    else
+                    {
+                        rowVal = row.Value;
+                    }
+                    // reset checkpoint value
+                    row.CheckpointingValue = null;
+                }
+                if (rowVal.Equals(""))
+                {
+                    continue;
+                }
+
+                while (!SerializeRow(row.Key, rowVal, databuf, datalen, out recordLen))
+                {
+                    if (datalen == 0)
+                    {
+                        // buffer not enough for one row
+                        databuf = new byte[databuf.Length * 2];
+                    }
+                    else
+                    {
+                        await checkpointStream.WriteAsync(databuf, 0, datalen);
+                        StatisticCounter.ReportCounter((int)PerCounter.NetworkPerfCounterType.CheckpointDataSize,
+                            datalen);
+                        datalen = 0;
+                        break;
+                    }
+                }
+                datalen += recordLen;
+                if (datalen > databuf.Length)
+                {
+                    Console.WriteLine("Fatal error");
+                }
+            }
+            /*
+            copyRows.Clear();
+
+
+
+            do
+            {
+                await _tableUpdateLock.WaitAsync();
+            } while (true);*/
+            /*
+            foreach(var item in _table)
+            {
+                int recordLen = 0;
+                var row = item.Value;
+                string rowVal = null;
+                //await _tableUpdateLock.WaitAsync();
+                //autoLock = new AutoLock(_tableUpdateLock);
+                //using (autoLock)
+                //lock(row)
+                {
+                    if  (row.CheckpointingValue != null)
+                    {
+                        rowVal = row.CheckpointingValue;
+                    }
+                    else
+                    {
+                        rowVal = row.Value;
+                    }
+                }
+                if (rowVal.Equals(""))
+                {
+                    continue;
+                }
+
+                while(!SerializeRow(row.Key, rowVal, databuf, datalen, out recordLen))
+                {
+                    if (datalen == 0)
+                    {
+                        // buffer not enough for one row
+                        databuf = new byte[databuf.Length * 2];
+                    }
+                    else
+                    {
+                        await checkpointStream.WriteAsync(databuf, 0, datalen);
+                        datalen = 0;
+                        break;
+                    }
+                }
+                datalen += recordLen;
+                if (datalen > databuf.Length)
+                {
+                    Console.WriteLine("Fatal error");
+                }
+            }*/
+
+            if (datalen > 0)
+            {
+                await checkpointStream.WriteAsync(databuf, 0, datalen);
+                StatisticCounter.ReportCounter((int)PerCounter.NetworkPerfCounterType.CheckpointDataSize,
+                    datalen);
+            }
             await _tableUpdateLock.WaitAsync();
             autoLock = new AutoLock(_tableUpdateLock);
             using (autoLock)

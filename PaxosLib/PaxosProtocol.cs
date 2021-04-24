@@ -769,7 +769,7 @@ namespace PineHillRSL.Paxos.Protocol
                     // catchup 
                     foreach (var committedDecree in _proposerNote.CommittedDecrees)
                     {
-                        //await _notificationSubscriber.UpdateSuccessfullDecree(committedDecree.Key, committedDecree.Value);
+                        await _notificationSubscriber.UpdateSuccessfullDecree(committedDecree.Key, committedDecree.Value);
                         if (committedDecree.Value.Data != null)
                         {
                             catchupLogSize += committedDecree.Value.Data.Length;

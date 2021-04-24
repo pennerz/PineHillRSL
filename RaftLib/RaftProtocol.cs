@@ -5,6 +5,7 @@ using PineHillRSL.Common;
 using PineHillRSL.Network;
 using PineHillRSL.Raft.Message;
 using PineHillRSL.Raft.Rpc;
+using PineHillRSL.Raft.Notebook;
 using PineHillRSL.Rpc;
 using System;
 using System.Collections.Generic;
@@ -185,9 +186,12 @@ namespace PineHillRSL.Raft.Protocol
         private UInt64 _committedLogIndex = 0;
         private NodeAddress _candidate;
         private UInt64 _candateTerm = 0;
+        private EntityNote _enityNotebook;
 
-        public RaftFollower()
-        { }
+        public RaftFollower(EntityNote noteBook)
+        {
+            _enityNotebook = noteBook;
+        }
 
         public NodeAddress GetLeader()
         {
@@ -257,6 +261,10 @@ namespace PineHillRSL.Raft.Protocol
                 return resp;
             }
 
+            // write the entity
+            await _enityNotebook.AppendEntity(req.Term, req.LogIndex, req.CommittedLogIndex,
+                req.Data);
+
             if (req.Term > _term)
             {
                 _term = req.Term;
@@ -317,13 +325,17 @@ namespace PineHillRSL.Raft.Protocol
 
         private UInt64 _term = 0;
         private UInt64 _logIndex = 0;
+        private UInt64 _committedLogIndex = 0;
+
+        EntityNote _entityNoteBook;
 
         public RaftLeader(
             NodeAddress serverAddress,
             RpcClient rpcClient,
             ConsensusCluster cluster,
             UInt64 term, UInt64 logIndex,
-            ConcurrentDictionary<string, RaftMessageQeuue> raftMesssageQueues)
+            ConcurrentDictionary<string, RaftMessageQeuue> raftMesssageQueues,
+            EntityNote entityNoteBook)
         {
             _rpcClient = rpcClient;
             _serverAddr = serverAddress;
@@ -331,6 +343,7 @@ namespace PineHillRSL.Raft.Protocol
             _term = term;
             _logIndex = logIndex;
             _raftMessageList = raftMesssageQueues;
+            _entityNoteBook = entityNoteBook;
             _matainTask = Task.Run(async () =>
             {
                 await Mantain();
@@ -341,15 +354,26 @@ namespace PineHillRSL.Raft.Protocol
         {
             // if not leader
             // request append
-            var appendRequest = new AppendEntityReqMessage();
-            try
+            var appendRequest = new AppendEntityReqMessage()
             {
-                await AppendRequestToAllFollowers(appendRequest);
-            }
-            catch (Exception e)
+                Data = decree.Data,
+                CommittedLogIndex = _committedLogIndex,
+                LogIndex = _logIndex,
+                Term = _term
+            };
+            do
             {
-                throw e;
-            }
+                try
+                {
+                    await _entityNoteBook.AppendEntity(_term, _logIndex, _committedLogIndex, decree.Data);
+                    await AppendRequestToAllFollowers(appendRequest);
+                    break;
+                }
+                catch (Exception e)
+                {
+                    throw e;
+                }
+            } while (true);
 
             return new ProposeResult()
             { };
@@ -407,6 +431,7 @@ namespace PineHillRSL.Raft.Protocol
 
         private async Task AppendRequestToAllFollowers(AppendEntityReqMessage append)
         {
+
             var taskList = new List<Task<RaftMessage>>();
             foreach (var follower in _cluster.Members)
             {
@@ -432,6 +457,11 @@ namespace PineHillRSL.Raft.Protocol
                         // succedd, no need to wait for others
                         return;
                     }
+                }
+                else
+                {
+                    // new leader generated
+                    throw new Exception("new leader");
                 }
             } while (true);
             throw new Exception("fail");
@@ -555,7 +585,7 @@ namespace PineHillRSL.Raft.Protocol
         private readonly NodeAddress _serverAddr;
 
         private RaftLeader _leader = null;
-        private RaftFollower _follower = new RaftFollower();
+        private RaftFollower _follower = null;
         private RaftCandidate _candidate = null;
 
         private SemaphoreSlim _lock = new SemaphoreSlim(1);
@@ -572,11 +602,15 @@ namespace PineHillRSL.Raft.Protocol
         private UInt64 _term = 0;
         private UInt64 _logIndex = 0;
 
+        private EntityNote _entityNote = null;
+
+        private UInt64 _catchupLogSize = 0;
 
         public RaftRole(
             NodeAddress serverAddress,
             RpcClient rpcClient,
-            ConsensusCluster cluster)
+            ConsensusCluster cluster,
+            EntityNote entityNote)
         {
             if (serverAddress == null) throw new ArgumentNullException("nodeInfo");
             if (rpcClient == null) throw new ArgumentNullException("rpcClient");
@@ -586,8 +620,9 @@ namespace PineHillRSL.Raft.Protocol
             _cluster = cluster;
             _raftMessageList = new ConcurrentDictionary<string, RaftMessageQeuue>();
 
-            _follower = new RaftFollower();
-
+            _entityNote = entityNote;
+            _follower = new RaftFollower(_entityNote);
+            _leader = new RaftLeader(_serverAddr, _rpcClient, _cluster, _term, _logIndex, _raftMessageList, _entityNote);
             EnableMatain = false;
             _matainTask = Task.Run(async () =>
             {
@@ -598,6 +633,67 @@ namespace PineHillRSL.Raft.Protocol
         public async ValueTask DisposeAsync()
         {
 
+        }
+
+        public async Task Load(DataSource dataSource)
+        {
+            int catchupLogSize = 0;
+            /*
+            do
+            {
+                await _entityNote.Load();
+                //_proposeManager.ResetBaseDecreeNo(await _proposerNote.GetMaximumCommittedDecreeNo());
+                if (_notificationSubscriber != null)
+                {
+                    var metaRecord = _proposerNote.ProposeRoleMetaRecord;
+                    if (metaRecord != null && !string.IsNullOrEmpty(metaRecord.CheckpointFilePath))
+                    {
+                        using (var checkpointStream = new FileStream(metaRecord.CheckpointFilePath, FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite))
+                        {
+                            await _notificationSubscriber.LoadCheckpoint(metaRecord.DecreeNo, checkpointStream);
+                        }
+                    }
+
+                    if (_proposerNote.CommittedDecrees.Count == 0)
+                    {
+                        ConsensusDecree fakeDecree = new ConsensusDecree();
+                        try
+                        {
+                            await Propose(fakeDecree, 0);
+                        }
+                        catch (Exception)
+                        {
+                        }
+
+                    }
+
+                    // catchup 
+                    foreach (var committedDecree in _proposerNote.CommittedDecrees)
+                    {
+                        await _notificationSubscriber.UpdateSuccessfullDecree(committedDecree.Key, committedDecree.Value);
+                        if (committedDecree.Value.Data != null)
+                        {
+                            catchupLogSize += committedDecree.Value.Data.Length;
+                        }
+                    }
+                }
+
+                if (dataSource == DataSource.Local)
+                {
+                    break;
+                }
+
+                // request remote node's checkpoints
+                bool needLoadNewCheckpoint = await LoadCheckpointFromRemoteNodes();
+                if (!needLoadNewCheckpoint)
+                {
+                    break;
+                }
+                catchupLogSize = 0;
+                // check if need to continue
+            } while (true);
+            _catchupLogSize = (ulong)catchupLogSize;
+            */
         }
 
         public bool Stop { get; set; }
@@ -747,7 +843,7 @@ namespace PineHillRSL.Raft.Protocol
                     await _candidate.RequestLeaderVoteFromAllFollowers();
                     _leader = new RaftLeader(_serverAddr, _rpcClient, _cluster,
                         _candidate.CurTerm, _candidate.LastLogEntryIndex,
-                        _raftMessageList);
+                        _raftMessageList, _entityNote);
                     return;
                 }
                 catch (Exception e)

@@ -3,6 +3,7 @@ using PineHillRSL.Consensus.Persistence;
 using PineHillRSL.Consensus.Request;
 using PineHillRSL.Network;
 using PineHillRSL.Raft.Message;
+using PineHillRSL.Raft.Notebook;
 using PineHillRSL.Raft.Protocol;
 using PineHillRSL.Raft.Rpc;
 using PineHillRSL.Rpc;
@@ -23,11 +24,12 @@ namespace PineHillRSL.Raft.Node
         private RpcClient _rpcClient;
         private RpcServer _rpcServer;
 
-        private ILogger _metaLogger;
-        private ILogger _proposeLogger;
-        private ILogger _voterLogger;
 
         private RaftRole _role;
+
+        private ILogger _metaLogger = null;
+        private ILogger _entityLogger = null;
+        private EntityNote _entityNote = null;
 
 
         private IConsensusNotification _notificationSubscriber;
@@ -72,6 +74,7 @@ namespace PineHillRSL.Raft.Node
 
         public async Task Load(string metaLog, DataSource datasource = DataSource.Local)
         {
+
             if (_metaLogger != null)
                 await _metaLogger.DisposeAsync();
             _metaLogger = new FileLogger(metaLog);
@@ -83,23 +86,21 @@ namespace PineHillRSL.Raft.Node
             {
                 fileBase = metaLog.Substring(0, index);
             }
-            var proposerLog = fileBase + ".proposerlog";
-            var voterLog = fileBase + ".voterlog";
+            var entityLog = fileBase + ".entitylog";
 
-            if (_proposeLogger != null)
-                await _proposeLogger.DisposeAsync();
-            _proposeLogger = new FileLogger(proposerLog);
+            if (_entityLogger != null)
+                await _entityLogger.DisposeAsync();
+            _entityLogger = new FileLogger(entityLog);
+            _entityNote = new EntityNote(_entityLogger, _metaLogger);
 
-            if (_voterLogger != null)
-                await _voterLogger.DisposeAsync();
-            _voterLogger = new FileLogger(voterLog);
+            _role = new RaftRole(_serverAddr, _rpcClient, _cluster, _entityNote);
 
             _messager = new RaftNodeMessageDeliver(_role);
             var rpcRequestHandler = new RaftMessageHandler(_messager, null);
             _rpcServer.RegisterRequestHandler(rpcRequestHandler);
 
-            //await _proposerRole.Load(datasource);
 
+            await _role.Load(DataSource.Local);
 
             // request checkpoint from remote nodes
 
@@ -170,7 +171,6 @@ namespace PineHillRSL.Raft.Node
             _rpcServer.Start().Wait();
             Common.Logger.Log($"RSL Node RPC Server Startd");
 
-            _role = new RaftRole(_serverAddr, _rpcClient, _cluster);
             var instanceName = ConsensusNodeHelper.GetInstanceName(_serverAddr);
 
             var metaLogFilePath = ".\\storage\\" + instanceName + ".meta";
@@ -189,17 +189,18 @@ namespace PineHillRSL.Raft.Node
             _rpcServer = null;
 
 
+            if (_entityNote != null)
+                await _entityNote.DisposeAsync();
+            _entityNote = null;
+
             if (_metaLogger != null)
                 await _metaLogger.DisposeAsync();
             _metaLogger = null;
 
-            if (_proposeLogger != null)
-                await _proposeLogger.DisposeAsync();
-            _proposeLogger = null;
 
-            if (_voterLogger != null)
-                await _voterLogger.DisposeAsync();
-            _voterLogger = null;
+            if (_entityLogger != null)
+                await _entityLogger.DisposeAsync();
+            _entityLogger = null;
 
             _messager?.Dispose();
             _messager = null;
