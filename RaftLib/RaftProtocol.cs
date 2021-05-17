@@ -227,6 +227,8 @@ namespace PineHillRSL.Raft.Protocol
         public UInt64 CandidateTerm => _candateTerm;
         public NodeAddress CandidateNode => _candidate;
 
+        private SemaphoreSlim _lock = new SemaphoreSlim(1);
+
         public void TestSetCurrentTerm(UInt64 curTerm)
         {
             _term = curTerm;
@@ -247,38 +249,71 @@ namespace PineHillRSL.Raft.Protocol
 
         private async Task<AppendEntityRespMessage> AppendEntity(AppendEntityReqMessage req)
         {
-            var resp = new AppendEntityRespMessage();
-            if (req.Term < _term)
+            // 1. Reply false if term < currentTerm(§5.1)
+            // 2.Reply false if log doesn’t contain an entry at prevLogIndex
+            // whose term matches prevLogTerm(§5.3)
+            // 3.If an existing entry conflicts with a new one(same index
+            // but different terms), delete the existing entry and all that
+            // follow it(§5.3)
+            // 4.Append any new entries not already in the log
+            // 5.If leaderCommit > commitIndex, set commitIndex =
+            // min(leaderCommit, index of last new entry)
+
+
+            await _lock.WaitAsync();
+            using (var autoLock = new AutoLock(_lock))
             {
-                // new leader genertaed
-                resp.Succeed = false;
+                var resp = new AppendEntityRespMessage();
+                // 1. term < current Term
+                if (req.Term < _term)
+                {
+                    // new leader genertaed
+                    resp.Succeed = false;
+                    return resp;
+                }
+
+                // Impossible situation
+                if (req.CommittedLogIndex < _committedLogIndex)
+                {
+                    resp.Succeed = false;
+                    return resp;
+                }
+
+                // 2. previous logIndex exist
+                bool entityExist = await _enityNotebook.IsEntityExist(req.PreviousLogTerm, req.PreviousLogIndex);
+                if (!entityExist)
+                {
+                    resp.Succeed = false;
+                    return resp;
+                }
+
+                // 3. If an existing entry conflicts with a new one(same index
+                // but different terms), delete the existing entry and all that
+                // follow it(§5.3)
+                // 4.Append any new entries not already in the log
+
+                // write the entity
+                await _enityNotebook.AppendEntity(req.Term, req.LogIndex, req.CommittedLogIndex,
+                    req.Data);
+
+                if (req.Term > _term || _leader == null)
+                {
+                    _term = req.Term;
+                    _leader = NodeAddress.DeSerialize(req.SourceNode);
+                }
+
+                //5.If leaderCommit > commitIndex,
+                if (req.CommittedLogIndex > _committedLogIndex)
+                {
+                    _committedLogIndex = req.CommittedLogIndex;
+                }
+                _lastLeaderMsgTime = DateTime.Now;
+
+                // write the latest log
+                resp.Succeed = true;
                 return resp;
-            }
 
-            if (req.CommittedLogIndex < _committedLogIndex)
-            {
-                resp.Succeed = false;
-                return resp;
             }
-
-            // write the entity
-            await _enityNotebook.AppendEntity(req.Term, req.LogIndex, req.CommittedLogIndex,
-                req.Data);
-
-            if (req.Term > _term)
-            {
-                _term = req.Term;
-                _leader = NodeAddress.DeSerialize(req.SourceNode);
-            }
-            if (req.CommittedLogIndex > _committedLogIndex)
-            {
-                _committedLogIndex = req.CommittedLogIndex;
-            }
-            _lastLeaderMsgTime = DateTime.Now;
-
-            // write the latest log
-            resp.Succeed = true;
-            return resp;
         }
 
         private async Task<VoteRespMessage> VoteLeader(VoteReqMessage req)
@@ -354,12 +389,27 @@ namespace PineHillRSL.Raft.Protocol
         {
             // if not leader
             // request append
+            UInt64 previousIndex = UInt64.MaxValue;
+            UInt64 previousTerm = UInt64.MaxValue;
+            if (_logIndex > 0)
+            {
+                var entity = await _entityNoteBook.GetEntityAsync(_logIndex - 1);
+                if (entity != null)
+                {
+                    // TODO: Add checkpoint support
+                    throw new Exception("previous entity not found!");
+                }
+                previousIndex = entity.LogIndex;
+                previousTerm = entity.Term;
+            }
             var appendRequest = new AppendEntityReqMessage()
             {
                 Data = decree.Data,
                 CommittedLogIndex = _committedLogIndex,
                 LogIndex = _logIndex,
-                Term = _term
+                Term = _term,
+                PreviousLogIndex = previousIndex,
+                PreviousLogTerm = previousTerm
             };
             do
             {
@@ -622,7 +672,7 @@ namespace PineHillRSL.Raft.Protocol
 
             _entityNote = entityNote;
             _follower = new RaftFollower(_entityNote);
-            _leader = new RaftLeader(_serverAddr, _rpcClient, _cluster, _term, _logIndex, _raftMessageList, _entityNote);
+            //_leader = new RaftLeader(_serverAddr, _rpcClient, _cluster, _term, _logIndex, _raftMessageList, _entityNote);
             EnableMatain = false;
             _matainTask = Task.Run(async () =>
             {

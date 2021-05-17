@@ -90,6 +90,28 @@ namespace PineHillRSL.Raft.Notebook
         }
 
     }
+
+    public class LogEntity
+    {
+        public UInt64 Term { get; set; }
+        public UInt64 LogIndex { get; set; }
+        public AppendPosition LogPosition { get; set; }
+
+        public bool IsContentEqual(LogEntity rhs)
+        {
+            if (rhs == null)
+            {
+                return false;
+            }
+            return Term == rhs.Term && LogIndex == rhs.LogIndex;
+        }
+
+        public bool IsContentEqual(UInt64 term, UInt64 logIndex)
+        {
+            return Term == term && LogIndex == logIndex;
+        }
+    }
+
     public class EntityNote : IAsyncDisposable
     {
         // persistent module
@@ -98,6 +120,7 @@ namespace PineHillRSL.Raft.Notebook
 
 
         private List<Tuple<UInt64, AppendPosition>> _checkpointPositionList = new List<Tuple<UInt64, AppendPosition>>();
+        private SortedDictionary<UInt64, LogEntity> _logEntities = new SortedDictionary<ulong, LogEntity>();
 
         private UInt64 _maxDecreeNo = 0;
         private AppendPosition _lastAppendPosition;
@@ -170,13 +193,85 @@ namespace PineHillRSL.Raft.Notebook
 
         public async Task<AppendPosition> AppendEntity(UInt64 term, UInt64 logIndex, UInt64 committedLogIndex, byte[] content)
         {
-            var entityRecord = new EntityRecord(term, logIndex, committedLogIndex, content);
-            var logEntry = new LogEntry();
-            logEntry.Data = entityRecord.Serialize();
-            logEntry.Size = logEntry.Data.Length;
-            var position = await _logger.AppendLog(logEntry);
-            return position;
+            await _lock.WaitAsync();
+            using (var autoLock = new AutoLock(_lock))
+            {
+                var entity = GetLogEntity(logIndex);
+                if (entity != null && entity.Term == term)
+                {
+                    return entity.LogPosition;
+                }
+
+                var entityRecord = new EntityRecord(term, logIndex, committedLogIndex, content);
+                var logEntry = new LogEntry();
+                logEntry.Data = entityRecord.Serialize();
+                logEntry.Size = logEntry.Data.Length;
+                var position = await _logger.AppendLog(logEntry);
+
+                if (entity != null)
+                {
+                    // if entity exist, remove all the following
+                    var lastLogIndex = _logEntities.Last().Key;
+                    for (UInt64 index = entity.LogIndex; index <= lastLogIndex; index++)
+                    {
+                        _logEntities.Remove(index);
+                    }
+                }
+                _logEntities.Add(logIndex, new LogEntity()
+                {
+                    Term = term,
+                    LogIndex = logIndex,
+                    LogPosition = position
+                });
+
+                return position;
+
+            }
         }
+
+        public async Task<bool> IsEntityExist(UInt64 logTerm, UInt64 logIndex)
+        {
+            await _lock.WaitAsync();
+            using (var autoLock = new AutoLock(_lock))
+            {
+                if (logIndex == UInt64.MaxValue)
+                {
+                    return true;
+                }
+                if (!_logEntities.ContainsKey(logIndex))
+                {
+                    return false;
+                }
+
+                var entity = _logEntities[logIndex];
+                if (entity.Term == logTerm)
+                {
+                    return true;
+                }
+                return false;
+            }
+        }
+        public async Task<LogEntity> GetEntityAsync(UInt64 logIndex)
+        {
+            await _lock.WaitAsync();
+            using (var autoLock = new AutoLock(_lock))
+            {
+                return GetLogEntity(logIndex);
+            }
+        }
+
+
+        private LogEntity GetLogEntity(UInt64 logIndex)
+        {
+            if (!_logEntities.ContainsKey(logIndex))
+            {
+                return null;
+            }
+
+            var entity = _logEntities[logIndex];
+            return entity;
+        }
+
 
         public void Truncate(UInt64 maxDecreeNo, AppendPosition position)
         {
@@ -185,6 +280,10 @@ namespace PineHillRSL.Raft.Notebook
             _logger.Truncate(position);
         }
 
+        public SortedDictionary<UInt64, LogEntity> Test_GetAppendLogEntities()
+        {
+            return _logEntities;
+        }
     }
 
     public class MetaRecord

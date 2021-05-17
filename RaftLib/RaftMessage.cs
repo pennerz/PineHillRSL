@@ -251,10 +251,15 @@ namespace PineHillRSL.Raft.Message
         {
             MessageType = RaftMessageType.AppendEntityReq;
             CommittedLogIndex = rhs.CommittedLogIndex;
+            PreviousLogIndex = rhs.PreviousLogIndex;
+            PreviousLogTerm = rhs.PreviousLogTerm;
             Data = rhs.Data;
         }
 
         public UInt64 CommittedLogIndex { get; set; } = 0;
+
+        public UInt64 PreviousLogTerm { get; set; } = 0;
+        public UInt64 PreviousLogIndex { get; set; } = 0;
 
         public byte[] Data { get; set; }
 
@@ -262,8 +267,13 @@ namespace PineHillRSL.Raft.Message
         {
             var dataList = new List<byte[]>();
             dataList.Add(base.Serialize());
-            var committedLogIndexBuf = BitConverter.GetBytes(CommittedLogIndex);
-            dataList.Add(committedLogIndexBuf);
+            var membBuf = BitConverter.GetBytes(CommittedLogIndex);
+            dataList.Add(membBuf);
+            membBuf = BitConverter.GetBytes(PreviousLogTerm);
+            dataList.Add(membBuf);
+            membBuf = BitConverter.GetBytes(PreviousLogIndex);
+            dataList.Add(membBuf);
+
             dataList.Add(Data);
 
             var serializeBuffer = new SerializeBuffer();
@@ -296,6 +306,21 @@ namespace PineHillRSL.Raft.Message
             it = it.Next();
             if (it.Equals(itEnd))
             {
+                return;
+            }
+            PreviousLogTerm = BitConverter.ToUInt64(it.DataBuff, it.RecordOff);
+
+            it = it.Next();
+            if (it.Equals(itEnd))
+            {
+                return;
+            }
+            PreviousLogIndex = BitConverter.ToUInt64(it.DataBuff, it.RecordOff);
+
+
+            it = it.Next();
+            if (it.Equals(itEnd))
+            {
                 Data = null;
                 return;
             }
@@ -314,12 +339,22 @@ namespace PineHillRSL.Raft.Message
     [Serializable()]
     public class AppendEntityRespMessage : RaftMessage
     {
+        public enum Result
+        {
+            Succeed,
+            StaleTerm,
+            AlreadyCommitted,
+            HoleExit
+        }
         public AppendEntityRespMessage()
         {
             MessageType = RaftMessageType.AppendEntityResp;
         }
 
         public bool Succeed { get; set; } = false;
+
+        public Int64 PreviousTerm { get; set; }
+        public Int64 PreviousLogIndex { get; set; }
 
         public override byte[] Serialize()
         {
