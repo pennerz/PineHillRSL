@@ -1,0 +1,14 @@
+For paxos, 
+If there's no prepare stage, consider the following scenario
+When leader send request vote to all other nodes, the nodes can accept the vote, or deny it. However, it never know if the votes accepted by majority. 
+In such scenario, if a new node, which think it's leader, try to reuest another vote on the same decree, when a nodes receved such new vote, it never know if it should accept or deny it. If it accept, the previous accepeted vote may already committed to some nodes (because master received majory votes from other nodes, but fail to commit to all nodes). However, if it deny (if it found it once vote yes for some votes), then there will be no progress if the master does not receie enough votes from others (say one nodes dead, and two vote request on going, and half of noes vote request1, half vote request2).
+Paxos use prepare to collect all previous votes, which make sure all the votes for same decree no will be same.  In such case, when a node receved a vote request, it can vote yes, if the seqno > previous seqno.
+
+For Raft, 
+It has a assumption, for same leader, a log entry with same index should be always same. One term only has one leader. If current term not changed, that means leader not changed. It no need to check if the append entities is same with prvious if the log index is same. (they must be same). Say, append entities failed to get majority response. Leaer may retry, when a node received such append, it can return yes, if term not changed.
+
+
+
+For paxos, if it can check the leaders, it may also skip the prepare phase.
+
+Raft's complicated situation would happened when term changes.

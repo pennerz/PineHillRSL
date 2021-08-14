@@ -229,6 +229,7 @@ namespace PineHillRSL.Raft.Notebook
             }
         }
 
+
         public async Task<bool> IsEntityExist(UInt64 logTerm, UInt64 logIndex)
         {
             await _lock.WaitAsync();
@@ -253,11 +254,14 @@ namespace PineHillRSL.Raft.Notebook
         }
         public async Task<LogEntity> GetEntityAsync(UInt64 logIndex)
         {
+            LogEntity logEntity = null;
             await _lock.WaitAsync();
             using (var autoLock = new AutoLock(_lock))
             {
-                return GetLogEntity(logIndex);
+                logEntity = GetLogEntity(logIndex);
             }
+
+            return logEntity;
         }
 
 

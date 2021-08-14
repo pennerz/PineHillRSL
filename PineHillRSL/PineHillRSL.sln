@@ -27,6 +27,9 @@ EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PineHillRSLClientCLI", "..\client\PineHillRSLClientCLI.csproj", "{21669D6C-057C-4194-9E97-28C746FAE9A2}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ReliableStateMachineLib", "..\ReliableStateMachineLib\ReliableStateMachineLib.csproj", "{23510165-F893-433B-B7FC-F0918933C5E5}"
+	ProjectSection(ProjectDependencies) = postProject
+		{27EAEFF6-07CA-4E53-AEF8-30A2DBBDA6C3} = {27EAEFF6-07CA-4E53-AEF8-30A2DBBDA6C3}
+	EndProjectSection
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ConsensusCommon", "..\ConsensusCommonLib\ConsensusCommon.csproj", "{3909F6F5-4006-4E96-9EFF-62E95E5E1624}"
 EndProject

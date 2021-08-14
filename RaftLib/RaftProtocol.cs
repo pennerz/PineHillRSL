@@ -182,11 +182,22 @@ namespace PineHillRSL.Raft.Protocol
         private NodeAddress _leader;
         private DateTime _lastLeaderMsgTime = DateTime.MinValue;
         private UInt64 _term = 0;
-        private UInt64 _logIndex = 0;
+        private UInt64 _logIndex = 1;
+        private Int64 _lastCommittedLogIndex = -1;
         private UInt64 _committedLogIndex = 0;
+        private UInt64 _committedLogTerm = 0;
         private NodeAddress _candidate;
-        private UInt64 _candateTerm = 0;
+        private UInt64 _candidateTerm = 0;
         private EntityNote _enityNotebook;
+        private IConsensusNotification _notificationSubscriber;
+
+        class CommitingItem
+        {
+            public UInt64 LogIndex { get; set; }
+            public byte[] Data { get; set; }
+            public TaskCompletionSource<bool> CommittingTask { get; set; }
+        }
+        private List<CommitingItem> _pendingCommittingList = new List<CommitingItem>();
 
         public RaftFollower(EntityNote noteBook)
         {
@@ -208,6 +219,11 @@ namespace PineHillRSL.Raft.Protocol
             return _leader;
         }
 
+        public void SubscribeNotification(IConsensusNotification listener)
+        {
+            _notificationSubscriber = listener;
+        }
+
         public async Task<RaftMessage> DoRequest(RaftMessage request)
         {
             switch (request.MessageType)
@@ -221,13 +237,15 @@ namespace PineHillRSL.Raft.Protocol
             }
         }
 
+
         public UInt64 Term => _term;
         public UInt64 LogIndex => _logIndex;
         public UInt64 CommitedLogIndex => _committedLogIndex;
-        public UInt64 CandidateTerm => _candateTerm;
+        public UInt64 CandidateTerm => _candidateTerm;
         public NodeAddress CandidateNode => _candidate;
 
         private SemaphoreSlim _lock = new SemaphoreSlim(1);
+        private SemaphoreSlim _commitLock = new SemaphoreSlim(1);
 
         public void TestSetCurrentTerm(UInt64 curTerm)
         {
@@ -239,12 +257,85 @@ namespace PineHillRSL.Raft.Protocol
         }
         public void TestSetCandidateTerm(UInt64 candidateTerm, NodeAddress candidate)
         {
-            _candateTerm = candidateTerm;
+            _candidateTerm = candidateTerm;
             _candidate = candidate;
         }
         public void TestSetCommittedLogIndex(UInt64 committedLogIndex)
         {
             _committedLogIndex = committedLogIndex;
+        }
+
+        public async Task Commit(UInt64 logIndex, byte[] data)
+        {
+            var commitTask = new TaskCompletionSource<bool>();
+            // pending committed entry
+            await _lock.WaitAsync();
+            using (var autoLock = new AutoLock(_lock))
+            {
+                _committedLogIndex = logIndex;
+                if (_lastCommittedLogIndex < (Int64)_committedLogIndex)
+                {
+                    await _commitLock.WaitAsync();
+                    using (var autoLock2 = new AutoLock(_commitLock))
+                    {
+                        for (Int64 commitLogIndex = _lastCommittedLogIndex + 1; commitLogIndex <= (Int64)_committedLogIndex; commitLogIndex++)
+                        {
+                            var commitItem = new CommitingItem()
+                            {
+                                LogIndex = (UInt64)commitLogIndex,
+                                Data = data
+                            };
+                            if ((UInt64)commitLogIndex == logIndex)
+                            {
+                                commitItem.CommittingTask = commitTask;
+                            }
+                            _pendingCommittingList.Add(commitItem);
+                        }
+                    }
+                    _lastCommittedLogIndex = (Int64)_committedLogIndex;
+                }
+                else
+                {
+                    commitTask.SetResult(true);
+                }
+            }
+
+            var task = Task.Run(async () =>
+            {
+                do
+                {
+                    await _commitLock.WaitAsync();
+                    using (var autoLock = new AutoLock(_commitLock))
+                    {
+                        if (_pendingCommittingList.Count == 0)
+                        {
+                            return;
+                        }
+                        var committingItem = _pendingCommittingList[0];
+                        var entity = await _enityNotebook.GetEntityAsync(committingItem.LogIndex);
+                        //  committing entity
+                        // TODO: notify subscriber
+
+                        if (_notificationSubscriber != null)
+                        {
+                            await _notificationSubscriber.UpdateSuccessfullDecree(
+                                committingItem.LogIndex, new ConsensusDecree()
+                                {
+                                    Data = committingItem.Data
+                                });
+                        }
+
+                        if (committingItem.CommittingTask != null)
+                        {
+                            committingItem.CommittingTask.SetResult(true);
+                        }
+                        _pendingCommittingList.RemoveAt(0);
+                    }
+
+                } while (true);
+            });
+
+            await commitTask.Task;
         }
 
         private async Task<AppendEntityRespMessage> AppendEntity(AppendEntityReqMessage req)
@@ -260,10 +351,11 @@ namespace PineHillRSL.Raft.Protocol
             // min(leaderCommit, index of last new entry)
 
 
+            var resp = new AppendEntityRespMessage();
+            resp.Term = _term;
             await _lock.WaitAsync();
             using (var autoLock = new AutoLock(_lock))
             {
-                var resp = new AppendEntityRespMessage();
                 // 1. term < current Term
                 if (req.Term < _term)
                 {
@@ -299,6 +391,7 @@ namespace PineHillRSL.Raft.Protocol
                 if (req.Term > _term || _leader == null)
                 {
                     _term = req.Term;
+                    resp.Term = _term;
                     _leader = NodeAddress.DeSerialize(req.SourceNode);
                 }
 
@@ -311,9 +404,10 @@ namespace PineHillRSL.Raft.Protocol
 
                 // write the latest log
                 resp.Succeed = true;
-                return resp;
-
             }
+            await Commit(_committedLogIndex, req.Data);
+
+            return resp;
         }
 
         private async Task<VoteRespMessage> VoteLeader(VoteReqMessage req)
@@ -325,12 +419,45 @@ namespace PineHillRSL.Raft.Protocol
                 return resp;
             }
 
-            if (req.Term <= _candateTerm)
+            if (req.Term <= _candidateTerm)
             {
                 resp.Succeed = false;
                 return resp;
             }
 
+            // $5.4, leader election restriction
+            //  the voter denies its vote if its own log is more up-to-date than
+            //  that of the candidate.
+            //       1, 2       1, 2        1, 2, 3       1, 2, 3         1, 2,   3,
+            //
+            //  S1   1  2       1  2        1  2  4       1  3 (o)        1  2    4
+            //  S2   1  2       1  2        1  2          1  3 (o)        1  2    4
+            //  S3   1          1           1  2 (r)      1  3 (o)        1  2(r) 4
+            //  S4   1          1           1             1  3 (r)        1
+            //  S5   1          1  3        1  3          1  3            1  3
+            //        a.        b.          c.            d.              e.
+            // in c), S1 is selected as leader again, it will replicate log(2)[2] to 
+            // all the followers (in this case, it replicated to S3).
+            // And after that, it append a new entity log(3).
+            // If we commit the log(2)[2], there're could be issue in d).
+            // in d), S1 crash again, and S5 is seleted as leader. It will replicate
+            // it's entity log(2)[3] to all the follewers. In such scenario, 
+            // log(2)[2] will be overwritten. If in c), it's committed, there would be problem
+            //
+            // if new restriction imported to leader, 
+            //   Leader only commit entry by relica count for log entry in current term
+            // The issue will be solved.
+            // In above case, step c) will not commit log(2)[2], because even it's replciated
+            // to majority, it's not current term entry.
+            // In order to commit it, it has wto wait for current term entry log(3)[4] to be
+            // committed. That need log(3)[4] be replciatd to majority. 
+            // in e), log(3)[4] is replicated to majority, and is committed, hense will commit
+            // log(2)[2].
+            // In such case, even if S1 crash again, and S5 try to be seleted as leader, there
+            // wil be no problem. 
+            // When S4 try to vote leader, it's term will be 4. It an not win, because majority
+            // of nodes already have term 4's entity.
+            //
             if (req.LastLogEntryTerm < _term ||
                 req.LastLogEntryIndex < _committedLogIndex)
             {
@@ -338,7 +465,8 @@ namespace PineHillRSL.Raft.Protocol
                 return resp;
             }
 
-            _candateTerm = req.Term;
+
+            _candidateTerm = req.Term;
             _candidate = NodeAddress.DeSerialize(req.SourceNode);
 
             resp.Succeed = true;
@@ -351,6 +479,7 @@ namespace PineHillRSL.Raft.Protocol
     {
         private readonly RpcClient _rpcClient;
         private readonly NodeAddress _serverAddr;
+        private readonly string _serverAddreStr;
         private readonly ConsensusCluster _cluster;
 
         private ConcurrentDictionary<string, RaftMessageQeuue> _raftMessageList;
@@ -362,7 +491,10 @@ namespace PineHillRSL.Raft.Protocol
         private UInt64 _logIndex = 0;
         private UInt64 _committedLogIndex = 0;
 
+        private RaftFollower _follwer = null;
+
         EntityNote _entityNoteBook;
+        IConsensusNotification _notificationSubscriber;
 
         public RaftLeader(
             NodeAddress serverAddress,
@@ -370,11 +502,14 @@ namespace PineHillRSL.Raft.Protocol
             ConsensusCluster cluster,
             UInt64 term, UInt64 logIndex,
             ConcurrentDictionary<string, RaftMessageQeuue> raftMesssageQueues,
-            EntityNote entityNoteBook)
+            EntityNote entityNoteBook,
+            RaftFollower follower)
         {
             _rpcClient = rpcClient;
             _serverAddr = serverAddress;
+            _serverAddreStr = NodeAddress.Serialize(_serverAddr);
             _cluster = cluster;
+            _follwer = follower;
             _term = term;
             _logIndex = logIndex;
             _raftMessageList = raftMesssageQueues;
@@ -384,6 +519,34 @@ namespace PineHillRSL.Raft.Protocol
                 await Mantain();
             });
         }
+        public void SubscribeNotification(IConsensusNotification listener)
+        {
+            _notificationSubscriber = listener;
+        }
+
+        /// <summary>
+        /// For raft, it never commit an entry of previous term, based on majority
+        /// have already accepted the appendentity. It only commit entity of current
+        /// term if majority accepted the appendentity. And also, if one entity 
+        /// is committed, all previous should be committed.
+        /// Also, when select a leader, only the node whose log index >= the majority
+        /// node's current log index can be selected as leader. 
+        /// If we have the above assumption, In raft paper figure 8, in step 3, even if
+        /// log index 2 in term 2 is appended to majority, it's not committed, because the
+        /// current term (4)'s log index 3 is only appended to 1 nodes. If now leader
+        /// crashed, and S5 is selected as leader again, log index 2 of term 3 is replicated
+        /// to all other nodes. This would be fine, even if it overwritten index 2 of term 2,
+        /// which has already be appended to majoriy nodes. Because the index 2 of term 2 is not
+        /// committed.
+        /// However, if before S1 crashes, it replicate log index 3 of term 4 to majority nodes
+        /// then log index 3 is committed, and log index 2 of term 2 will be comitted 
+        /// automatically. This would have no problem, if S1 crashes now and S5 restarted. 
+        /// Because now S5 can never be selected as a leader, because one nodes of the majority
+        /// would have a log index more late than S5.
+        /// </summary>
+        /// <param name="decree"></param>
+        /// <param name="decreeNo"></param>
+        /// <returns></returns>
 
         public async Task<ProposeResult> Propose(ConsensusDecree decree, ulong decreeNo)
         {
@@ -391,10 +554,12 @@ namespace PineHillRSL.Raft.Protocol
             // request append
             UInt64 previousIndex = UInt64.MaxValue;
             UInt64 previousTerm = UInt64.MaxValue;
-            if (_logIndex > 0)
+
+            // TODO: Add race control about the log index allocate
+            if (_logIndex > 1)
             {
                 var entity = await _entityNoteBook.GetEntityAsync(_logIndex - 1);
-                if (entity != null)
+                if (entity == null)
                 {
                     // TODO: Add checkpoint support
                     throw new Exception("previous entity not found!");
@@ -402,6 +567,8 @@ namespace PineHillRSL.Raft.Protocol
                 previousIndex = entity.LogIndex;
                 previousTerm = entity.Term;
             }
+
+
             var appendRequest = new AppendEntityReqMessage()
             {
                 Data = decree.Data,
@@ -409,14 +576,30 @@ namespace PineHillRSL.Raft.Protocol
                 LogIndex = _logIndex,
                 Term = _term,
                 PreviousLogIndex = previousIndex,
-                PreviousLogTerm = previousTerm
+                PreviousLogTerm = previousTerm,
+                SourceNode = _serverAddreStr,
+                TargetNode = _serverAddreStr
             };
+
+            _logIndex++;
+
             do
             {
                 try
                 {
-                    await _entityNoteBook.AppendEntity(_term, _logIndex, _committedLogIndex, decree.Data);
+                    var resp = await _follwer.DoRequest(appendRequest) as AppendEntityRespMessage;
+                    if (!resp.Succeed)
+                    {
+                        // leaer lost
+                        throw new Exception("leader lost");
+                    }
+                    //await _entityNoteBook.AppendEntity(_term, _logIndex, _committedLogIndex, decree.Data);
                     await AppendRequestToAllFollowers(appendRequest);
+                    if (_follwer.CommitedLogIndex > _committedLogIndex)
+                    {
+                        _committedLogIndex = _follwer.CommitedLogIndex;
+                    }
+                    //
                     break;
                 }
                 catch (Exception e)
@@ -505,6 +688,10 @@ namespace PineHillRSL.Raft.Protocol
                     if (succeedCount >= _cluster.Members.Count / 2 + 1)
                     {
                         // succedd, no need to wait for others
+                        if (resp.Term == _term)
+                        {
+                            await _follwer.Commit(append.LogIndex, append.Data);
+                        }
                         return;
                     }
                 }
@@ -753,6 +940,18 @@ namespace PineHillRSL.Raft.Protocol
 
         public NodeAddress ServerAddress => _serverAddr;
 
+        public void SubscribeNotification(IConsensusNotification listener)
+        {
+            _notificationSubscriber = listener;
+            if (_leader != null)
+            {
+                _leader.SubscribeNotification(listener);
+            }
+            if (_follower != null)
+            {
+                _follower.SubscribeNotification(listener);
+            }
+        }
         public async Task<ProposeResult> Propose(ConsensusDecree decree, ulong decreeNo)
         {
             // if not leader
@@ -893,7 +1092,8 @@ namespace PineHillRSL.Raft.Protocol
                     await _candidate.RequestLeaderVoteFromAllFollowers();
                     _leader = new RaftLeader(_serverAddr, _rpcClient, _cluster,
                         _candidate.CurTerm, _candidate.LastLogEntryIndex,
-                        _raftMessageList, _entityNote);
+                        _raftMessageList, _entityNote, _follower);
+                    _leader.SubscribeNotification(_notificationSubscriber);
                     return;
                 }
                 catch (Exception e)

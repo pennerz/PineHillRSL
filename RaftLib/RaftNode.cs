@@ -70,6 +70,10 @@ namespace PineHillRSL.Raft.Node
         public void SubscribeNotification(IConsensusNotification listener)
         {
             _notificationSubscriber = listener;
+            if (_role != null)
+            {
+                _role.SubscribeNotification(_notificationSubscriber);
+            }
         }
 
         public async Task Load(string metaLog, DataSource datasource = DataSource.Local)
@@ -94,7 +98,7 @@ namespace PineHillRSL.Raft.Node
             _entityNote = new EntityNote(_entityLogger, _metaLogger);
 
             _role = new RaftRole(_serverAddr, _rpcClient, _cluster, _entityNote);
-
+            _role.SubscribeNotification(_notificationSubscriber);
             _messager = new RaftNodeMessageDeliver(_role);
             var rpcRequestHandler = new RaftMessageHandler(_messager, null);
             _rpcServer.RegisterRequestHandler(rpcRequestHandler);

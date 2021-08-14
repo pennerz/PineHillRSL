@@ -333,5 +333,43 @@ namespace PineHillRSL.Tests
             Assert.IsFalse(appendResp.Succeed);
 
         }
+
+
+        [TestMethod()]
+        public async Task StateMachineTest()
+        {
+            //CleanupLogFiles(null);
+
+            var cluster = new ConsensusCluster();
+            for (int i = 0; i < 5; i++)
+            {
+                var node = new NodeInfo("127.0.0.1");
+                var nodeAddr = new NodeAddress(node, 128 + i);
+                cluster.Members.Add(nodeAddr);
+            }
+
+            var networkInfr = new TestNetworkInfr();
+            NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
+            //NetworkFactory.SetNetworkCreator(new TcpNetworkCreator());
+
+            StateMachine.ConsencusNodeFactory.SetConsensusProtocol(StateMachine.ConsencusNodeFactory.ConcensusProtocol.Raft);
+            var tableNodeMap = new Dictionary<string, ReplicatedTable.ReplicatedTable>();
+            foreach (var nodeAddr in cluster.Members)
+            {
+                var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
+                tableNodeMap[ConsensusNodeHelper.GetInstanceName(nodeAddr)] = node;
+            }
+
+
+            var master = tableNodeMap[ConsensusNodeHelper.GetInstanceName(cluster.Members[0])];
+            await master.InstertTable(new ReplicatedTableRequest() { Key = "1", Value = "test1" });
+            await master.InstertTable(new ReplicatedTableRequest() { Key = "2", Value = "test2" });
+            await master.InstertTable(new ReplicatedTableRequest() { Key = "3", Value = "test3" });
+
+            foreach (var node in tableNodeMap)
+            {
+                await node.Value.DisposeAsync();
+            }
+        }
     }
 }
