@@ -31,7 +31,8 @@ namespace PineHillRSL.Raft.Protocol
         public NodeAddress Leader { get; set; }
         public bool InVoting { get; set; }
     }
-    public class RaftMessageQeuue : IAsyncDisposable
+
+    public abstract class RaftMessageQeuue : IAsyncDisposable
     {
         public class RequestItem
         {
@@ -41,19 +42,16 @@ namespace PineHillRSL.Raft.Protocol
             public TaskCompletionSource<RaftMessage> Response { get; set; }
         }
 
-        private SemaphoreSlim _lock = new SemaphoreSlim(3);
-        private readonly RpcClient _rpcClient;
-        private readonly NodeAddress _serverAddr;
-        private readonly NodeAddress _clientAddr;
+        protected SemaphoreSlim _lock = new SemaphoreSlim(1);
         private List<RequestItem> _messageQueue = new List<RequestItem>();
         //private List<Task> _sendMsgTasks = new List<Task>();
         private bool _exit = false;
 
-        public RaftMessageQeuue(NodeAddress serverAddr,NodeAddress clientAddr, RpcClient rpcClient)
+        private readonly NodeAddress _serverAddr;
+
+        public RaftMessageQeuue(NodeAddress serverAddr)
         {
             _serverAddr = serverAddr;
-            _clientAddr = clientAddr;
-            _rpcClient = rpcClient;
         }
 
         public async ValueTask DisposeAsync()
@@ -128,7 +126,24 @@ namespace PineHillRSL.Raft.Protocol
 
         public int MessageCount => _messageQueue.Count;
 
-        private async Task MessageHandler()
+        protected abstract Task MessageHandler();
+    }
+
+    public class RemoteNodeRaftMessageQueue : RaftMessageQeuue
+    {
+        private readonly RpcClient _rpcClient;
+        private readonly NodeAddress _serverAddr;
+        private readonly NodeAddress _clientAddr;
+
+        public RemoteNodeRaftMessageQueue(NodeAddress serverAddr, NodeAddress clientAddr, RpcClient rpcClient)
+            : base(serverAddr)
+        {
+            _serverAddr = serverAddr;
+            _clientAddr = clientAddr;
+            _rpcClient = rpcClient;
+
+        }
+        protected override async Task MessageHandler()
         {
             try
             {
@@ -175,6 +190,66 @@ namespace PineHillRSL.Raft.Protocol
                 _lock.Release();
             }
         }
+
+    }
+    public class LocalNodeRaftMessageQueue : RaftMessageQeuue
+    {
+        private readonly NodeAddress _serverAddr;
+        private readonly NodeAddress _clientAddr;
+        private readonly RaftFollower _follower;
+        public LocalNodeRaftMessageQueue(NodeAddress serverAddr, NodeAddress clientAddr, RaftFollower follower)
+            : base(serverAddr)
+        {
+            _serverAddr = serverAddr;
+            _clientAddr = clientAddr;
+            _follower = follower;
+        }
+        protected override async Task MessageHandler()
+        {
+            try
+            {
+                await _lock.WaitAsync();
+                bool retry = false;
+                do
+                {
+                    RequestItem reqItem = null;
+                    if (!retry)
+                    {
+                        reqItem = PopMessage();
+                    }
+                    if (reqItem == null)
+                    {
+                        return;
+                    }
+                    var raftMsg = reqItem.Request;
+                    raftMsg.SourceNode = NodeAddress.Serialize(_clientAddr);
+                    raftMsg.TargetNode = NodeAddress.Serialize(_serverAddr);
+                    var raftRpcMsg = RaftMessageFactory.CreateRaftRpcMessage(raftMsg);
+                    var rpcMsg = RaftRpcMessageFactory.CreateRpcRequest(raftRpcMsg);
+                    rpcMsg.NeedResp = true;
+                    var remoteAddr = NodeAddress.DeSerialize(raftMsg.TargetNode);
+
+                    try
+                    {
+                        var respMsg = await _follower.DoRequest(raftMsg);
+                        reqItem.Response.SetResult(respMsg);
+                    }
+                    catch (Exception)
+                    {
+                        // time out, retry
+                        retry = true;
+                        continue;
+                    }
+                    retry = false;
+
+                } while (true);
+            }
+            finally
+            {
+                _lock.Release();
+            }
+        }
+
     }
 
     public class RaftFollower
@@ -489,6 +564,7 @@ namespace PineHillRSL.Raft.Protocol
 
         private UInt64 _term = 0;
         private UInt64 _logIndex = 0;
+        private UInt64 _prevLogTerm = 0;
         private UInt64 _committedLogIndex = 0;
 
         private RaftFollower _follwer = null;
@@ -552,61 +628,30 @@ namespace PineHillRSL.Raft.Protocol
         {
             // if not leader
             // request append
-            UInt64 previousIndex = UInt64.MaxValue;
-            UInt64 previousTerm = UInt64.MaxValue;
 
             // TODO: Add race control about the log index allocate
-            if (_logIndex > 1)
-            {
-                var entity = await _entityNoteBook.GetEntityAsync(_logIndex - 1);
-                if (entity == null)
-                {
-                    // TODO: Add checkpoint support
-                    throw new Exception("previous entity not found!");
-                }
-                previousIndex = entity.LogIndex;
-                previousTerm = entity.Term;
-            }
-
+            // 1. get a log index
+            // 2. add the log entry into append queue (make sure it's appended in sequence)
+            // 3. Add log entryes to other followers' append queue (make sure they are appended in sequence).
+            //    step 1 to step 3 need be done in a lock
+            // 4. Wait for logs appended in current node & n/2 other folloers appended
+            // 5. commit the log. No need to make sure the log committed in sequence.
+            // 6. When replay logs, only the log index < commit log index can be replayed.
+            //    Suppose the last log index can not be replayed when all logs a read
+            //    However, when the leader try to append the uncommitted logs to followers
+            //    and new transactions comes and commited the prevous log will be committed.
+            //    Here's a question, if no futher transactions comes, the last one will not
+            //    be committed, which is not consistent with the previous term.
+            //
 
             var appendRequest = new AppendEntityReqMessage()
             {
                 Data = decree.Data,
-                CommittedLogIndex = _committedLogIndex,
-                LogIndex = _logIndex,
-                Term = _term,
-                PreviousLogIndex = previousIndex,
-                PreviousLogTerm = previousTerm,
                 SourceNode = _serverAddreStr,
                 TargetNode = _serverAddreStr
             };
 
-            _logIndex++;
-
-            do
-            {
-                try
-                {
-                    var resp = await _follwer.DoRequest(appendRequest) as AppendEntityRespMessage;
-                    if (!resp.Succeed)
-                    {
-                        // leaer lost
-                        throw new Exception("leader lost");
-                    }
-                    //await _entityNoteBook.AppendEntity(_term, _logIndex, _committedLogIndex, decree.Data);
-                    await AppendRequestToAllFollowers(appendRequest);
-                    if (_follwer.CommitedLogIndex > _committedLogIndex)
-                    {
-                        _committedLogIndex = _follwer.CommitedLogIndex;
-                    }
-                    //
-                    break;
-                }
-                catch (Exception e)
-                {
-                    throw e;
-                }
-            } while (true);
+            await AppendRequest(appendRequest);
 
             return new ProposeResult()
             { };
@@ -637,23 +682,9 @@ namespace PineHillRSL.Raft.Protocol
                 {
                     // send empty append enity
                     var emptyRequest = new AppendEntityReqMessage();
-                    lock (this)
-                    {
-                        emptyRequest.LogIndex = _logIndex;
-                        emptyRequest.Term = _term;
-                        ++_logIndex;
-                    }
 
-                    try
-                    {
-                        await AppendRequestToAllFollowers(emptyRequest);
-                        _lastLeaderClaim = DateTime.Now;
-                    }
-                    catch (Exception e)
-                    {
-                        // exception, switch to follower
-                        break;
-                    }
+                    await AppendRequest(emptyRequest);
+
                     await Task.Delay(30000); // delay 30s;
                     continue;
                 }
@@ -662,12 +693,69 @@ namespace PineHillRSL.Raft.Protocol
 
         }
 
+        private async Task AppendRequest(AppendEntityReqMessage appendRequest)
+        {
+            UInt64 previousIndex = UInt64.MaxValue;
+            UInt64 previousTerm = UInt64.MaxValue;
+            Task<RaftMessage> localAppendTask = null;
+            lock (this)
+            {
+                if (_logIndex > 1)
+                {
+                    previousIndex = _logIndex - 1;
+                    previousTerm = _prevLogTerm;
+                }
+
+
+                appendRequest.CommittedLogIndex = _committedLogIndex;
+                appendRequest.LogIndex = _logIndex;
+                appendRequest.Term = _term;
+                appendRequest.PreviousLogIndex = previousIndex;
+                appendRequest.PreviousLogTerm = previousTerm;
+
+                _logIndex++;
+                _prevLogTerm = _term;
+
+                localAppendTask = _follwer.DoRequest(appendRequest);
+            }
+
+            do
+            {
+                try
+                {
+                    //await _entityNoteBook.AppendEntity(_term, _logIndex, _committedLogIndex, decree.Data);
+                    await AppendRequestToAllFollowers(appendRequest);
+                    await localAppendTask;
+
+                    await _follwer.Commit(appendRequest.LogIndex, appendRequest.Data);
+
+                    lock (this)
+                    {
+                        if (_follwer.CommitedLogIndex > _committedLogIndex)
+                        {
+                            _committedLogIndex = _follwer.CommitedLogIndex;
+                        }
+                    }
+                    //
+                    break;
+                }
+                catch (Exception e)
+                {
+                    throw e;
+                }
+            } while (true);
+
+        }
         private async Task AppendRequestToAllFollowers(AppendEntityReqMessage append)
         {
 
             var taskList = new List<Task<RaftMessage>>();
             foreach (var follower in _cluster.Members)
             {
+                if (_serverAddr.Equals(follower))
+                {
+                    continue;
+                }
                 var queue = GetMessageQueue(NodeAddress.Serialize(follower));
                 var reqItem = new RaftMessageQeuue.RequestItem();
                 reqItem.Request = append.DeepCopy();
@@ -684,14 +772,15 @@ namespace PineHillRSL.Raft.Protocol
                 var resp = finishedTask.Result as AppendEntityRespMessage;
                 if (resp.Succeed)
                 {
+                    if (resp.Term != _term)
+                    {
+                        // new leader generated
+                        throw new Exception("new leader");
+                    }
                     ++succeedCount;
-                    if (succeedCount >= _cluster.Members.Count / 2 + 1)
+                    if (succeedCount >= _cluster.Members.Count / 2 )
                     {
                         // succedd, no need to wait for others
-                        if (resp.Term == _term)
-                        {
-                            await _follwer.Commit(append.LogIndex, append.Data);
-                        }
                         return;
                     }
                 }
@@ -714,7 +803,15 @@ namespace PineHillRSL.Raft.Protocol
                     return messageQueue;
                 }
                 var destAddr = NodeAddress.DeSerialize(targetNode);
-                messageQueue = new RaftMessageQeuue(destAddr, _serverAddr, _rpcClient);
+                if (destAddr.Equals(_serverAddr))
+                {
+                    messageQueue = new LocalNodeRaftMessageQueue(_serverAddr, _serverAddr, _follwer);
+                }
+                else
+                {
+                    messageQueue = new RemoteNodeRaftMessageQueue(destAddr, _serverAddr, _rpcClient);
+
+                }
                 _raftMessageList.TryAdd(targetNode, messageQueue);
             } while (true);
         }
@@ -806,8 +903,9 @@ namespace PineHillRSL.Raft.Protocol
                 {
                     return messageQueue;
                 }
-                var targetAddr = NodeAddress.DeSerialize(targetNode);
-                messageQueue = new RaftMessageQeuue(targetAddr, _serverAddr, _rpcClient);
+                var destAddr = NodeAddress.DeSerialize(targetNode);
+                messageQueue = new RemoteNodeRaftMessageQueue(destAddr, _serverAddr, _rpcClient);
+
                 _raftMessageList.TryAdd(targetNode, messageQueue);
             } while (true);
         }
