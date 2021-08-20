@@ -105,7 +105,7 @@ namespace PineHillRSL.StateMachine
         {
             _metaLog = metaLog;
             await _node?.Load(metaLog);
-            _reqSlideWindow = new SlidingWindow(_node.MaxCommittedNo, null);
+            //_reqSlideWindow = new SlidingWindow(_node.MaxCommittedNo, null);
         }
 
         public async Task Request(StateMachineRequest request)
@@ -126,8 +126,12 @@ namespace PineHillRSL.StateMachine
             await ReqeustInternal(request);
         }
 
+        int _reqRecvedCount = 0;
+        int _reqSavedCount = 0;
+        List<UInt64> _logIndexReceived = new List<ulong>();
         public virtual Task UpdateSuccessfullDecree(UInt64 decreeNo, ConsensusDecree decree)
         {
+            _reqRecvedCount++;
             var internalRequest = new InternalRequest()
             {
                 Result = null,
@@ -142,6 +146,8 @@ namespace PineHillRSL.StateMachine
             }
             internalRequest.Request.SequenceId = decreeNo;
             _reqSlideWindow.Add(decreeNo, internalRequest);
+            _logIndexReceived.Add(decreeNo);
+            _reqSavedCount++;
             var task = Task.Run(async () =>
             {
                 var finishedRequestList = new List<StateMachineRequest>();

@@ -258,7 +258,6 @@ namespace PineHillRSL.Raft.Protocol
         private DateTime _lastLeaderMsgTime = DateTime.MinValue;
         private UInt64 _term = 0;
         private UInt64 _logIndex = 1;
-        private Int64 _lastCommittedLogIndex = -1;
         private UInt64 _committedLogIndex = 0;
         private UInt64 _committedLogTerm = 0;
         private NodeAddress _candidate;
@@ -319,6 +318,11 @@ namespace PineHillRSL.Raft.Protocol
         public UInt64 CandidateTerm => _candidateTerm;
         public NodeAddress CandidateNode => _candidate;
 
+        public Int64 LastCommitedLogIndex
+        {
+            get; set;
+        } = -1;
+
         private SemaphoreSlim _lock = new SemaphoreSlim(1);
         private SemaphoreSlim _commitLock = new SemaphoreSlim(1);
 
@@ -348,12 +352,12 @@ namespace PineHillRSL.Raft.Protocol
             using (var autoLock = new AutoLock(_lock))
             {
                 _committedLogIndex = logIndex;
-                if (_lastCommittedLogIndex < (Int64)_committedLogIndex)
+                if (LastCommitedLogIndex < (Int64)_committedLogIndex)
                 {
                     await _commitLock.WaitAsync();
                     using (var autoLock2 = new AutoLock(_commitLock))
                     {
-                        for (Int64 commitLogIndex = _lastCommittedLogIndex + 1; commitLogIndex <= (Int64)_committedLogIndex; commitLogIndex++)
+                        for (Int64 commitLogIndex = LastCommitedLogIndex + 1; commitLogIndex <= (Int64)_committedLogIndex; commitLogIndex++)
                         {
                             var commitItem = new CommitingItem()
                             {
@@ -367,7 +371,7 @@ namespace PineHillRSL.Raft.Protocol
                             _pendingCommittingList.Add(commitItem);
                         }
                     }
-                    _lastCommittedLogIndex = (Int64)_committedLogIndex;
+                    LastCommitedLogIndex = (Int64)_committedLogIndex;
                 }
                 else
                 {
@@ -646,7 +650,7 @@ namespace PineHillRSL.Raft.Protocol
 
             var appendRequest = new AppendEntityReqMessage()
             {
-                Data = decree.Data,
+                Data = decree != null ? decree.Data : null,
                 SourceNode = _serverAddreStr,
                 TargetNode = _serverAddreStr
             };
@@ -970,8 +974,35 @@ namespace PineHillRSL.Raft.Protocol
 
         }
 
+        bool _notfierCalled = false;
         public async Task Load(DataSource dataSource)
         {
+            await _entityNote.Load();
+            var logEntities = _entityNote.Test_GetAppendLogEntities();
+            var commitedLogIndex = _entityNote.CommittedLogIndex;
+            foreach(var logEntity in logEntities)
+            {
+                if ((Int64)logEntity.Key <= commitedLogIndex)
+                {
+                    // committed
+                    if (_notificationSubscriber == null)
+                    {
+                        continue;
+                    }
+                    await _notificationSubscriber.UpdateSuccessfullDecree(
+                        logEntity.Key, new ConsensusDecree()
+                        {
+                            Data = logEntity.Value.Content
+                        });
+                    _notfierCalled = true;
+                }
+            }
+            _follower.LastCommitedLogIndex = commitedLogIndex;
+
+            // last one which does not include the committed no,
+            // need to wait for new leader which will propose a new
+            // entity and commited previous uncommitted logindex
+
             int catchupLogSize = 0;
             /*
             do
@@ -1192,6 +1223,11 @@ namespace PineHillRSL.Raft.Protocol
                         _candidate.CurTerm, _candidate.LastLogEntryIndex,
                         _raftMessageList, _entityNote, _follower);
                     _leader.SubscribeNotification(_notificationSubscriber);
+
+                    // submit a empty request, which will commit
+                    // all previous request
+                    await _leader.Propose(null, 0);
+
                     return;
                 }
                 catch (Exception e)

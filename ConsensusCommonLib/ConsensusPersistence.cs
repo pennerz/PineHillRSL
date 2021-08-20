@@ -96,6 +96,7 @@ namespace PineHillRSL.Consensus.Persistence
     public interface ILogEntryIterator : IEquatable<ILogEntryIterator>, IDisposable
     {
         LogEntry Log { get; }
+        AppendPosition Position { get; }
         Task<ILogEntryIterator> Next();
     }
 
@@ -164,20 +165,25 @@ namespace PineHillRSL.Consensus.Persistence
         private IteratorType _itType = IteratorType.Default;
         private string _filePathPrefix;
         private UInt64 _fileIndex;
+        private UInt64 _offsetInFile;
         private LogEntry _logEntry;
+        private AppendPosition _position;
 
         public FileLogEntryIterator(
             FileStream dataStream,
             string filePathPrefix,
             UInt64 fileIndex,
+            UInt64 offsetInFile,
             LogEntry logEntry,
             IteratorType itType)
         {
             _filePathPrefix = filePathPrefix;
             _fileIndex = fileIndex;
+            _offsetInFile = offsetInFile;
             _dataStream = dataStream;
             _logEntry = logEntry;
             _itType = itType;
+            _position = new AppendPosition(_fileIndex, _offsetInFile);
         }
         public virtual void Dispose()
         {
@@ -187,10 +193,12 @@ namespace PineHillRSL.Consensus.Persistence
 
         public LogEntry Log => _logEntry;
 
+        public AppendPosition Position => _position;
 
         public async Task<ILogEntryIterator> Next()
         {
             var databuf = new byte[1024];
+            _offsetInFile = (UInt64)_dataStream.Position;
             var readlen = await _dataStream.ReadAsync(databuf, 0, sizeof(int));
             if (readlen != sizeof(int))
             {
@@ -201,12 +209,12 @@ namespace PineHillRSL.Consensus.Persistence
                 try
                 {
                     var dataStream = new FileStream(_filePathPrefix + fileIndex.ToString("D16"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                    var fileIt = new FileLogEntryIterator(dataStream, _filePathPrefix, fileIndex, null, IteratorType.Default);
+                    var fileIt = new FileLogEntryIterator(dataStream, _filePathPrefix, fileIndex, 0, null, IteratorType.Default);
                     return await fileIt.Next();
                 }
                 catch (Exception /*e*/)
                 {
-                    return new FileLogEntryIterator(null, null, 0, null, IteratorType.End);
+                    return new FileLogEntryIterator(null, null, 0, 0, null, IteratorType.End);
                 }
             }
             int dataSize = BitConverter.ToInt32(databuf, 0);
@@ -222,14 +230,13 @@ namespace PineHillRSL.Consensus.Persistence
             {
                 // not enough data
                 _dataStream.Close();
-                return new FileLogEntryIterator(null, null, 0, null, IteratorType.End);
+                return new FileLogEntryIterator(null, null, 0, 0, null, IteratorType.End);
             }
 
             var logEntry = new LogEntry();
             logEntry.Size = dataSize;
             logEntry.Data = databuf;
-
-            return new FileLogEntryIterator(_dataStream, _filePathPrefix, _fileIndex, logEntry, IteratorType.Default);
+            return new FileLogEntryIterator(_dataStream, _filePathPrefix, _fileIndex, _offsetInFile, logEntry, IteratorType.Default);
         }
 
         public bool Equals(ILogEntryIterator rhs)
@@ -429,7 +436,8 @@ namespace PineHillRSL.Consensus.Persistence
             try
             {
                 dataStream = new FileStream(_dataFilePath + fileIndex.ToString("D16"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                fileIt = new FileLogEntryIterator(dataStream, _dataFilePath, fileIndex, null, IteratorType.Default);
+                fileIt = new FileLogEntryIterator(dataStream, _dataFilePath,
+                    fileIndex, 0, null, IteratorType.Default);
                 return fileIt.Next();
             }
             catch (Exception /*e*/)
@@ -468,13 +476,13 @@ namespace PineHillRSL.Consensus.Persistence
             }
             _baseFragmentIndex = fileIndex;
             dataStream = new FileStream(_dataFilePath + fileIndex.ToString("D16"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            fileIt = new FileLogEntryIterator(dataStream, _dataFilePath, fileIndex, null, IteratorType.Default);
+            fileIt = new FileLogEntryIterator(dataStream, _dataFilePath, fileIndex, 0, null, IteratorType.Default);
             return fileIt.Next();
         }
 
         public Task<ILogEntryIterator> End()
         {
-            return Task.FromResult(new FileLogEntryIterator(null, null, 0,  null, IteratorType.End) as ILogEntryIterator);
+            return Task.FromResult(new FileLogEntryIterator(null, null, 0, 0, null, IteratorType.End) as ILogEntryIterator);
         }
 
         public async Task<AppendPosition> AppendLog(LogEntry logEntry)

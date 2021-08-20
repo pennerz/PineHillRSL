@@ -96,7 +96,7 @@ namespace PineHillRSL.Raft.Notebook
         public UInt64 Term { get; set; }
         public UInt64 LogIndex { get; set; }
         public AppendPosition LogPosition { get; set; }
-
+        public byte[] Content { get; set; }
         public bool IsContentEqual(LogEntity rhs)
         {
             if (rhs == null)
@@ -124,6 +124,7 @@ namespace PineHillRSL.Raft.Notebook
 
         private UInt64 _maxDecreeNo = 0;
         private AppendPosition _lastAppendPosition;
+        private Int64 _maxCommittedLogIndex = -1;
         private CancellationTokenSource _cancel = new CancellationTokenSource();
 
         private bool _isStop = false;
@@ -181,9 +182,20 @@ namespace PineHillRSL.Raft.Notebook
             for (; !it.Equals(itEnd); it = await it.Next())
             {
                 var logEntry = it.Log;
+                var entityRecord = new EntityRecord(0, 0, 0, null);
+                entityRecord.DeSerialize(logEntry.Data, logEntry.Size);
+                _logEntities.Add(entityRecord.LogIndex, new LogEntity()
+                {
+                    Term = entityRecord.Term,
+                    LogIndex = entityRecord.LogIndex,
+                    LogPosition = it.Position,
+                    Content = entityRecord.DecreeContent
+                });
+                if ((Int64)entityRecord.CommittedLogIndex > _maxCommittedLogIndex)
+                {
+                    _maxCommittedLogIndex = (Int64)entityRecord.CommittedLogIndex;
+                }
             }
-
-
         }
 
 
@@ -223,6 +235,11 @@ namespace PineHillRSL.Raft.Notebook
                     LogIndex = logIndex,
                     LogPosition = position
                 });
+
+                if ((Int64)committedLogIndex > _maxCommittedLogIndex)
+                {
+                    _maxCommittedLogIndex = (Int64)committedLogIndex;
+                }
 
                 return position;
 
@@ -288,6 +305,8 @@ namespace PineHillRSL.Raft.Notebook
         {
             return _logEntities;
         }
+
+        public Int64 CommittedLogIndex => _maxCommittedLogIndex;
     }
 
     public class MetaRecord

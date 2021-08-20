@@ -55,6 +55,8 @@ namespace PineHillRSL.Tests
         [TestMethod()]
         public async Task LeaderProposeTest()
         {
+            CleanupLogFiles(null);
+
             var cluster = new ConsensusCluster();
             for (int i = 0; i < 5; i++)
             {
@@ -77,10 +79,17 @@ namespace PineHillRSL.Tests
             ConsensusDecree decree = new ConsensusDecree();
             decree.Content = "test";
             var result = await raftNode1.ProposeDecree(decree, 1);
+
+            foreach (var node in nodeMap)
+            {
+                await node.Value.DisposeAsync();
+            }
         }
         [TestMethod()]
         public async Task LeaderVoteTest()
         {
+            CleanupLogFiles(null);
+
             var cluster = new ConsensusCluster();
             for (int i = 0; i < 5; i++)
             {
@@ -103,11 +112,18 @@ namespace PineHillRSL.Tests
             ConsensusDecree decree = new ConsensusDecree();
             decree.Content = "test";
             var result = await raftNode1.ProposeDecree(decree, 1);
+
+            foreach (var node in nodeMap)
+            {
+                await node.Value.DisposeAsync();
+            }
         }
 
         [TestMethod()]
         public async Task FollowerVoteReqTest()
         {
+            CleanupLogFiles(null);
+
             var cluster = new ConsensusCluster();
             for (int i = 0; i < 5; i++)
             {
@@ -193,11 +209,16 @@ namespace PineHillRSL.Tests
             Assert.AreEqual(follower.CandidateTerm, (UInt64)3);
             Assert.IsTrue(leaderNode.Equals(follower.CandidateNode));
             Assert.IsTrue(follower.GetLeader() == null);
+
+            await entityNote.DisposeAsync();
+            await entityLogger.DisposeAsync();
         }
 
         [TestMethod()]
         public async Task FollowerAppendReqTest()
         {
+            CleanupLogFiles(null);
+
             var cluster = new ConsensusCluster();
             for (int i = 0; i < 5; i++)
             {
@@ -332,13 +353,15 @@ namespace PineHillRSL.Tests
             appendResp = await follower.DoRequest(appendReq) as AppendEntityRespMessage;
             Assert.IsFalse(appendResp.Succeed);
 
+            await entityNote.DisposeAsync();
+            await entityLogger.DisposeAsync();
         }
 
 
         [TestMethod()]
         public async Task StateMachineTest()
         {
-            //CleanupLogFiles(null);
+            CleanupLogFiles(null);
 
             var cluster = new ConsensusCluster();
             for (int i = 0; i < 5; i++)
@@ -370,6 +393,43 @@ namespace PineHillRSL.Tests
             {
                 await node.Value.DisposeAsync();
             }
+
+            tableNodeMap.Clear();
+            foreach (var nodeAddr in cluster.Members)
+            {
+                var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
+
+                tableNodeMap[ConsensusNodeHelper.GetInstanceName(nodeAddr)] = node;
+
+                var nodeInstanceName = ConsensusNodeHelper.GetInstanceName(nodeAddr);
+                var metaLogFile = ".\\storage\\" + nodeInstanceName + ".meta";
+                await node.Load(metaLogFile);
+            }
+
+            // wait for all entities replied. Need to improve this part
+            await Task.Delay(1000);
+
+            master = tableNodeMap[ConsensusNodeHelper.GetInstanceName(cluster.Members[0])];
+            var result = await master.ReadTable("1");
+
+            foreach (var node in tableNodeMap)
+            {
+                await node.Value.DisposeAsync();
+            }
+
+        }
+
+        private void CleanupLogFiles(string nodeName)
+        {
+            List<string> paths = new List<string>(Directory.EnumerateFiles(".\\storage"));
+            foreach (var path in paths)
+            {
+                if (string.IsNullOrEmpty(nodeName) || path.IndexOf(nodeName) != -1)
+                {
+                    File.Delete(path);
+                }
+            }
+
         }
     }
 }

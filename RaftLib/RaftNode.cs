@@ -106,6 +106,9 @@ namespace PineHillRSL.Raft.Node
 
             await _role.Load(DataSource.Local);
 
+            // TODO: make sure all replayed logs have been updated so state machine
+            //await Task.Delay(1000);
+
             // request checkpoint from remote nodes
 
         }
