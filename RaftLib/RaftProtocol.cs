@@ -765,6 +765,38 @@ namespace PineHillRSL.Raft.Protocol
             } while (true);
 
         }
+
+        public void AddLogToReplicateQeueus(LogEntity log, UInt64 prevTerm, UInt64 committedLogIndex)
+        {
+            var appendRequest = new AppendEntityReqMessage()
+            {
+                SourceNode = _serverAddreStr,
+                TargetNode = _serverAddreStr,
+
+                Term = log.Term,
+                LogIndex = log.LogIndex,
+
+                CommittedLogIndex = committedLogIndex,// committed index;
+
+                PreviousLogTerm = prevTerm, //
+                PreviousLogIndex = log.LogIndex,
+
+                Data = log.Content
+            };
+
+            foreach (var follower in _cluster.Members)
+            {
+                if (_serverAddr.Equals(follower))
+                {
+                    continue;
+                }
+                var queue = GetMessageQueue(NodeAddress.Serialize(follower));
+                var reqItem = new RaftMessageQeuue.RequestItem();
+                reqItem.Request = appendRequest.DeepCopy();
+                reqItem.Response = new TaskCompletionSource<RaftMessage>();
+                queue.AddRaftMessage(reqItem);
+            }
+        }
         private async Task AppendRequestToAllFollowers(AppendEntityReqMessage append)
         {
 
@@ -1241,12 +1273,22 @@ namespace PineHillRSL.Raft.Protocol
                 try
                 {
                     await _candidate.RequestLeaderVoteFromAllFollowers();
+
                     _leader = new RaftLeader(_serverAddr, _rpcClient, _cluster,
                         _candidate.CurTerm, (UInt64)((Int64)_candidate.LastLogEntryIndex + 1),
                         _raftMessageList, _entityNote, _follower);
                     _leader.TestSetCommitedLogIndex((UInt64)_entityNote.CommittedLogIndex);
                     _leader.TestSetPrevLogTerm(_entityNote.MaxTerm);
                     _leader.SubscribeNotification(_notificationSubscriber);
+
+                    // first replicate all the log not committed
+                    UInt64 prevTerm = _entityNote.LastCommittedLogTerm;
+                    for (Int64 logIndex = _entityNote.CommittedLogIndex + 1; logIndex <= _entityNote.MaxLogIndex; logIndex++)
+                    {
+                        var log = await _entityNote.GetEntityAsync((UInt64)logIndex);
+                        _leader.AddLogToReplicateQeueus(log, prevTerm, (UInt64)_entityNote.CommittedLogIndex);
+                        prevTerm = log.Term;
+                    }
 
                     // submit a empty request, which will commit
                     // all previous request
