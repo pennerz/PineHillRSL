@@ -411,6 +411,16 @@ namespace PineHillRSL.Tests
 
             master = tableNodeMap[ConsensusNodeHelper.GetInstanceName(cluster.Members[0])];
             var result = await master.ReadTable("1");
+            Assert.AreEqual(result, "test1");
+            result = await master.ReadTable("2");
+            Assert.AreEqual(result, "test2");
+            result = await master.ReadTable("3");
+            Assert.IsNull(result);
+            await master.InstertTable(new ReplicatedTableRequest() { Key = "4", Value = "test4" });
+            result = await master.ReadTable("3");
+            Assert.AreEqual(result, "test3");
+            result = await master.ReadTable("4");
+            Assert.AreEqual(result, "test4");
 
             foreach (var node in tableNodeMap)
             {

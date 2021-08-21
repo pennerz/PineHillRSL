@@ -457,7 +457,13 @@ namespace PineHillRSL.Tests
             {
 
             }
+
+            await voterNote.DisposeAsync();
+            await proposerNote.DisposeAsync();
+            await ledgerLogger.DisposeAsync();
+            await votedLogger.DisposeAsync();
         }
+
         [TestMethod()]
         public async Task ProposerRoleStateMachineTest()
         {

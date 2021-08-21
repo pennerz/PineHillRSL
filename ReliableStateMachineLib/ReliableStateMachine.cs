@@ -246,6 +246,7 @@ namespace PineHillRSL.StateMachine
 
             } while (true);
 
+            // TODO: move this to caller
             await request.Result.Task;
 
         }

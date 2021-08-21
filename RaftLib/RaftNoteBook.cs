@@ -124,7 +124,9 @@ namespace PineHillRSL.Raft.Notebook
 
         private UInt64 _maxDecreeNo = 0;
         private AppendPosition _lastAppendPosition;
-        private Int64 _maxCommittedLogIndex = -1;
+        private Int64 _maxCommittedLogIndex = 0;
+        private Int64 _maxLogIndex = 0;
+        private UInt64 _maxTerm = 0;
         private CancellationTokenSource _cancel = new CancellationTokenSource();
 
         private bool _isStop = false;
@@ -195,6 +197,16 @@ namespace PineHillRSL.Raft.Notebook
                 {
                     _maxCommittedLogIndex = (Int64)entityRecord.CommittedLogIndex;
                 }
+
+                if ((Int64)entityRecord.LogIndex > _maxLogIndex)
+                {
+                    _maxLogIndex = (Int64)entityRecord.LogIndex;
+                }
+
+                if (entityRecord.Term > _maxTerm)
+                {
+                    _maxTerm = entityRecord.Term;
+                }
             }
         }
 
@@ -239,6 +251,15 @@ namespace PineHillRSL.Raft.Notebook
                 if ((Int64)committedLogIndex > _maxCommittedLogIndex)
                 {
                     _maxCommittedLogIndex = (Int64)committedLogIndex;
+                }
+                if ((Int64)logIndex > _maxLogIndex)
+                {
+                    _maxLogIndex = (Int64)logIndex;
+                }
+
+                if (term > _maxTerm)
+                {
+                    _maxTerm = term;
                 }
 
                 return position;
@@ -307,6 +328,10 @@ namespace PineHillRSL.Raft.Notebook
         }
 
         public Int64 CommittedLogIndex => _maxCommittedLogIndex;
+
+        public Int64 MaxLogIndex => _maxLogIndex;
+
+        public UInt64 MaxTerm => _maxTerm;
     }
 
     public class MetaRecord

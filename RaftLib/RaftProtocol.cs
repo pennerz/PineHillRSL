@@ -362,11 +362,16 @@ namespace PineHillRSL.Raft.Protocol
                             var commitItem = new CommitingItem()
                             {
                                 LogIndex = (UInt64)commitLogIndex,
-                                Data = data
                             };
                             if ((UInt64)commitLogIndex == logIndex)
                             {
+                                commitItem.Data = data;
                                 commitItem.CommittingTask = commitTask;
+                            }
+                            else
+                            {
+                                var logEntity = await _enityNotebook.GetEntityAsync((UInt64)commitLogIndex);
+                                commitItem.Data = logEntity != null ? logEntity.Content : null;
                             }
                             _pendingCommittingList.Add(commitItem);
                         }
@@ -669,6 +674,16 @@ namespace PineHillRSL.Raft.Protocol
         public UInt64 Term => _term;
 
         public UInt64 LogIndex => _logIndex;
+
+        public void TestSetCommitedLogIndex(UInt64 comittedLogIndex)
+        {
+            _committedLogIndex = comittedLogIndex;
+        }
+
+        public void TestSetPrevLogTerm(UInt64 term)
+        {
+            _prevLogTerm = term;
+        }
 
         public bool EnableMatain { get; set; } = false;
 
@@ -997,7 +1012,13 @@ namespace PineHillRSL.Raft.Protocol
                     _notfierCalled = true;
                 }
             }
+            _logIndex = (UInt64)_entityNote.MaxLogIndex;
             _follower.LastCommitedLogIndex = commitedLogIndex;
+            _term = _entityNote.MaxTerm;
+            _follower.TestSetCurrentTerm(_term);
+            _follower.TestSetLogIndex(_logIndex);
+            _follower.TestSetCommittedLogIndex((UInt64)commitedLogIndex);
+
 
             // last one which does not include the committed no,
             // need to wait for new leader which will propose a new
@@ -1214,14 +1235,17 @@ namespace PineHillRSL.Raft.Protocol
                 _candidate = new RaftCandidate(
                     _serverAddr, _rpcClient, _cluster,
                     _follower.Term + 1,
-                    _follower.Term, _follower.LogIndex,
+                    _follower.Term,
+                    _follower.LogIndex,
                     _raftMessageList);
                 try
                 {
                     await _candidate.RequestLeaderVoteFromAllFollowers();
                     _leader = new RaftLeader(_serverAddr, _rpcClient, _cluster,
-                        _candidate.CurTerm, _candidate.LastLogEntryIndex,
+                        _candidate.CurTerm, (UInt64)((Int64)_candidate.LastLogEntryIndex + 1),
                         _raftMessageList, _entityNote, _follower);
+                    _leader.TestSetCommitedLogIndex((UInt64)_entityNote.CommittedLogIndex);
+                    _leader.TestSetPrevLogTerm(_entityNote.MaxTerm);
                     _leader.SubscribeNotification(_notificationSubscriber);
 
                     // submit a empty request, which will commit

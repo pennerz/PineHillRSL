@@ -190,6 +190,52 @@ namespace PineHillRSL.Raft.Message
             var copy = new VoteReqMessage(this);
             return copy;
         }
+
+        public override byte[] Serialize()
+        {
+            var lastLogEntryTermData = BitConverter.GetBytes(LastLogEntryTerm);
+            var lastLogEntryIndexData = BitConverter.GetBytes(LastLogEntryIndex);
+            var baseData = base.Serialize();
+
+            var dataList = new List<byte[]>();
+            dataList.Add(lastLogEntryTermData);
+            dataList.Add(lastLogEntryIndexData);
+            dataList.Add(baseData);
+
+            var serializeBuffer = new SerializeBuffer();
+            serializeBuffer.AppendBlocks(dataList);
+            return serializeBuffer.DataBuf;
+        }
+
+        public override void DeSerialize(byte[] data)
+        {
+            var serializeBuffer = new SerializeBuffer();
+            serializeBuffer.ConcatenateBuff(data);
+
+            var itEnd = serializeBuffer.End();
+            var it = serializeBuffer.Begin();
+            if (it.Equals(itEnd))
+            {
+                return;
+            }
+            LastLogEntryTerm = BitConverter.ToUInt64(it.DataBuff, it.RecordOff);
+            it = it.Next();
+            if (it.Equals(itEnd))
+            {
+                return;
+            }
+            LastLogEntryIndex = BitConverter.ToUInt64(it.DataBuff, it.RecordOff);
+
+            it = it.Next();
+            if (it.Equals(itEnd))
+            {
+                return;
+            }
+
+            var baseSerializeData = new byte[it.RecordSize];
+            Buffer.BlockCopy(it.DataBuff, it.RecordOff, baseSerializeData, 0, it.RecordSize);
+            base.DeSerialize(baseSerializeData);
+        }
     }
 
     [Serializable()]
