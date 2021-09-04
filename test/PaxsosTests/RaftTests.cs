@@ -148,10 +148,10 @@ namespace PineHillRSL.Tests
 
             // 1. vote request's term < current term, deny
             var follower = new RaftFollower(entityNote);
-            follower.TestSetCurrentTerm(4);
-            follower.TestSetLogIndex(12);   // crrent term, 4, log index 12
+            follower.LastLogTerm = 4;
+            follower.LastLogIndex = 12;   // crrent term, 4, log index 12
             follower.TestSetCandidateTerm(4, leaderNode); // candidate term 4
-            follower.TestSetCommittedLogIndex(11); // committed logIndex, 4:11 
+            follower.LastCommittedLogIndex = 11; // committed logIndex, 4:11 
 
             var voteReq = new VoteReqMessage();
             voteReq.SourceNode = NodeAddress.Serialize(leaderNode);
@@ -166,10 +166,10 @@ namespace PineHillRSL.Tests
             Assert.IsTrue(follower.GetLeader() == null);
 
             // 2. vote request's term < foller's candidate term, deny
-            follower.TestSetCurrentTerm(1);
+            follower.LastLogTerm = 1;
             follower.TestSetCandidateTerm(2, leaderNode); // candidate term 2
-            follower.TestSetLogIndex(12);   // crrent term, 1, log index 12
-            follower.TestSetCommittedLogIndex(11); // committed logIndex, 1:11 
+            follower.LastLogIndex = 12;   // crrent term, 1, log index 12
+            follower.LastCommittedLogIndex = 11; // committed logIndex, 1:11 
             voteReq.SourceNode = NodeAddress.Serialize(leaderNode);
             voteReq.TargetNode = NodeAddress.Serialize(followerNode);
             voteReq.Term = 2;
@@ -180,10 +180,10 @@ namespace PineHillRSL.Tests
             Assert.IsFalse(voteResp.Succeed);
 
             // 3. vote req's last log entry's < follower's committed log entry, deny
-            follower.TestSetCurrentTerm(1);
+            follower.LastLogTerm = 1;
             follower.TestSetCandidateTerm(2, leaderNode); // candidate term 2
-            follower.TestSetLogIndex(12);   // crrent term, 1, log index 12
-            follower.TestSetCommittedLogIndex(11); // committed logIndex, 1:11 
+            follower.LastLogIndex = 12;   // crrent term, 1, log index 12
+            follower.LastCommittedLogIndex = 11; // committed logIndex, 1:11 
 
             voteReq.SourceNode = NodeAddress.Serialize(leaderNode);
             voteReq.TargetNode = NodeAddress.Serialize(followerNode);
@@ -196,10 +196,10 @@ namespace PineHillRSL.Tests
 
             // 4. req's term > current term, req's term > candidate term,
             //    req's lastlogentry's term, log index >= committedlogentry's term, index
-            follower.TestSetCurrentTerm(1);
+            follower.LastLogTerm = 1;
             follower.TestSetCandidateTerm(2, leaderNode); // candidate term 2
-            follower.TestSetLogIndex(12);   // crrent term, 1, log index 12
-            follower.TestSetCommittedLogIndex(11); // committed logIndex, 1:11 
+            follower.LastLogIndex = 12;   // crrent term, 1, log index 12
+            follower.LastCommittedLogIndex = 11; // committed logIndex, 1:11 
             voteReq.Term = 3;
             voteReq.LogIndex = 11; // no care
             voteReq.LastLogEntryTerm = 1;
@@ -248,10 +248,10 @@ namespace PineHillRSL.Tests
 
             // append request
             var follower = new RaftFollower(entityNote);
-            follower.TestSetCurrentTerm(2);
+            follower.LastLogTerm = 2;
             follower.TestSetCandidateTerm(3, leaderNode); // candidate term 3
-            follower.TestSetLogIndex(12);   // crrent term, 2, log index 12
-            follower.TestSetCommittedLogIndex(11); // committed logIndex, 2:11 
+            follower.LastLogIndex = 12;   // crrent term, 2, log index 12
+            follower.LastCommittedLogIndex = 11; // committed logIndex, 2:11 
 
             // 1. Reply false if term < currentTerm(§5.1)
             var appendReq = new AppendEntityReqMessage();
@@ -263,7 +263,7 @@ namespace PineHillRSL.Tests
             appendReq.PreviousLogIndex = 11;
             appendReq.PreviousLogTerm = 1;
             var appendResp = await follower.DoRequest(appendReq) as AppendEntityRespMessage;
-            Assert.IsFalse(appendResp.Succeed);
+            Assert.IsFalse(appendResp.Result == AppendEntityRespMessage.AppendResult.Succeed);
             Assert.IsTrue(follower.GetLeader() == null);
 
             // 2. Reply false if log doesn’t contain an entry at prevLogIndex
@@ -274,7 +274,7 @@ namespace PineHillRSL.Tests
             appendReq.PreviousLogIndex = 11;
             appendReq.PreviousLogTerm = 1;
             appendResp = await follower.DoRequest(appendReq) as AppendEntityRespMessage;
-            Assert.IsFalse(appendResp.Succeed);
+            Assert.IsFalse(appendResp.Result == AppendEntityRespMessage.AppendResult.Succeed);
             Assert.IsTrue(follower.GetLeader() == null);
 
             // 3. If an existing entry conflicts with a new one(same index
@@ -307,7 +307,7 @@ namespace PineHillRSL.Tests
                 LogPosition = new AppendPosition(1, 400)
             });
             appendResp = await follower.DoRequest(appendReq) as AppendEntityRespMessage;
-            Assert.IsTrue(appendResp.Succeed);
+            Assert.IsTrue(appendResp.Result == AppendEntityRespMessage.AppendResult.Succeed);
             Assert.IsTrue(follower.GetLeader().Equals(leaderNode));
             Assert.IsFalse(logEntities.ContainsKey(13)); // 13 is removed
             var logEntity = logEntities[10];
@@ -325,10 +325,10 @@ namespace PineHillRSL.Tests
             appendReq.PreviousLogIndex = 12;
             appendReq.PreviousLogTerm = 1;
             appendResp = await follower.DoRequest(appendReq) as AppendEntityRespMessage;
-            Assert.IsFalse(appendResp.Succeed); // previous entity's term not match
+            Assert.IsFalse(appendResp.Result == AppendEntityRespMessage.AppendResult.Succeed); // previous entity's term not match
             appendReq.PreviousLogTerm = 2;
             appendResp = await follower.DoRequest(appendReq) as AppendEntityRespMessage;
-            Assert.IsTrue(appendResp.Succeed);
+            Assert.IsTrue(appendResp.Result == AppendEntityRespMessage.AppendResult.Succeed);
             logEntity = logEntities[13];
             Assert.AreEqual(logEntity.Term, (UInt64)2);
 
@@ -340,8 +340,8 @@ namespace PineHillRSL.Tests
             appendReq.PreviousLogIndex = 13;
             appendReq.PreviousLogTerm = 2;
             appendResp = await follower.DoRequest(appendReq) as AppendEntityRespMessage;
-            Assert.IsTrue(appendResp.Succeed);
-            Assert.AreEqual(follower.CommitedLogIndex, (UInt64)13);
+            Assert.IsTrue(appendResp.Result == AppendEntityRespMessage.AppendResult.Succeed);
+            Assert.AreEqual(follower.LastCommittedLogIndex, (UInt64)13);
 
 
             // 6. append request's term >= foller's current term,
@@ -351,7 +351,7 @@ namespace PineHillRSL.Tests
             appendReq.LogIndex = 15;
             appendReq.PreviousLogIndex = 14;
             appendResp = await follower.DoRequest(appendReq) as AppendEntityRespMessage;
-            Assert.IsFalse(appendResp.Succeed);
+            Assert.IsFalse(appendResp.Result == AppendEntityRespMessage.AppendResult.Succeed);
 
             await entityNote.DisposeAsync();
             await entityLogger.DisposeAsync();

@@ -385,19 +385,20 @@ namespace PineHillRSL.Raft.Message
     [Serializable()]
     public class AppendEntityRespMessage : RaftMessage
     {
-        public enum Result
+        public enum AppendResult
         {
             Succeed,
             StaleTerm,
             AlreadyCommitted,
-            HoleExit
+            HoleExit,
+            Fail
         }
         public AppendEntityRespMessage()
         {
             MessageType = RaftMessageType.AppendEntityResp;
         }
 
-        public bool Succeed { get; set; } = false;
+        public AppendResult Result { get; set; } = AppendResult.Fail;
 
         public Int64 PreviousTerm { get; set; }
         public Int64 PreviousLogIndex { get; set; }
@@ -406,8 +407,8 @@ namespace PineHillRSL.Raft.Message
         {
             var dataList = new List<byte[]>();
             dataList.Add(base.Serialize());
-            var isSucceededBuf = BitConverter.GetBytes(Succeed);
-            dataList.Add(isSucceededBuf);
+            var isResultBuf = BitConverter.GetBytes((UInt32)Result);
+            dataList.Add(isResultBuf);
 
             var serializeBuffer = new SerializeBuffer();
             serializeBuffer.AppendBlocks(dataList);
@@ -434,7 +435,7 @@ namespace PineHillRSL.Raft.Message
             {
                 return;
             }
-            Succeed = BitConverter.ToBoolean(it.DataBuff, it.RecordOff);
+            Result = (AppendResult)BitConverter.ToUInt32(it.DataBuff, it.RecordOff);
         }
 
     }
