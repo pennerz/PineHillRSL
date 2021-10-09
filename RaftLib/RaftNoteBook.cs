@@ -115,6 +115,7 @@ namespace PineHillRSL.Raft.Notebook
     public class EntityNote : IAsyncDisposable
     {
         // persistent module
+        private readonly ILogger _metaLogger;
         private readonly ILogger _logger;
         private SemaphoreSlim _lock = new SemaphoreSlim(1);
 
@@ -122,12 +123,12 @@ namespace PineHillRSL.Raft.Notebook
         private List<Tuple<UInt64, AppendPosition>> _checkpointPositionList = new List<Tuple<UInt64, AppendPosition>>();
         private SortedDictionary<UInt64, LogEntity> _logEntities = new SortedDictionary<ulong, LogEntity>();
 
-        private UInt64 _maxDecreeNo = 0;
         private AppendPosition _lastAppendPosition;
         private UInt64 _maxCommittedLogIndex = 0;
         private UInt64 _maxCommittedLogTerm = 0;
         private UInt64 _maxLogIndex = 0;
         private UInt64 _maxTerm = 0;
+        private MetaNote _metaNote = null;
         private CancellationTokenSource _cancel = new CancellationTokenSource();
 
         private bool _isStop = false;
@@ -136,6 +137,11 @@ namespace PineHillRSL.Raft.Notebook
         public EntityNote(ILogger entityLogger, ILogger metaLogger = null)
         {
             _logger = entityLogger;
+            _metaLogger = metaLogger;
+            if (_metaLogger != null)
+            {
+                _metaNote = new MetaNote(_metaLogger);
+            }
 
             _positionCheckpointTask = Task.Run(async () =>
             {
@@ -150,11 +156,11 @@ namespace PineHillRSL.Raft.Notebook
                         return;
                     }
 
-                    UInt64 maxDecreeNo = 0;
+                    UInt64 maxLogEntryIndexNo = 0;
                     AppendPosition lastAppendPosition;
                     lock (_logger)
                     {
-                        maxDecreeNo = _maxDecreeNo;
+                        maxLogEntryIndexNo = _maxLogIndex;
                         lastAppendPosition = _lastAppendPosition;
                     }
 
@@ -162,7 +168,7 @@ namespace PineHillRSL.Raft.Notebook
                     {
                         lock (_checkpointPositionList)
                         {
-                            _checkpointPositionList.Add(new Tuple<UInt64, AppendPosition>(maxDecreeNo, lastAppendPosition));
+                            _checkpointPositionList.Add(new Tuple<UInt64, AppendPosition>(maxLogEntryIndexNo, lastAppendPosition));
                         }
                     }
 
@@ -180,6 +186,8 @@ namespace PineHillRSL.Raft.Notebook
 
         public async Task Load()
         {
+            await _metaNote.Load();
+
             var it = await _logger.Begin();
             var itEnd = await _logger.End();
             for (; !it.Equals(itEnd); it = await it.Next())
@@ -318,6 +326,46 @@ namespace PineHillRSL.Raft.Notebook
             return entity;
         }
 
+        public async Task Checkpoint(string newCheckpointFile, ulong logIndex)
+        {
+            var minOff = await GetMinPositionForLog(logIndex + 1);
+
+           ulong baseLogIndexNo = 0;
+            if (RoleMetaRecord != null)
+            {
+                baseLogIndexNo = RoleMetaRecord.LogIndexNo;
+            }
+
+            // write new checkpoint recrod
+            var metaRecord = new MetaRecord((UInt64)logIndex, newCheckpointFile, minOff);
+            await _metaNote.UpdateMeta(metaRecord);
+
+            // release checkpointed decrees
+            ulong newBaseLogIndexNo = 0;
+            if (RoleMetaRecord != null)
+            {
+                newBaseLogIndexNo = RoleMetaRecord.LogIndexNo;
+            }
+            if (newBaseLogIndexNo > baseLogIndexNo)
+            {
+                for (var itLogIndexNo = baseLogIndexNo; itLogIndexNo < newBaseLogIndexNo; itLogIndexNo++)
+                {
+                    //lock(_lock)
+                    try
+                    {
+                        await _lock.WaitAsync();
+                        _logEntities.Remove(itLogIndexNo);
+                    }
+                    finally
+                    {
+                        _lock.Release();
+                    }
+                }
+            }
+
+            // try to truncate the logs
+            await _logger.Truncate(minOff);
+        }
 
         public void Truncate(UInt64 maxDecreeNo, AppendPosition position)
         {
@@ -331,29 +379,61 @@ namespace PineHillRSL.Raft.Notebook
             return _logEntities;
         }
 
+        public MetaRecord RoleMetaRecord => _metaNote?.MetaDataRecord;
+
         public UInt64 CommittedLogIndex => _maxCommittedLogIndex;
         public UInt64 LastCommittedLogTerm => _maxCommittedLogTerm;
 
         public UInt64 MaxLogIndex => _maxLogIndex;
 
         public UInt64 MaxTerm => _maxTerm;
+
+
+        private Task<AppendPosition> GetMinPositionForLog(ulong logIndex)
+        {
+            AppendPosition minPos = null;
+            Tuple<ulong, AppendPosition> lastSmallerLog = null;
+            lock (_checkpointPositionList)
+            {
+                foreach(var item in _checkpointPositionList)
+                {
+                    if (item.Item1 > logIndex)
+                    {
+                        break;
+                    }
+                    lastSmallerLog = item;
+                }
+            }
+
+            if (lastSmallerLog != null)
+            {
+                minPos = lastSmallerLog.Item2;
+            }
+            if (minPos == null)
+            {
+                minPos = new AppendPosition(0, 0);
+            }
+
+            return Task.FromResult(minPos);
+        }
+
     }
 
     public class MetaRecord
     {
         private byte[] _magic = new byte[] { (byte)'M', (byte)'e', (byte)'t', (byte)'a' };
-        private UInt64 _decreeNo = 0;
+        private UInt64 _logIndexNo = 0;
         private string _checkpointFile;
         private AppendPosition _checkpointPosition;
 
-        public MetaRecord(UInt64 decreeNo, string checkpointFile, AppendPosition checkpointPosition)
+        public MetaRecord(UInt64 logIndexNo, string checkpointFile, AppendPosition checkpointPosition)
         {
-            _decreeNo = decreeNo;
+            _logIndexNo = logIndexNo;
             _checkpointFile = checkpointFile;
             _checkpointPosition = checkpointPosition;
         }
 
-        public UInt64 DecreeNo => _decreeNo;
+        public UInt64 LogIndexNo => _logIndexNo;
 
         public string CheckpointFilePath => _checkpointFile;
 
@@ -364,7 +444,7 @@ namespace PineHillRSL.Raft.Notebook
             var filePathData = Encoding.UTF8.GetBytes(_checkpointFile);
             var fragmentIndexData = BitConverter.GetBytes((UInt64)_checkpointPosition.FragmentIndex);
             var offsetInFragmentData = BitConverter.GetBytes((UInt64)_checkpointPosition.OffsetInFragment);
-            var decreeNoData = BitConverter.GetBytes(_decreeNo);
+            var decreeNoData = BitConverter.GetBytes(_logIndexNo);
             int recrodSize = _magic.Length + filePathData.Length + decreeNoData.Length + fragmentIndexData.Length + offsetInFragmentData.Length;
             var buf = new LogBuffer();
             buf.AllocateBuffer(recrodSize + sizeof(int));
@@ -386,7 +466,7 @@ namespace PineHillRSL.Raft.Notebook
             Array.Copy(buf, offInBuf, magic, 0, magic.Length);
             _magic.SequenceEqual(magic);
             offInBuf += _magic.Length;
-            _decreeNo = BitConverter.ToUInt64(buf, offInBuf);
+            _logIndexNo = BitConverter.ToUInt64(buf, offInBuf);
             offInBuf += sizeof(UInt64);
             var fragmentIndex = BitConverter.ToUInt64(buf, offInBuf);
             offInBuf += sizeof(UInt64);

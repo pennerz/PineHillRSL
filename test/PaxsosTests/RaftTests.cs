@@ -147,7 +147,7 @@ namespace PineHillRSL.Tests
             //
 
             // 1. vote request's term < current term, deny
-            var follower = new RaftFollower(entityNote);
+            var follower = new RaftFollower(followerNode, entityNote);
             follower.LastLogTerm = 4;
             follower.LastLogIndex = 12;   // crrent term, 4, log index 12
             follower.TestSetCandidateTerm(4, leaderNode); // candidate term 4
@@ -247,7 +247,7 @@ namespace PineHillRSL.Tests
             // min(leaderCommit, index of last new entry)
 
             // append request
-            var follower = new RaftFollower(entityNote);
+            var follower = new RaftFollower(followerNode, entityNote);
             follower.LastLogTerm = 2;
             follower.TestSetCandidateTerm(3, leaderNode); // candidate term 3
             follower.LastLogIndex = 12;   // crrent term, 2, log index 12
@@ -263,7 +263,8 @@ namespace PineHillRSL.Tests
             appendReq.PreviousLogIndex = 11;
             appendReq.PreviousLogTerm = 1;
             var appendResp = await follower.DoRequest(appendReq) as AppendEntityRespMessage;
-            Assert.IsFalse(appendResp.Result == AppendEntityRespMessage.AppendResult.Succeed);
+            Assert.AreEqual(appendResp.Result, AppendEntityRespMessage.AppendResult.StaleTerm);
+            Assert.AreEqual(appendResp.Term, (UInt64)2);
             Assert.IsTrue(follower.GetLeader() == null);
 
             // 2. Reply false if log doesn’t contain an entry at prevLogIndex
@@ -274,7 +275,7 @@ namespace PineHillRSL.Tests
             appendReq.PreviousLogIndex = 11;
             appendReq.PreviousLogTerm = 1;
             appendResp = await follower.DoRequest(appendReq) as AppendEntityRespMessage;
-            Assert.IsFalse(appendResp.Result == AppendEntityRespMessage.AppendResult.Succeed);
+            Assert.AreEqual(appendResp.Result, AppendEntityRespMessage.AppendResult.HoleExit);
             Assert.IsTrue(follower.GetLeader() == null);
 
             // 3. If an existing entry conflicts with a new one(same index
@@ -307,7 +308,7 @@ namespace PineHillRSL.Tests
                 LogPosition = new AppendPosition(1, 400)
             });
             appendResp = await follower.DoRequest(appendReq) as AppendEntityRespMessage;
-            Assert.IsTrue(appendResp.Result == AppendEntityRespMessage.AppendResult.Succeed);
+            Assert.AreEqual(appendResp.Result, AppendEntityRespMessage.AppendResult.Succeed);
             Assert.IsTrue(follower.GetLeader().Equals(leaderNode));
             Assert.IsFalse(logEntities.ContainsKey(13)); // 13 is removed
             var logEntity = logEntities[10];
@@ -325,10 +326,10 @@ namespace PineHillRSL.Tests
             appendReq.PreviousLogIndex = 12;
             appendReq.PreviousLogTerm = 1;
             appendResp = await follower.DoRequest(appendReq) as AppendEntityRespMessage;
-            Assert.IsFalse(appendResp.Result == AppendEntityRespMessage.AppendResult.Succeed); // previous entity's term not match
+            Assert.AreEqual(appendResp.Result, AppendEntityRespMessage.AppendResult.HoleExit); // previous entity's term not match
             appendReq.PreviousLogTerm = 2;
             appendResp = await follower.DoRequest(appendReq) as AppendEntityRespMessage;
-            Assert.IsTrue(appendResp.Result == AppendEntityRespMessage.AppendResult.Succeed);
+            Assert.AreEqual(appendResp.Result, AppendEntityRespMessage.AppendResult.Succeed);
             logEntity = logEntities[13];
             Assert.AreEqual(logEntity.Term, (UInt64)2);
 
@@ -340,7 +341,7 @@ namespace PineHillRSL.Tests
             appendReq.PreviousLogIndex = 13;
             appendReq.PreviousLogTerm = 2;
             appendResp = await follower.DoRequest(appendReq) as AppendEntityRespMessage;
-            Assert.IsTrue(appendResp.Result == AppendEntityRespMessage.AppendResult.Succeed);
+            Assert.AreEqual(appendResp.Result, AppendEntityRespMessage.AppendResult.Succeed);
             Assert.AreEqual(follower.LastCommittedLogIndex, (UInt64)13);
 
 
@@ -351,7 +352,7 @@ namespace PineHillRSL.Tests
             appendReq.LogIndex = 15;
             appendReq.PreviousLogIndex = 14;
             appendResp = await follower.DoRequest(appendReq) as AppendEntityRespMessage;
-            Assert.IsFalse(appendResp.Result == AppendEntityRespMessage.AppendResult.Succeed);
+            Assert.AreEqual(appendResp.Result, AppendEntityRespMessage.AppendResult.AlreadyCommitted);
 
             await entityNote.DisposeAsync();
             await entityLogger.DisposeAsync();
@@ -414,7 +415,7 @@ namespace PineHillRSL.Tests
             Assert.AreEqual(result, "test1");
             result = await master.ReadTable("2");
             Assert.AreEqual(result, "test2");
-            result = await master.ReadTable("3");
+            result = await master.ReadTable("3"); // committed index not saved.
             Assert.IsNull(result);
             await master.InstertTable(new ReplicatedTableRequest() { Key = "4", Value = "test4" });
             result = await master.ReadTable("3");
@@ -427,6 +428,92 @@ namespace PineHillRSL.Tests
                 await node.Value.DisposeAsync();
             }
 
+        }
+
+        [TestMethod()]
+        public async Task StateMachineCheckpointRequestTest()
+        {
+            System.Console.WriteLine("StateMachineCheckpointRequestTest");
+            await Task.Run(async () =>
+            {
+                CleanupLogFiles(null);
+
+                Dictionary<string, string> _table = new Dictionary<string, string>();
+                var start = DateTime.Now;
+                var end = DateTime.Now;
+                var costTime = (end - start).TotalMilliseconds;
+
+                var cluster = new ConsensusCluster();
+                for (int i = 0; i < 5; i++)
+                {
+                    var node = new NodeInfo("127.0.0.1");
+                    var nodeAddr = new NodeAddress(node, 148 + i);
+                    cluster.Members.Add(nodeAddr);
+                }
+
+                var networkInfr = new TestNetworkInfr();
+                NetworkFactory.SetNetworkCreator(new TestNetworkCreator(networkInfr, new NodeInfo("127.0.0.1")));
+                StateMachine.ConsencusNodeFactory.SetConsensusProtocol(StateMachine.ConsencusNodeFactory.ConcensusProtocol.Raft);
+
+                int unHealthyNodeIndex = 2;
+                var tableNodeMap = new Dictionary<string, ReplicatedTable.ReplicatedTable>();
+                for (int i = 0; i < cluster.Members.Count; ++i)
+                {
+                    if (i == unHealthyNodeIndex)
+                    {
+                        //continue;
+                    }
+                    var nodeAddr = cluster.Members[i];
+                    var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
+                    var nodeInstanceName = ConsensusNodeHelper.GetInstanceName(nodeAddr);
+                    tableNodeMap[nodeInstanceName] = node;
+                }
+
+                start = DateTime.Now;
+
+                var master = tableNodeMap[ConsensusNodeHelper.GetInstanceName(cluster.Members[0])];
+                for (int i = 0; i < 500; i++)
+                {
+                    var task = master.InstertTable(new ReplicatedTableRequest() { Key = i.ToString(), Value = "test" + i.ToString() });
+                    await task;
+                    if (i == 50)
+                    {
+                        Console.WriteLine("break");
+                    }
+                }
+
+                foreach (var node in tableNodeMap)
+                {
+                    await node.Value.DisposeAsync();
+                }
+
+                for (int i = 0; i < cluster.Members.Count; ++i)
+                {
+                    if (i == unHealthyNodeIndex)
+                    {
+                        //continue;
+                    }
+                    var nodeAddr = cluster.Members[i];
+                    var node = new ReplicatedTable.ReplicatedTable(cluster, nodeAddr);
+                    var nodeInstanceName = ConsensusNodeHelper.GetInstanceName(nodeAddr);
+                    var metaLogFile = ".\\storage\\" + nodeInstanceName + ".meta";
+                    await node.Load(metaLogFile);
+                    tableNodeMap[nodeInstanceName] = node;
+                }
+
+                var readNode = tableNodeMap[ConsensusNodeHelper.GetInstanceName(cluster.Members[0])];
+
+                for (int i = 0; i < 499; i++) // last number do not have committed index covered
+                {
+                    var key = i.ToString();
+                    var value = await readNode.ReadTable(key);
+                    if (value != "test" + i.ToString())
+                    {
+                        Assert.AreEqual(value, "test" + i.ToString());
+                    }
+                }
+
+            });
         }
 
         private void CleanupLogFiles(string nodeName)

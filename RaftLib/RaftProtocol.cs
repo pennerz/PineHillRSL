@@ -322,12 +322,19 @@ namespace PineHillRSL.Raft.Protocol
     public class RaftFollower
     {
         private NodeAddress _leader;
+        private readonly NodeAddress _serverAddr;
+        private readonly ConsensusCluster _cluster;
+
         private DateTime _lastLeaderMsgTime = DateTime.MinValue;
 
         private NodeAddress _candidate;
         private UInt64 _candidateTerm = 0;
         private EntityNote _enityNotebook;
         private IConsensusNotification _notificationSubscriber;
+        private bool _notfierCalled = false;
+
+        private ulong _logSize = 0;
+        private Task _checkpointTask = null;
 
         private SemaphoreSlim _lock = new SemaphoreSlim(1);
         private SemaphoreSlim _commitLock = new SemaphoreSlim(1);
@@ -340,10 +347,94 @@ namespace PineHillRSL.Raft.Protocol
         }
         private List<CommitingItem> _pendingCommittingList = new List<CommitingItem>();
 
-        public RaftFollower(EntityNote noteBook)
+        public RaftFollower(NodeAddress serverAddr, EntityNote noteBook)
         {
+            _serverAddr = serverAddr;
             _enityNotebook = noteBook;
         }
+
+        public async Task Load(DataSource dataSource = DataSource.Local)
+        {
+            UInt64 catchupLogSize = 0;
+            do
+            {
+                await _enityNotebook.Load();
+                //_proposeManager.ResetBaseDecreeNo(await _proposerNote.GetMaximumCommittedDecreeNo());
+                if (_notificationSubscriber != null)
+                {
+                    var metaRecord = _enityNotebook.RoleMetaRecord;
+                    if (metaRecord != null && !string.IsNullOrEmpty(metaRecord.CheckpointFilePath))
+                    {
+                        using (var checkpointStream = new FileStream(metaRecord.CheckpointFilePath, FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite))
+                        {
+                            await _notificationSubscriber.LoadCheckpoint(metaRecord.LogIndexNo, checkpointStream);
+                        }
+                    }
+
+                    /*
+                    if (_proposerNote.CommittedDecrees.Count == 0)
+                    {
+                        ConsensusDecree fakeDecree = new ConsensusDecree();
+                        try
+                        {
+                            await Propose(fakeDecree, 0);
+                        }
+                        catch (Exception)
+                        {
+                        }
+
+                    }*/
+
+                    // catchup 
+                    var logEntities = _enityNotebook.Test_GetAppendLogEntities();
+                    var committedLogIndex = _enityNotebook.CommittedLogIndex;
+                    foreach (var logEntity in logEntities)
+                    {
+                        if (logEntity.Value.Content != null)
+                        {
+                            catchupLogSize += (UInt64)logEntity.Value.Content.Length;
+                        }
+                        if (logEntity.Key <= committedLogIndex)
+                        {
+                            // committed
+                            if (_notificationSubscriber == null)
+                            {
+                                continue;
+                            }
+                            await _notificationSubscriber.UpdateSuccessfullDecree(
+                                logEntity.Key, new ConsensusDecree()
+                                {
+                                    Data = logEntity.Value.Content
+                                });
+                            _notfierCalled = true;
+                        }
+                    }
+
+                    _logSize = catchupLogSize;
+                    LastLogIndex = _enityNotebook.MaxLogIndex;
+                    LastLogTerm = _enityNotebook.MaxTerm;
+                    LastCommittedLogIndex = _enityNotebook.CommittedLogIndex;
+                }
+
+                break;
+
+                if (dataSource == DataSource.Local)
+                {
+                    break;
+                }
+
+                // request remote node's checkpoints
+                /*
+                bool needLoadNewCheckpoint = await LoadCheckpointFromRemoteNodes();
+                if (!needLoadNewCheckpoint)
+                {
+                    break;
+                }*/
+                catchupLogSize = 0;
+                // check if need to continue
+            } while (true);
+        }
+
 
         public NodeAddress GetLeader()
         {
@@ -363,6 +454,66 @@ namespace PineHillRSL.Raft.Protocol
         public void SubscribeNotification(IConsensusNotification listener)
         {
             _notificationSubscriber = listener;
+        }
+
+        public void TriggerCheckpoint()
+        {
+            //return Task.CompletedTask;
+            // TODO: add parallel checkpoints support
+            bool noTrigger = false;
+            lock(this)
+            {
+                if (_checkpointTask != null && !_checkpointTask.IsCompleted)
+                {
+                    noTrigger = true;
+                }
+                else
+                {
+                    if (_logSize <= LogSizeThreshold.CommitLogFileCheckpointThreshold)
+                    {
+                        noTrigger = true;
+                    }
+                    else
+                    {
+                        _logSize = 0;
+                    }
+                }
+            }
+
+            if (noTrigger)
+            {
+                return;
+            }
+
+            /*
+            var fakeMsg = new PaxosMessage();
+            lock (_ongoingRequests)
+            {
+                if (Stop)
+                {
+                    return Task.CompletedTask;
+                }
+                _ongoingRequests.Add(fakeMsg);
+            }*/
+
+            _checkpointTask = Task.Run(async () =>
+            {
+                try
+                {
+                    await Checkpoint();
+                }
+                finally
+                {
+                    /*
+                    lock (_ongoingRequests)
+                    {
+                        _ongoingRequests.Remove(fakeMsg);
+                    }*/
+                }
+            });
+
+            // do not care about the task, just let it run, when it's completed
+            // it will remove the fake msg from onoging requests
         }
 
         public async Task<RaftMessage> DoRequest(RaftMessage request)
@@ -465,6 +616,9 @@ namespace PineHillRSL.Raft.Protocol
                                 {
                                     Data = committingItem.Data
                                 });
+
+                            // check if need to checkpoint
+                            // TODO, remvoe it from critical path
                         }
 
                         if (committingItem.CommittingTask != null)
@@ -476,6 +630,8 @@ namespace PineHillRSL.Raft.Protocol
 
                 } while (true);
             });
+
+            /*_checkpointTask = */TriggerCheckpoint();
 
             await commitTask.Task;
         }
@@ -529,6 +685,14 @@ namespace PineHillRSL.Raft.Protocol
                 // write the entity
                 await _enityNotebook.AppendEntity(req.Term, req.LogIndex, req.CommittedLogIndex,
                     req.Data);
+                if (req.Data != null)
+                {
+                    lock(this)
+                    {
+                        _logSize += (UInt64)req.Data.Length;
+
+                    }
+                }
 
                 if (req.Term > LastLogTerm || _leader == null)
                 {
@@ -614,6 +778,42 @@ namespace PineHillRSL.Raft.Protocol
             resp.Succeed = true;
             return resp;
         }
+
+        private async Task Checkpoint()
+        {
+            // all the decree before decreeno has been checkpointed.
+            // reserver the logs from the lowest position of the positions of decrees which are bigger than decreeNo
+            if (_notificationSubscriber != null)
+            {
+                // get next checkpoint file
+                var checkpointFilePath = _enityNotebook.RoleMetaRecord?.CheckpointFilePath;
+                if (checkpointFilePath == null)
+                {
+                    checkpointFilePath = ".\\storage\\" + ConsensusNodeHelper.GetInstanceName(_serverAddr) + "_checkpoint.0000000000000001";
+                }
+                else
+                {
+                    int checkpointFileIndex = 0;
+                    var baseName = ".\\storage\\" + ConsensusNodeHelper.GetInstanceName(_serverAddr) + "_checkpoint";
+                    var separatorIndex = checkpointFilePath.IndexOf(baseName);
+                    if (separatorIndex != -1)
+                    {
+                        Int32.TryParse(checkpointFilePath.Substring(baseName.Length + 1), out checkpointFileIndex);
+                        checkpointFileIndex++;
+                    }
+                    checkpointFilePath = baseName + "." + checkpointFileIndex.ToString("D16");
+                }
+                using (var fileStream = new FileStream(checkpointFilePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+                {
+                    var logIndexNo = await _notificationSubscriber.Checkpoint(fileStream);
+
+                    // save new metadata
+                    await _enityNotebook.Checkpoint(checkpointFilePath, logIndexNo);
+
+                }
+            }
+        }
+
     }
 
     public class RaftLeader
@@ -1083,7 +1283,7 @@ namespace PineHillRSL.Raft.Protocol
             _raftMessageList = new ConcurrentDictionary<string, RaftMessageQeuue>();
 
             _entityNote = entityNote;
-            _follower = new RaftFollower(_entityNote);
+            _follower = new RaftFollower(serverAddress, _entityNote);
             //_leader = new RaftLeader(_serverAddr, _rpcClient, _cluster, _term, _logIndex, _raftMessageList, _entityNote);
             EnableMatain = false;
             _matainTask = Task.Run(async () =>
@@ -1094,100 +1294,15 @@ namespace PineHillRSL.Raft.Protocol
 
         public async ValueTask DisposeAsync()
         {
-
         }
 
         bool _notfierCalled = false;
         public async Task Load(DataSource dataSource)
         {
-            await _entityNote.Load();
-            var logEntities = _entityNote.Test_GetAppendLogEntities();
-            var committedLogIndex = _entityNote.CommittedLogIndex;
-            foreach(var logEntity in logEntities)
-            {
-                if (logEntity.Key <= committedLogIndex)
-                {
-                    // committed
-                    if (_notificationSubscriber == null)
-                    {
-                        continue;
-                    }
-                    await _notificationSubscriber.UpdateSuccessfullDecree(
-                        logEntity.Key, new ConsensusDecree()
-                        {
-                            Data = logEntity.Value.Content
-                        });
-                    _notfierCalled = true;
-                }
-            }
-            _logIndex = _entityNote.MaxLogIndex;
-            _term = _entityNote.MaxTerm;
-            _follower.LastLogTerm = _term;
-            _follower.LastLogIndex = _logIndex;
-            _follower.LastCommittedLogIndex = committedLogIndex;
+            await _follower.Load();
 
-
-            // last one which does not include the committed no,
-            // need to wait for new leader which will propose a new
-            // entity and commited previous uncommitted logindex
-
-            int catchupLogSize = 0;
-            /*
-            do
-            {
-                await _entityNote.Load();
-                //_proposeManager.ResetBaseDecreeNo(await _proposerNote.GetMaximumCommittedDecreeNo());
-                if (_notificationSubscriber != null)
-                {
-                    var metaRecord = _proposerNote.ProposeRoleMetaRecord;
-                    if (metaRecord != null && !string.IsNullOrEmpty(metaRecord.CheckpointFilePath))
-                    {
-                        using (var checkpointStream = new FileStream(metaRecord.CheckpointFilePath, FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite))
-                        {
-                            await _notificationSubscriber.LoadCheckpoint(metaRecord.DecreeNo, checkpointStream);
-                        }
-                    }
-
-                    if (_proposerNote.CommittedDecrees.Count == 0)
-                    {
-                        ConsensusDecree fakeDecree = new ConsensusDecree();
-                        try
-                        {
-                            await Propose(fakeDecree, 0);
-                        }
-                        catch (Exception)
-                        {
-                        }
-
-                    }
-
-                    // catchup 
-                    foreach (var committedDecree in _proposerNote.CommittedDecrees)
-                    {
-                        await _notificationSubscriber.UpdateSuccessfullDecree(committedDecree.Key, committedDecree.Value);
-                        if (committedDecree.Value.Data != null)
-                        {
-                            catchupLogSize += committedDecree.Value.Data.Length;
-                        }
-                    }
-                }
-
-                if (dataSource == DataSource.Local)
-                {
-                    break;
-                }
-
-                // request remote node's checkpoints
-                bool needLoadNewCheckpoint = await LoadCheckpointFromRemoteNodes();
-                if (!needLoadNewCheckpoint)
-                {
-                    break;
-                }
-                catchupLogSize = 0;
-                // check if need to continue
-            } while (true);
-            _catchupLogSize = (ulong)catchupLogSize;
-            */
+            _logIndex = _follower.LastLogIndex;
+            _term = _follower.LastLogTerm;
         }
 
         public bool Stop { get; set; }
